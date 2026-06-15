@@ -1,4 +1,4 @@
-from basisklassen import *
+from basisklassen import BackWheels, FrontWheels
  
 class BaseCar():
 
@@ -11,8 +11,8 @@ class BaseCar():
         self._speed = 0
         self._bw = BackWheels()
         self._fw = FrontWheels()
-        self._mode = FORWARD_MODE
- 
+        self._mode = self.FORWARD_MODE
+
     @property
     def steering_angle(self):
         return self._steering_angle
@@ -31,15 +31,15 @@ class BaseCar():
         return self._mode*self._bw.speed
  
     def speed(self, valid_value):
-        if (valid_value >= 0 && valid_value <= 100):
-            self._bw.forward()
+        if (valid_value >= 0 & valid_value <= 100):
             self._bw.speed = valid_value
-            self._mode = FORWARD_MODE
-        elif (valid_value < 0 && valid_value >= -100)
+            self._mode = self.FORWARD_MODE
+            self._bw.forward()
+        elif (valid_value < 0 & valid_value >= -100):
             self._bw.backward()
             self._bw.speed = -1*valid_value
-            self._mode = BACKWARD_MODE
-        else   
+            self._mode = self.BACKWARD_MODE
+        else:
             raise ValueError("Geschwindigkeit: Wert zwischen -100 und 100 eingeben")
 
 if __name__ == '__main__':
@@ -48,3 +48,4 @@ if __name__ == '__main__':
     car1 = BaseCar()
     car1.steering_angle = 200
     print(car1.steering_angle)
+    car1.speed = 50
