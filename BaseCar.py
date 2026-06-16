@@ -12,21 +12,28 @@ class BaseCar():
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        with open("config.json", "r") as f:
-            data = json.load(f)
-            turning_offset = data["turning_offset"]
-            forward_A = data["forward_A"]
-            forward_B = data["forward_B"]
-            print("Daten in config.json:")
-            print(" - Turning Offset: ", turning_offset)
-            print(" - Forward A: ", forward_A)
-            print(" - Forward B: ", forward_B)
+        turning_offset = 0
+        forward_A = 0
+        forward_B = 0
+        try:
+            with open("config.json", "r") as f:
+                data = json.load(f)
+                turning_offset = data["turning_offset"]
+                forward_A = data["forward_A"]
+                forward_B = data["forward_B"]
+                print("Daten in config.json:")
+                print(" - Turning Offset: ", turning_offset)
+                print(" - Forward A: ", forward_A)
+                print(" - Forward B: ", forward_B)
+        except:
             print("Keine geeignete Datei config.json gefunden!")
+        
         self._fw = FrontWheels(turning_offset=turning_offset)
-        self._fw.test()
         self._bw = BackWheels(forward_A=forward_A, forward_B=forward_B)
-        self._bw.test()
 
+    def test_wheels(self):
+        self._fw.test()
+        self._bw.test()
 
     @property
     def steering_angle(self):
@@ -82,4 +89,5 @@ if __name__ == '__main__':
     car1.drive(60, 45)
     time.sleep(1)
     car1.stop()
+    car1.test_wheels()
 
