@@ -45,14 +45,26 @@ class BaseCar():
         else:
             raise ValueError("Geschwindigkeit: Wert zwischen -100 und 100 eingeben")
 
+
+    def drive(self, speed = None, steer = None):
+        if speed == None:
+            speed = self.speed
+        self.speed = speed
+    
+        if steer == None:
+            steer = self.steering_angle
+        self.steering_angle = steer
+
+    def stop(self):
+        self.drive(0,90)
+
 if __name__ == '__main__':
     print('Hier mal die main')
  
     car1 = BaseCar()
-    car1.steering_angle = 200
-    print(car1.steering_angle)
-    car1.speed = 50
-    print(car1.speed)
+    car1.drive(50)
     time.sleep(5)
-    car1.speed = 0
-    car1.steering_angle = 90
+    car1.drive(60, 45)
+    time.sleep(1)
+    car1.stop()
+
