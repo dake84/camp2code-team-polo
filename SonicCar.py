@@ -26,3 +26,5 @@ if __name__ == '__main__':
  
     car1 = SonicCar()
     print(car1.get_distance())
+
+    print('TEST')
