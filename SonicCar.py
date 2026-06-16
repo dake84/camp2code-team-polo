@@ -25,4 +25,4 @@ if __name__ == '__main__':
     print('Hier mal die main')
  
     car1 = SonicCar()
-    car1.get_distance()
+    print(car1.get_distance())
