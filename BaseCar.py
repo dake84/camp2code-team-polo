@@ -6,7 +6,6 @@ class BaseCar():
     FORWARD_MODE = 1
     BACKWARD_MODE = -1
 
-
     def __init__(self):
         self._steering_angle = 90
         self._speed = 0
@@ -26,10 +25,12 @@ class BaseCar():
             self._steering_angle = 135
         else:
             self._steering_angle = valid_value
+
+        self._fw.turn(self._steering_angle)
     
     @property
     def speed(self):
-        return self._mode*self._bw.speed
+        return self._mode * self._bw.speed
 
     @speed.setter
     def speed(self, valid_value):
@@ -38,7 +39,7 @@ class BaseCar():
             self._mode = self.FORWARD_MODE
             self._bw.forward()
         elif (valid_value < 0 & valid_value >= -100):
-            self._bw.speed = -1*valid_value
+            self._bw.speed = -1 * valid_value
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
         else:
@@ -54,3 +55,4 @@ if __name__ == '__main__':
     print(car1.speed)
     time.sleep(5)
     car1.speed = 0
+    car1.steering_angle = 90
