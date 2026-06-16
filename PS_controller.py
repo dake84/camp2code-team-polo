@@ -75,5 +75,3 @@ while True:
 		bw.forward()
 		bw.speed = 0
 
-				
-			
