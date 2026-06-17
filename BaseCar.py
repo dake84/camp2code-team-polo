@@ -34,11 +34,11 @@ class BaseCar():
 
     @speed.setter
     def speed(self, valid_value):
-        if (valid_value >= 0 & valid_value <= 100):
+        if (valid_value >= 0 and valid_value <= 100):
             self._bw.speed = valid_value
             self._mode = self.FORWARD_MODE
             self._bw.forward()
-        elif (valid_value < 0 & valid_value >= -100):
+        elif (valid_value < 0 and valid_value >= -100):
             self._bw.speed = -1 * valid_value
             self._mode = self.BACKWARD_MODE
             self._bw.backward()

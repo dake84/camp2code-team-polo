@@ -9,15 +9,17 @@ class SensorCar(BaseCar):
 
     KP = 500.0
     KD = 50.0
+    KV = 0.6
 
-    def __init__(self, references: list = None):
+    def __init__(self, references: list = []):
         self._ir = Infrared()
 
-        if (references == None):
+        if (references == []):
             self._ir.cali_references()
         else:
             self._ir.set_references(references)
         self._previous_error = 0
+        self.v_max = 50
         super().__init__()
 
     def lenkwinkel_berechnen(self) -> float:
@@ -30,8 +32,14 @@ class SensorCar(BaseCar):
 
         u = (self.KP * error) + (self.KD * (error - self._previous_error))
         self._previous_error = error
-        lenkwinkel_grad = max(45, min(135, u))
-        return lenkwinkel_grad
+        self._lw = max(45, min(135, u))
+        return self._lw
+
+    def geschwindigkeit_berechnen(self, lenkwinkel : float):
+        v = self.v_max - (self.KV * abs((lenkwinkel - 90)))
+        # 115 - 25
+        # v_max (70) - v_min (30)
+        return int(v)
 
 stop_event = threading.Event()
 
@@ -48,8 +56,13 @@ def auto_fahren(sc : SensorCar):
             print("Kann config.json nicht öffnen")        
         
         lw = sc.lenkwinkel_berechnen()
-        #print(f"Lenkwinkel: {lw}")
-        sc.drive(50, lw)
+        v = sc.geschwindigkeit_berechnen(lw)
+        try:
+            sc.drive(v, lw)
+        except ValueError as e:
+            print(f"Geschiwndikeit außerhalb -100+100 {e}")
+    
+        print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
     
     sc.stop()
 
