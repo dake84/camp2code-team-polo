@@ -41,28 +41,29 @@ class SensorCar(BaseCar):
         # v_max (70) - v_min (30)
         return int(v)
 
+    @property
+    def korrektur_proportional(self) -> float:
+        return float(self.get_config()["korrektur_proportional"])
+
+    @property
+    def korrektur_differential(self) -> float:
+        return float(self.get_config()["korrektur_differential"])
+
+
 stop_event = threading.Event()
 
 def auto_fahren(sc : SensorCar):
     print("Auto fährt...")
     
     while not stop_event.is_set():
-        try:
-            with open("config.json", "r") as f:
-                data = json.load(f)
-                sc.KP = data["korrektur_proportional"]
-                sc.KD = data["korrektur_differential"]
-        except:
-            print("Kann config.json nicht öffnen")        
+        sc.KP = sc.korrektur_proportional
+        sc.KD = sc.korrektur_differential    
         
         lw = sc.lenkwinkel_berechnen()
         v = sc.geschwindigkeit_berechnen(lw)
-        try:
-            sc.drive(v, lw)
-        except ValueError as e:
-            print(f"Geschiwndikeit außerhalb -100+100 {e}")
-    
-        print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
+        sc.drive(v, lw)
+
+    #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
     
     sc.stop()
 
