@@ -41,6 +41,13 @@ class SensorCar(BaseCar):
         # v_max (70) - v_min (30)
         return int(v)
 
+    def messwerte(self) -> list:
+        return self._ir.get_average(100)
+    
+    def is_on_line(self) -> bool:
+        line = self._ir.get_average(10)
+        return line[2] < 1
+
     @property
     def korrektur_proportional(self) -> float:
         return float(self.get_config()["korrektur_proportional"])
@@ -56,12 +63,18 @@ def auto_fahren(sc : SensorCar):
     print("Auto fährt...")
     
     while not stop_event.is_set():
-        sc.KP = sc.korrektur_proportional
-        sc.KD = sc.korrektur_differential    
-        
-        lw = sc.lenkwinkel_berechnen()
-        v = sc.geschwindigkeit_berechnen(lw)
-        sc.drive(v, lw)
+        if (sc.is_on_line()):
+            sc.KP = sc.korrektur_proportional
+            sc.KD = sc.korrektur_differential    
+            
+            lw = sc.lenkwinkel_berechnen()
+            v = sc.geschwindigkeit_berechnen(lw)
+            sc.drive(v, lw)
+        else:
+            print("Auto hat Linie verlassen! Bitte zurückstellen")
+            sc.stop()
+            while not sc.is_on_line():
+                  time.sleep(0.5)
 
     #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
     
@@ -79,4 +92,5 @@ if __name__ == '__main__':
         stop_event.set()
 
         thread.join()
+
         print("Programm vollständig beendet")
