@@ -1,0 +1,13 @@
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-semiprivate = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-module = true
+ignore-nested-functions = true
+ignore-nested-classes = false
+color = true
+# Verzeichnisse, die ignoriert werden sollen (z.B. Tests oder virtuelle Umgebungen)
+exclude = ["venv", ".venv", "tests"]

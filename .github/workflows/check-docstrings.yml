@@ -1,0 +1,29 @@
+name: Docstring Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-docstrings:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Code auschecken
+      uses: actions/checkout@v4
+
+    - name: Python einrichten
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Hier deine Python-Version eintragen
+
+    - name: Interrogate installieren
+      run: |
+        python -m pip install --upgrade pip
+        pip install interrogate
+
+    - name: Docstrings prüfen
+      # Bricht ab (Error 1), wenn die Docstring-Abdeckung unter 90% liegt.
+      # Das aktuelle Verzeichnis (.) wird gescannt.
+      run: interrogate --fail-under 90 -v .
