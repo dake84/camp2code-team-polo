@@ -11,10 +11,10 @@ class SensorCar(BaseCar):
     KD = 50.0
     KV = 0.6
 
-    def __init__(self, references: list = []):
+    def __init__(self, references: list = list()):
         self._ir = Infrared()
 
-        if (references == []):
+        if (len(references) == 0):
             self._ir.cali_references()
         else:
             self._ir.set_references(references)
