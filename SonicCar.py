@@ -174,8 +174,12 @@ class SonicCar(BaseCar):
 
         self.stop()
 
-        plt.plot(data_time, data_speed)
+        drive_explore_data = data_time, data_speed, data_steer, data_distance
+
+        plt.plot(np.array(drive_explore_data[0]) - drive_explore_data[0][0], np.array(drive_explore_data[1]))
         plt.show()
+
+        return drive_explore_data
 
 
 
