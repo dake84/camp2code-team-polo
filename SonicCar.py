@@ -39,22 +39,32 @@ class SonicCar(BaseCar):
         else:
             return True
 
-    def drive_straigt_ahead(self, speed = 30, max_distance = 5):
-        self.drive(speed = speed, steer = 90)
+    def drive_straigt_ahead(self, speed_max = 80, max_distance = 5):
+        # Geschwindigkeit abhängig von Abstand zu Hinderniss
+        actual_distance = self.get_distance()
 
-        bool_distance = True
-        while bool_distance == True:
-            bool_distance = self.stop_car(max_distance = max_distance)
+        stop_car_bool = True
+        while stop_car_bool == True:
+            actual_distance = self.get_distance()
+            if actual_distance < 40:
+                actual_speed = actual_distance + 15
+                stop_car_bool = self.stop_car(max_distance = max_distance)
+                if stop_car_bool == True:
+                    self.drive(speed = actual_speed, steer = 90)
+            else:
+                self.drive(speed = speed_max, steer = 90)
 
-    
-    #def overcome_obstacle(self):
 
-        
-        
 
-    
-    
-    
+
+
+
+    def overcome_obstacle(self):
+        print('MOin')
+
+    def drive_explore(self):
+        self.drive(speed = speed_max, steer = 90)
+
     def room_explorer(self, explorer_time = 30):
         bool_time = True
         t_start = time.time()
@@ -63,14 +73,18 @@ class SonicCar(BaseCar):
             if time.time() - t_start > explorer_time:
                 bool_time = False
 
+            # Geschwindigkeit abhängig von Abstand zu Hinderniss
             actual_distance = self.get_distance()
             if actual_distance < 40:
                 actual_speed = actual_distance + 15
+                overcome_obstacle_bool = self.stop_car(max_distance = max_distance)
+                if overcome_obstacle_bool == False:
+                    self.overcome_obstacle()
+                else:
+                    self.drive(speed = actual_speed, steer = 90)
             else:
-                actual_speed = 100
 
-            #print(f'Distance = {actual_distance}')
-            #print(f'Speed = {actual_speed}')
+                self.drive_explore()
 
 
 
@@ -86,5 +100,5 @@ if __name__ == '__main__':
     print('Hier mal die main')
  
     car1 = SonicCar()
-    car1.drive_straigt_ahead(speed = 80, max_distance = 5)
+    car1.drive_straigt_ahead(speed_max = 80, max_distance = 5)
     #car1.room_explorer(explorer_time = 10)

@@ -45,7 +45,6 @@ class BaseCar():
         else:
             raise ValueError("Geschwindigkeit: Wert zwischen -100 und 100 eingeben")
 
-
     def drive(self, speed = None, steer = None):
         if speed == None:
             speed = self.speed
