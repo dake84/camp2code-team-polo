@@ -47,7 +47,9 @@ class SonicCar(BaseCar):
             bool_distance = self.stop_car(max_distance = max_distance)
 
     
-    def overcome_obstacle(self):
+    #def overcome_obstacle(self):
+
+        
         
 
     
@@ -84,5 +86,5 @@ if __name__ == '__main__':
     print('Hier mal die main')
  
     car1 = SonicCar()
-    #car1.drive_straigt_ahead(speed = 30, max_distance = 5)
-    car1.room_explorer(explorer_time = 10)
+    car1.drive_straigt_ahead(speed = 80, max_distance = 5)
+    #car1.room_explorer(explorer_time = 10)
