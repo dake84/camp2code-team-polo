@@ -2,5 +2,6 @@
     "turning_offset": 0,
     "forward_A": 0,
     "forward_B": 0,
-    "references": [300, 300, 300, 300, 300]
+    "korrektur_proportional": 165,
+    "korrektur_differential": 50
 }

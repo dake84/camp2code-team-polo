@@ -2,7 +2,8 @@ from basisklassen import Infrared
 from BaseCar import BaseCar
 import numpy as np
 import time
-import keyboard
+import json
+import threading
 
 class SensorCar(BaseCar):
 
@@ -25,48 +26,43 @@ class SensorCar(BaseCar):
         gewichte = np.array([-2,-1,0,1,2])
         
         error = sum((messwerte*gewichte))/sum(messwerte)
-        print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
+        #print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
 
         u = (self.KP * error) + (self.KD * (error - self._previous_error))
         self._previous_error = error
         lenkwinkel_grad = max(45, min(135, u))
         return lenkwinkel_grad
 
+stop_event = threading.Event()
 
-
+def auto_fahren(sc : SensorCar):
+    print("Auto fährt...")
+    
+    while not stop_event.is_set():
+        try:
+            with open("config.json", "r") as f:
+                data = json.load(f)
+                sc.KP = data["korrektur_proportional"]
+                sc.KD = data["korrektur_differential"]
+        except:
+            print("Kann config.json nicht öffnen")        
+        
+        lw = sc.lenkwinkel_berechnen()
+        #print(f"Lenkwinkel: {lw}")
+        sc.drive(50, lw)
+    
+    sc.stop()
 
 
 if __name__ == '__main__':
 
-    buffer= [0,0,1,0,0]
+        sc = SensorCar()
+        thread = threading.Thread(target=auto_fahren, args=[sc])
+        thread.start()
 
-    #while True:
-        #Sensorwerte auslesen --> bspw [0,0,1,0,0]
+        input("Auto fährt, zum Beenden <ENTER> drücken")
+        
+        stop_event.set()
 
-    #messwert = np.random.randint(0,2,(10, 5))
-    #print(messwert)
-
-        #Sensorwerte interpretieren --> bspw. lenkwinkel 90° (geradeaus)
-
-
-
-    #sc = SensorCar([10, 40, 40, 40, 40])
-    sc = SensorCar()
-    while True:
-        print(sc.lenkwinkel_berechnen())
-        if (keyboard.is_pressed('p')):
-            sc.KP = float(input(f"Neuer Wert für proportionale Korrektur eingeben (alter Wert: Kp = {sc.KP})"))
-        elif (keyboard.is_pressed('d')):
-            sc.KD = float(input(f"Neuer Wert für differentiale Korrektur eingeben (alter Wert: Kd = {sc.KD})"))
-        time.sleep(0.5)
-    #sc.drive_around()
-
-    #print(f"RAW: {sc._ir._read_raw()}")
-    #print(f"ANALOG: {sc._ir.read_analog()}")
-    #print(f"DIGITAL: {sc._ir.read_digital()}")
-    #print(f"AVERAGE: {sc._ir.get_average(10)}")
-
-    #while True:
-    #    #print(sc._ir.get_average(100))
-    #    print(f"DIGITAL: {sc._ir.read_digital()}")
-    #    time.sleep(0.1)
+        thread.join()
+        print("Programm vollständig beendet")
