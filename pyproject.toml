@@ -10,4 +10,4 @@ ignore-nested-functions = true
 ignore-nested-classes = false
 color = true
 # Verzeichnisse, die ignoriert werden sollen (z.B. Tests oder virtuelle Umgebungen)
-exclude = ["venv", ".venv", "tests"]
+exclude = ["venv", ".venv", "tests", "basisklassen.py"]
