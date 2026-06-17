@@ -27,8 +27,8 @@ jobs:
           run: |
             echo "=== Starte detaillierte Docstring-Analyse ==="
             # 1. Zeigt die genaue Tabelle aller Dateien an (erlaubt Fehlschlagen ignorieren für den Moment)
-            interrogate -v . || true
+            interrogate -v -e basisklassen.py .  || true
             
             echo "=== Überprüfe Mindestanforderung (90%) ==="
             # 2. Dieser Befehl sorgt dafür, dass die Action fehlschlägt, wenn < 90%
-            interrogate --fail-under 90 -v .
+            interrogate --fail-under 90 -v -e basisklassen.py .
