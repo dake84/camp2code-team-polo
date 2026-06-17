@@ -12,24 +12,35 @@ class BaseCar():
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        turning_offset = 0
-        forward_A = 0
-        forward_B = 0
-        try:
-            with open("config.json", "r") as f:
-                data = json.load(f)
-                turning_offset = data["turning_offset"]
-                forward_A = data["forward_A"]
-                forward_B = data["forward_B"]
-                print("Daten in config.json:")
-                print(" - Turning Offset: ", turning_offset)
-                print(" - Forward A: ", forward_A)
-                print(" - Forward B: ", forward_B)
-        except:
-            print("Keine geeignete Datei config.json gefunden!")
+        self._json_config = None
+
+        self._fw = FrontWheels(turning_offset=self.turning_offset)
+        self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
+
+
+    def get_config(self, file: str = "config.json", force_update = False):
+        if (force_update or self._json_config is None):
+            try:
+                with open(file, "r") as f:
+                    self._json_config = json.load(f)
+            except:
+                print("Keine geeignete Datei config.json gefunden!")
+                raise AttributeError(name=f"Datei {file} nicht verfügbar")
         
-        self._fw = FrontWheels(turning_offset=turning_offset)
-        self._bw = BackWheels(forward_A=forward_A, forward_B=forward_B)
+        return self._json_config
+    
+    @property
+    def turning_offset(self) -> int:
+        return int(self.get_config()["turning_offset"])
+
+    @property
+    def forward_a(self) -> int:
+        return int(self.get_config()["forward_A"])
+    
+    @property
+    def forward_b(self) -> int:
+        return int(self.get_config()["forward_B"])
+
 
     def test_wheels(self):
         self._fw.test()
@@ -56,11 +67,11 @@ class BaseCar():
 
     @speed.setter
     def speed(self, valid_value):
-        if (valid_value >= 0 & valid_value <= 100):
+        if (valid_value >= 0 and valid_value <= 100):
             self._bw.speed = valid_value
             self._mode = self.FORWARD_MODE
             self._bw.forward()
-        elif (valid_value < 0 & valid_value >= -100):
+        elif (valid_value < 0 and valid_value >= -100):
             self._bw.speed = -1 * valid_value
             self._mode = self.BACKWARD_MODE
             self._bw.backward()

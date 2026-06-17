@@ -9,15 +9,17 @@ class SensorCar(BaseCar):
 
     KP = 500.0
     KD = 50.0
+    KV = 0.6
 
-    def __init__(self, references: list = None):
+    def __init__(self, references: list = []):
         self._ir = Infrared()
 
-        if (references == None):
+        if (references == []):
             self._ir.cali_references()
         else:
             self._ir.set_references(references)
         self._previous_error = 0
+        self.v_max = 50
         super().__init__()
 
     def lenkwinkel_berechnen(self) -> float:
@@ -30,8 +32,23 @@ class SensorCar(BaseCar):
 
         u = (self.KP * error) + (self.KD * (error - self._previous_error))
         self._previous_error = error
-        lenkwinkel_grad = max(45, min(135, u))
-        return lenkwinkel_grad
+        self._lw = max(45, min(135, u))
+        return self._lw
+
+    def geschwindigkeit_berechnen(self, lenkwinkel : float):
+        v = self.v_max - (self.KV * abs((lenkwinkel - 90)))
+        # 115 - 25
+        # v_max (70) - v_min (30)
+        return int(v)
+
+    @property
+    def korrektur_proportional(self) -> float:
+        return float(self.get_config()["korrektur_proportional"])
+
+    @property
+    def korrektur_differential(self) -> float:
+        return float(self.get_config()["korrektur_differential"])
+
 
 stop_event = threading.Event()
 
@@ -39,17 +56,14 @@ def auto_fahren(sc : SensorCar):
     print("Auto fährt...")
     
     while not stop_event.is_set():
-        try:
-            with open("config.json", "r") as f:
-                data = json.load(f)
-                sc.KP = data["korrektur_proportional"]
-                sc.KD = data["korrektur_differential"]
-        except:
-            print("Kann config.json nicht öffnen")        
+        sc.KP = sc.korrektur_proportional
+        sc.KD = sc.korrektur_differential    
         
         lw = sc.lenkwinkel_berechnen()
-        #print(f"Lenkwinkel: {lw}")
-        sc.drive(50, lw)
+        v = sc.geschwindigkeit_berechnen(lw)
+        sc.drive(v, lw)
+
+    #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
     
     sc.stop()
 
