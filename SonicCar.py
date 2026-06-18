@@ -159,7 +159,13 @@ class SonicCar(BaseCar):
 
         self.stop()
 
-    def drive_explore(self, actual_speed: int, steering_angle: int):
+    def drive_explore(self,
+                    actual_speed: int,
+                    steering_angle: int,
+                    speed_dir: int,
+                    steer_dir: int,
+                    counter: int):
+
         """Fährt und variiert dabei 'actual_speed' und 'steering_angle'
 
         Args:
@@ -169,16 +175,27 @@ class SonicCar(BaseCar):
         Returns:
             int: variierte 'actual_speed'
             int: variierte 'steering_angle'
-        """        
-        actual_speed_set = int(actual_speed + 5 * random.uniform(0.95, 1.05))
-        steering_angle_set = int(steering_angle + 5 * random.uniform(0.95, 1.05))
+        """   
 
-        actual_speed = max(30, min(actual_speed_set, 100))
-        steering_angle = max(45, min(steering_angle_set, 135))
+        counter += 1
+
+        # Richtung nur alle x Zyklen ändern
+        if counter >= 15:
+            counter = 0
+            speed_dir = random.choice([-1, 1])
+            steer_dir = random.choice([-1, 1])
+
+        # kleine Schritte -> smooth
+        actual_speed += speed_dir * 1
+        steering_angle += steer_dir * 2
+
+        # Grenzen
+        actual_speed = max(30, min(actual_speed, 100))
+        steering_angle = max(45, min(steering_angle, 135))
 
         self._drive_cmd(speed=actual_speed, steer=steering_angle)
 
-        return actual_speed, steering_angle
+        return actual_speed, steering_angle, speed_dir, steer_dir, counter
 
     def get_data(self, data_time: float = None,
                        data_speed: int = None,
@@ -249,9 +266,13 @@ class SonicCar(BaseCar):
                 else:
                     self._drive_cmd(speed = actual_speed, steer = 90)
             else:
-                actual_speed_drive_explore, steering_angle_drive_explore = self.drive_explore(actual_speed_drive_explore,
-                                                                                                steering_angle_drive_explore
-                                                                                            )
+                actual_speed_drive_explore, steering_angle_drive_explore, speed_direction, steer_direction, counter = self.drive_explore(actual_speed_drive_explore,
+                                                                                 steering_angle_drive_explore,
+                                                                                 speed_direction,
+                                                                                 steer_direction,
+                                                                                 counter
+                                                                                )
+
 
             time.sleep(0.02)
 
