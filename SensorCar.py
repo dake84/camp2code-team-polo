@@ -25,6 +25,7 @@ class SensorCar(BaseCar):
 
         if (len(references) == 0):
             self._ir.cali_references()
+            input("Referenzwerte ermittelt. <Enter> zum fahren.")
         else:
             self._ir.set_references(references)
         self._previous_error = 0
@@ -170,7 +171,9 @@ def auto_fahren(sc : SensorCar):
             print("Auto hat Linie verlassen! Bitte zurückstellen")
             sc.stop()
             while not sc.is_on_line() and not stop_event.is_set():
-                  time.sleep(0.5)
+                # Reload config.json from disk
+                sc.get_config(force_update=True)
+                time.sleep(0.5)
 
     #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
     
