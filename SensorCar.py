@@ -6,12 +6,29 @@ import json
 import threading
 
 class SensorCar(BaseCar):
+    """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
 
+    Args:
+        BaseCar (class): Basisklasse für alle Autos, enthält grundlegende Funktionen wie drive() und stop()
+
+    Returns:
+        _type_: _description_
+    """
     KP = 500.0
     KD = 50.0
     KV = 0.6
 
     def __init__(self, references: list = list()):
+        """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
+
+        Wenn keine Referenzen übergeben werden, führt das Objekt automatisch eine
+        Kalibrierung durch und speichert die ermittelten Referenzwerte intern.
+
+        Args:
+            references (list | None, optional): Liste der Referenzmesswerte.
+                Wenn None, werden die Referenzen automatisch kalibriert.
+        """
+
         self._ir = Infrared()
 
         if (len(references) == 0):
@@ -23,7 +40,17 @@ class SensorCar(BaseCar):
         super().__init__()
 
     def lenkwinkel_berechnen(self) -> float:
-        
+        """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PD-Korrekturfaktoren.
+
+        Die Funktion nutzt gewichtete Infrarotmesswerte, um einen Fehlerwert zu bestimmen
+        und daraus mittels proportionaler und differenzieller Steuerung den Lenkwinkel
+        zu berechnen. Der resultierende Winkel wird auf den Bereich von 45 bis 135 Grad
+        begrenzt.
+
+        Returns:
+            float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
+        """
+
         messwerte = self._ir.get_average(10)
         gewichte = np.array([-2,-1,0,1,2])
         
@@ -36,27 +63,55 @@ class SensorCar(BaseCar):
         return self._lw
 
     def geschwindigkeit_berechnen(self, lenkwinkel : float):
+        """Berechnet Geschwindigkeit in Abhängigkeit von Lenkwinkel
+
+        Args:
+            lenkwinkel (float): wo wird "lenkwinkel" berechnet?
+
+        Returns:
+            int: Die berechnete Geschwindigkeit.
+        """
         v = self.v_max - (self.KV * abs((lenkwinkel - 90)))
         # 115 - 25
         # v_max (70) - v_min (30)
         return int(v)
 
     def messwerte(self) -> list:
+        """Ausgabe aktuelle, durchschnittliche IR-Messwerte durch Aufruf der Methode get_average.
+
+        Returns:
+            list: Aktuelle, durchschnittliche IR-Messwerte.
+        """
         return self._ir.get_average(100)
     
     def is_on_line(self) -> bool:
+        """Prüft, ob das Auto sich mittig auf der Linie befindet, basierend auf den IR-Messwerten.
+
+        Returns:
+            bool: True/False, basierend auf den durchschnittlichen IR-Messwerten des mittleren Sensors (auf Position 2 von 0-4). Messwert < 1 = dunkle Linie erkannt
+        """
         line = self._ir.get_average(10)
         return line[2] < 1
 
     @property
     def korrektur_proportional(self) -> float:
+        """Liefert den aktuellen Wert für die proportionale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Returns:
+            float: Korrekturwert für die proportionale Steuerung
+        """
         return float(self.get_config()["korrektur_proportional"])
 
     @property
     def korrektur_differential(self) -> float:
+        """Liefert den aktuellen Wert für die differentiale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Returns:
+            float: Korrekturwert für die differentiale Steuerung   
+        """
         return float(self.get_config()["korrektur_differential"])
 
-
+# Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
 stop_event = threading.Event()
 
 def auto_fahren(sc : SensorCar):
@@ -80,7 +135,7 @@ def auto_fahren(sc : SensorCar):
     
     sc.stop()
 
-
+#losgelöst von SensorCar.py definieren, bspw. in run.py?
 if __name__ == '__main__':
 
         sc = SensorCar()
