@@ -3,8 +3,9 @@
     "forward_A": 0,
     "forward_B": 0,
     "korrektur_proportional": 165,
-    "korrektur_differential": 50
+    "korrektur_differential": 50,
     "bremsfaktor": 0.8,
     "v_max": 70,
-    "v_min": 20
+    "v_min": 20,
+    "ir_sensor_weights": [-2,-1,0,1,2]
 }

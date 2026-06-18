@@ -47,10 +47,9 @@ class SensorCar(BaseCar):
         """
 
         messwerte = self._ir.get_average(10)
-        gewichte = np.array([-2,-1,0,1,2])
         
         # Fix: Possible Div/0
-        error = sum((messwerte*gewichte))/sum(messwerte)
+        error = sum((messwerte*self.ir_sensor_gewichte))/sum(messwerte)
         #print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
 
         u = (self.KP * error) + (self.KD * (error - self._previous_error))
@@ -87,21 +86,21 @@ class SensorCar(BaseCar):
             bool: True/False, basierend auf den durchschnittlichen IR-Messwerten des mittleren Sensors (auf Position 2 von 0-4). Messwert < 1 = dunkle Linie erkannt
         """
         line = np.array(self._ir.get_average(10))
-        sensor_on_line = False
+        print(line)
     
         for i in line:
-            if (not sensor_on_line):
-                sensor_on_line = (i < 1)
+            if (i<1):
+                return True
         
-        return sensor_on_line     
-        
-        
-
+        return False
 
     @property
     def korrektur_proportional(self) -> float:
         """Liefert den aktuellen Wert für die proportionale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
 
+        Raises:
+            KeyError: Wert "korrektur_proportional" in Config.Json nicht gefunden.
+        
         Returns:
             float: Korrekturwert für die proportionale Steuerung
         """
@@ -111,10 +110,35 @@ class SensorCar(BaseCar):
     def korrektur_differential(self) -> float:
         """Liefert den aktuellen Wert für die differentiale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
 
+        Raises:
+            KeyError: Wert "korrektur_differential" in Config.Json nicht gefunden.
+        
         Returns:
             float: Korrekturwert für die differentiale Steuerung   
         """
         return float(self.get_config()["korrektur_differential"])
+    
+    @property
+    def bremsfaktor(self) -> float: 
+        """Liefert den aktuellen Wert für den Bremsfaktor, der über Methode get_config() aus der Datei json.config ausgelesen wird. Wird verwendet, um die Lenkwinkel-abhängige Geschwindigkeit zu berechnen.
+
+        Raises:
+            KeyError: Wert "bremsfaktor" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: Bremsfaktor   
+        """
+        return float(self.get_config()["bremsfaktor"])        
+
+    @property
+    def ir_sensor_gewichte(self) -> np.ndarray:
+        """Liefert die Gewichte für die Ermittlung des Lenkwinkel-Fehlers
+
+        Returns:
+            np.ndarray: Array mit fünf Gewichts-Werten
+        
+        """
+        return np.array(self.get_config()["ir_sensor_weights"])
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
 stop_event = threading.Event()
@@ -127,7 +151,9 @@ def auto_fahren(sc : SensorCar):
     while not stop_event.is_set():
         if (sc.is_on_line()):
             sc.KP = sc.korrektur_proportional
-            sc.KD = sc.korrektur_differential    
+            sc.KD = sc.korrektur_differential
+            sc.KV = sc.bremsfaktor    
+
             
             lw = sc.lenkwinkel_berechnen()
             v = sc.geschwindigkeit_berechnen(lw)
@@ -135,7 +161,7 @@ def auto_fahren(sc : SensorCar):
         else:
             print("Auto hat Linie verlassen! Bitte zurückstellen")
             sc.stop()
-            while not sc.is_on_line():
+            while not sc.is_on_line() and not stop_event.is_set():
                   time.sleep(0.5)
 
     #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
