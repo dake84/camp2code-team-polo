@@ -141,11 +141,12 @@ class SensorCar(BaseCar):
         return np.array(self.get_config()["ir_sensor_weights"])
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
+# DKE: ginge, siehe: https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads
+# Gedanke: Funktion auto_fahren in SensorCar integrieren
 stop_event = threading.Event()
 
 def auto_fahren(sc : SensorCar):
-    # https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads
-    # Gedanke: Funktion auto_fahren in SensorCar integrieren
+
     print("Auto fährt...")
     
     while not stop_event.is_set():
