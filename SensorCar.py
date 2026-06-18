@@ -54,7 +54,7 @@ class SensorCar(BaseCar):
         self._previous_error = error
         self._lw = max(45, min(135, (90+u)))
 
-        print(f"Messwerte: {messwerte}\nGewichte {self.ir_sensor_gewichte}\Gewichte*Messwerte {(messwerte*self.ir_sensor_gewichte)}\nError {error}; u: {u}, lw: {self._lw}")
+        print(f"Messwerte: {messwerte}\nGewichte {self.ir_sensor_gewichte}\nGewichte*Messwerte {(messwerte*self.ir_sensor_gewichte)}\nError {error}; u: {u}, lw: {self._lw}")
         self.get_config(force_update=True)
         time.sleep(0.8)
         return self._lw
