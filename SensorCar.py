@@ -24,7 +24,9 @@ class SensorCar(BaseCar):
         self._ir = Infrared()
 
         if (len(references) == 0):
-            self._ir.cali_references()
+            #print(f"Messwert vor Kalibrierung {self._ir.get_average(100)}")
+            #self._ir.cali_references()
+            #print(f"Messwert nach Kalibrierung {self._ir.get_average(100)}")
             input("Referenzwerte ermittelt. <Enter> zum fahren.")
         else:
             self._ir.set_references(references)
@@ -43,15 +45,18 @@ class SensorCar(BaseCar):
             float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
         """
 
-        messwerte = self._ir.get_average(10)
+        messwerte = self._ir.read_analog()
         
         # Fix: Possible Div/0
         error = sum((messwerte*self.ir_sensor_gewichte))/sum(messwerte)
-        #print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
-
         u = (self.korrektur_proportional * error) + (self.korrektur_differential * (error - self._previous_error))
+
         self._previous_error = error
-        self._lw = max(45, min(135, u))
+        self._lw = max(45, min(135, (90+u)))
+
+        print(f"Messwerte: {messwerte}\nGewichte {self.ir_sensor_gewichte}\Gewichte*Messwerte {(messwerte*self.ir_sensor_gewichte)}\nError {error}; u: {u}, lw: {self._lw}")
+        self.get_config(force_update=True)
+        time.sleep(0.8)
         return self._lw
 
     def geschwindigkeit_berechnen(self, lenkwinkel : float):
@@ -166,7 +171,7 @@ def auto_fahren(sc : SensorCar):
            sc.get_config(force_update=True)
            lw = sc.lenkwinkel_berechnen()
            v = sc.geschwindigkeit_berechnen(lw)
-           sc.drive(v, lw)
+           sc.drive(0, lw)
         else:
             print("Auto hat Linie verlassen! Bitte zurückstellen")
             sc.stop()
