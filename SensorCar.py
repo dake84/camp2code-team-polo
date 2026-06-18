@@ -85,7 +85,7 @@ class SensorCar(BaseCar):
         print(line)
     
         for i in line:
-            if (i<1):
+            if (i<self.calibration_line_threshold):
                 return True
         
         return False
@@ -143,6 +143,11 @@ class SensorCar(BaseCar):
     @property
     def v_min(self) -> int:
         return int(self.get_config()["v_min"])
+
+    @property
+    def calibration_line_threshold(self) -> float:
+        return float(self.get_config()["calibration_line_threshold"])
+
 
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
