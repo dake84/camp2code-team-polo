@@ -161,10 +161,11 @@ def auto_fahren(sc : SensorCar):
     
     while not stop_event.is_set():
         if (sc.is_on_line()):
-           
-            lw = sc.lenkwinkel_berechnen()
-            v = sc.geschwindigkeit_berechnen(lw)
-            sc.drive(v, lw)
+           # Reload config.json from disk
+           sc.get_config(force_update=True)
+           lw = sc.lenkwinkel_berechnen()
+           v = sc.geschwindigkeit_berechnen(lw)
+           sc.drive(v, lw)
         else:
             print("Auto hat Linie verlassen! Bitte zurückstellen")
             sc.stop()
