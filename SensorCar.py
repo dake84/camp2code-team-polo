@@ -9,9 +9,6 @@ class SensorCar(BaseCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
 
     """
-    KP = 500.0
-    KD = 50.0
-    KV = 0.6
 
     def __init__(self, references: list = list()):
         """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
@@ -31,7 +28,6 @@ class SensorCar(BaseCar):
         else:
             self._ir.set_references(references)
         self._previous_error = 0
-        self.v_max = 50
         super().__init__()
 
     def lenkwinkel_berechnen(self) -> float:
@@ -52,7 +48,7 @@ class SensorCar(BaseCar):
         error = sum((messwerte*self.ir_sensor_gewichte))/sum(messwerte)
         #print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
 
-        u = (self.KP * error) + (self.KD * (error - self._previous_error))
+        u = (self.korrektur_proportional * error) + (self.korrektur_differential * (error - self._previous_error))
         self._previous_error = error
         self._lw = max(45, min(135, u))
         return self._lw
@@ -66,7 +62,7 @@ class SensorCar(BaseCar):
         Returns:
             int: Die berechnete Geschwindigkeit.
         """
-        v = self.v_max - (self.KV * abs((lenkwinkel - 90)))
+        v = self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90)))
         # 115 - 25
         # v_max (70) - v_min (30)
         return int(v)
@@ -140,6 +136,15 @@ class SensorCar(BaseCar):
         """
         return np.array(self.get_config()["ir_sensor_weights"])
 
+    @property
+    def v_max(self) -> int:
+        return int(self.get_config()["v_max"])
+
+    @property
+    def v_min(self) -> int:
+        return int(self.get_config()["v_min"])
+
+
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
 # DKE: ginge, siehe: https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads
 # Gedanke: Funktion auto_fahren in SensorCar integrieren
@@ -151,11 +156,7 @@ def auto_fahren(sc : SensorCar):
     
     while not stop_event.is_set():
         if (sc.is_on_line()):
-            sc.KP = sc.korrektur_proportional
-            sc.KD = sc.korrektur_differential
-            sc.KV = sc.bremsfaktor    
-
-            
+           
             lw = sc.lenkwinkel_berechnen()
             v = sc.geschwindigkeit_berechnen(lw)
             sc.drive(v, lw)
