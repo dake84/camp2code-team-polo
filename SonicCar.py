@@ -80,7 +80,7 @@ class SonicCar(BaseCar):
             -4: Error in time measurement
         """        
         my_distance = self.us.distance()
-        set_max_distance = 40
+        set_max_distance = 100
 
         if my_distance == -1:
             my_distance = set_max_distance
@@ -93,7 +93,7 @@ class SonicCar(BaseCar):
 
         return my_distance
 
-    def stop_car(self, actual_distance: int, max_distance: int = 5):
+    def stop_car(self, actual_distance: int, max_distance: int = 30):
         """Stopt das Auto wenn der 'max_distance' Wert unterschritten wird.
            Wenn die 'max_distance' unterschritten wird, wird aus 'BaseCar' die Methode 'stop()' aufgerufen
 
@@ -113,7 +113,7 @@ class SonicCar(BaseCar):
         else:
             return True
 
-    def drive_straigt_ahead(self, speed_max: int = 80, max_distance: int = 5):
+    def drive_straigt_ahead(self, speed_max: int = 80, max_distance: int = 30):
         """Drive Methode: Fährt so lange gerade aus, bis die 'max'distance' unterschritten wurde. 
            Wenn 'max_distance' unterschritten wird, wird aus 'BaseCar' die Methdoe 'stop()' aufgeraufen
 
@@ -180,20 +180,20 @@ class SonicCar(BaseCar):
         counter += 1
 
         # Richtung nur alle x Zyklen ändern
-        if counter >= 15:
+        if counter >= 25:
             counter = 0
             speed_dir = random.choice([-1, 1])
             steer_dir = random.choice([-1, 1])
 
         # kleine Schritte -> smooth
         actual_speed += speed_dir * 1
-        steering_angle += steer_dir * 2
+        steering_angle += steer_dir * 1.5
 
         # Grenzen
         actual_speed = max(30, min(actual_speed, 100))
         steering_angle = max(45, min(steering_angle, 135))
 
-        self._drive_cmd(speed=actual_speed, steer=steering_angle)
+        self._drive_cmd(speed = actual_speed, steer = steering_angle)
 
         return actual_speed, steering_angle, speed_dir, steer_dir, counter
 
@@ -227,7 +227,7 @@ class SonicCar(BaseCar):
 
         return data_time, data_speed, data_steer, data_distance
 
-    def room_explorer(self, explorer_time:int = 30, max_distance: int = 10):
+    def room_explorer(self, explorer_time:int = 30, max_distance: int = 30):
         """Das Fahrzeug fährt durch den Raum. Beim Auftreten eines Hinderniss wird das Manöfer 'overcome_obstacle' durchgeführt.
 
         Args:
@@ -237,8 +237,11 @@ class SonicCar(BaseCar):
         bool_time = True
         t_start = time.time()
 
-        actual_speed_drive_explore = 80
+        actual_speed_drive_explore = 60
         steering_angle_drive_explore = 90
+        speed_direction = random.choice([-1, 1])
+        steer_direction = random.choice([-1, 1])
+        counter = 0
 
         # warten bis erster Sensorwert vorliegt
         self._sensor_ready.wait()
@@ -254,8 +257,8 @@ class SonicCar(BaseCar):
                 time.sleep(0.02)
                 continue
 
-            if actual_distance < 40:
-                actual_speed = actual_distance + 15
+            if actual_distance < 60:
+                actual_speed = actual_distance
 
                 overcome_obstacle_bool = self.stop_car(actual_distance = actual_distance,
                                                         max_distance = max_distance
@@ -322,18 +325,25 @@ class SonicCar(BaseCar):
 if __name__ == '__main__':
     print('Hier mal die main')
 
-    Fahrdauer = 10
+    Fahrdauer = 30
     car1 = SonicCar()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future1 = executor.submit(car1.get_drive_parameter, explorer_time = Fahrdauer)
-        future2 = executor.submit(car1.room_explorer, explorer_time = Fahrdauer, max_distance = 10)
+        future2 = executor.submit(car1.room_explorer, explorer_time = Fahrdauer, max_distance = 30)
 
         ergebnis1 = future1.result()
         ergebnis2 = future2.result()
 
     plt.figure()
     plt.plot(np.array(ergebnis1[0]) - ergebnis1[0][0], np.array(ergebnis1[1]))
+    plt.title('get_drive_parameter: speed over time')
+    plt.xlabel('time / s')
+    plt.ylabel('speed')
+    plt.show()
+
+    plt.figure()
+    plt.plot(np.array(ergebnis1[0]) - ergebnis1[0][0], np.array(ergebnis1[3]))
     plt.title('get_drive_parameter: speed over time')
     plt.xlabel('time / s')
     plt.ylabel('speed')
