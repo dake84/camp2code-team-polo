@@ -8,11 +8,6 @@ import threading
 class SensorCar(BaseCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
 
-    Args:
-        BaseCar (class): Basisklasse für alle Autos, enthält grundlegende Funktionen wie drive() und stop()
-
-    Returns:
-        _type_: _description_
     """
     KP = 500.0
     KD = 50.0
@@ -54,6 +49,7 @@ class SensorCar(BaseCar):
         messwerte = self._ir.get_average(10)
         gewichte = np.array([-2,-1,0,1,2])
         
+        # Fix: Possible Div/0
         error = sum((messwerte*gewichte))/sum(messwerte)
         #print(f"Messwerte: {messwerte}\nGewichte {gewichte}\nMultiplikator {messwerte*gewichte}\nError {error}")
 
@@ -66,7 +62,7 @@ class SensorCar(BaseCar):
         """Berechnet Geschwindigkeit in Abhängigkeit von Lenkwinkel
 
         Args:
-            lenkwinkel (float): wo wird "lenkwinkel" berechnet?
+            lenkwinkel (float): Lenkwinkel
 
         Returns:
             int: Die berechnete Geschwindigkeit.
@@ -80,7 +76,7 @@ class SensorCar(BaseCar):
         """Ausgabe aktuelle, durchschnittliche IR-Messwerte durch Aufruf der Methode get_average.
 
         Returns:
-            list: Aktuelle, durchschnittliche IR-Messwerte.
+            list: Aktuelle, durchschnittliche IR-Messwerte. Als array mit 5 Float-Werten je Zeile.
         """
         return self._ir.get_average(100)
     
@@ -90,8 +86,17 @@ class SensorCar(BaseCar):
         Returns:
             bool: True/False, basierend auf den durchschnittlichen IR-Messwerten des mittleren Sensors (auf Position 2 von 0-4). Messwert < 1 = dunkle Linie erkannt
         """
-        line = self._ir.get_average(10)
-        return line[2] < 1
+        line = np.array(self._ir.get_average(10))
+        sensor_on_line = False
+    
+        for i in line:
+            if (not sensor_on_line):
+                sensor_on_line = (i < 1)
+        
+        return sensor_on_line     
+        
+        
+
 
     @property
     def korrektur_proportional(self) -> float:
@@ -115,6 +120,8 @@ class SensorCar(BaseCar):
 stop_event = threading.Event()
 
 def auto_fahren(sc : SensorCar):
+    # https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads
+    # Gedanke: Funktion auto_fahren in SensorCar integrieren
     print("Auto fährt...")
     
     while not stop_event.is_set():
