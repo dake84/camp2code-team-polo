@@ -266,6 +266,8 @@ class SonicCar(BaseCar):
 
                 if overcome_obstacle_bool is False:
                     self.overcome_obstacle()
+                    actual_speed_drive_explore = 60
+                    steering_angle_drive_explore = 90
                 else:
                     self._drive_cmd(speed = actual_speed, steer = 90)
             else:
