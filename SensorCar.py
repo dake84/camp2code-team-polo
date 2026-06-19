@@ -38,8 +38,6 @@ class SensorCar(BaseCar):
 
     __stop_calibration_event = threading.Event()
 
-
-
     def __init__(self, run_calibration=False):
         """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
 
@@ -133,11 +131,12 @@ class SensorCar(BaseCar):
         self.__stop_calibration_event.set()
         calibration_thread.join()
 
-
     def _line_calibrator(self):
         while (not self.__stop_calibration_event.is_set()):
             messwerte = self.normierte_sensorwerte()
-            print(f"\rNormierte Messwerte: {messwerte}, Summe: {(sum(messwerte))}\n<ENTER> zum Beenden", end="")
+            min_mw = min(messwerte)
+            max_mw = max(messwerte)
+            print(f"\rNormierte Messwerte: {messwerte}, Summe: {sum(messwerte)}, Min: {min_mw}, Max: {max_mw}, Diff: {max_mw-min_mw}\n<ENTER> zum Beenden", end="")
             sys.stdout.flush()
             time.sleep(0.05)
 
@@ -198,8 +197,17 @@ class SensorCar(BaseCar):
         """
         hist = self.normierte_sensorwerte()
         line = np.sum(hist)
-        ## TODO Linienerkennung verbessern!!! (Ausreißer-Spalten erkennen)
-        if (line > self.calibration_line_threshold):
+        
+        ## TODO DELTA in config / aus configu übernehmen
+        
+        min_sensor = min(hist)
+        max_sensor = max(hist)
+        delta = 200
+
+        # (1000 (weiß) - 200 (schwarz) < 800 -> false --> on line
+        # (1000 (weiß) - 300 (schwarz) < 800 -> true --> not on line
+        if (max_sensor - min_sensor < delta):
+#        if (line > self.calibration_line_threshold):
             self.__zeit_linie_verloren = time.time()
             print(f"Auto hat Linie verlassen (line {hist} (sum: {line}) > calibration_line_threshold {self.calibration_line_threshold})")
             return False
@@ -325,7 +333,7 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 #losgelöst von SensorCar.py definieren, bspw. in run.py?
 if __name__ == '__main__':
 
-        sc = SensorCar(run_calibration=False)
+        sc = SensorCar(run_calibration=True)
         #while(input("Nochmal (j/n)") != "n"):
         #    s = sc.kalibriere_sensoren()
         #   
