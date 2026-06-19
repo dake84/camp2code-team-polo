@@ -1,3 +1,5 @@
+from typing import Any
+
 from basisklassen import BackWheels, FrontWheels
 import time
 import json
@@ -20,14 +22,18 @@ class BaseCar():
 
     def get_config(self, file: str = "config.json", force_update = False):
         if (force_update or self._json_config is None):
-            try:
-                with open(file, "r") as f:
-                    self._json_config = json.load(f)
-            except:
-                print("Keine geeignete Datei config.json gefunden!")
-                raise AttributeError(name=f"Datei {file} nicht verfügbar")
-        
+            self._update_config(file)     
+        if (self._json_config is None):
+            return {}
         return self._json_config
+
+    def _update_config(self, file: str = "config.json") -> Any:
+        try:
+            with open(file, "r") as f:
+                self._json_config = json.load(f)
+        except:
+            print("Keine geeignete Datei config.json gefunden!")
+            raise AttributeError(name=f"Datei {file} nicht verfügbar")
     
     @property
     def turning_offset(self) -> int:
