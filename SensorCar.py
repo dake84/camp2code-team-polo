@@ -320,6 +320,8 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
             car.stop()
         else:
             raise TypeError("Für Fahrmodus 5-7 muss sein SensorCar übergeben werden.")
+    else:
+        raise NotImplementedError("Bisher nur Fahrmodus 5-7 unterstützt")
 
 
 #losgelöst von SensorCar.py definieren, bspw. in run.py?
