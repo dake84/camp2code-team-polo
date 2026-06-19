@@ -1,6 +1,7 @@
 import sys
 from typing import Tuple
 
+from SonicCar import SonicCar
 from basisklassen import Infrared
 from BaseCar import BaseCar
 import numpy as np
@@ -299,17 +300,20 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 
     print(f"Auto fährt (Fahrmodus {dm})...")
     
-    if (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION)):
+    if (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE)):
         if isinstance(car, SensorCar):
             while not stop_event.is_set():
                 line = car.normierte_sensorwerte()
-                print(f"line: {line}, sum(line): {sum(line)}")
                 if (car.is_on_line()):
+
                     # Reload config.json from disk
                     car._update_config()
+
                     lw = car.lenkwinkel_berechnen()
                     v = car.geschwindigkeit_berechnen(lw)
+
                     car.drive(v, lw)
+
                     print(f"Driving (v: {v}, lw: {lw})")
                 elif (dm == DrivingMode.FOLLOW_LINE):
                     # Stoppen sobald Linie verloren
@@ -318,22 +322,29 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                         # Reload config.json from disk
                         car._update_config()
                         time.sleep(0.5)
-                else:
-                    # Modus 6,7 noch nicht implementiert
-                    raise NotImplementedError
+                elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE):
+                    # Modus 6 noch nicht implementiert
+                    raise NotImplementedError(f"Fahrmodus {dm} nicht unterstützt")
 
                 #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
             car.stop()
+            return
         else:
-            raise TypeError("Für Fahrmodus 5-7 muss sein SensorCar übergeben werden.")
-    else:
-        raise NotImplementedError("Bisher nur Fahrmodus 5-7 unterstützt")
+            raise TypeError(f"Für Fahrmodus {dm} muss sein SensorCar übergeben werden.")
+    elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION):
+        if (isinstance(car, SensorCar) and isinstance(car, SonicCar)):
+            # Fahrmodus noch nicht implementiert
+            pass
+        else:
+            raise TypeError(f"Für Fahrmodus {dm} muss sein Car vom Typ SensorCar und SonicCar übergeben werden.")
+    
+    raise NotImplementedError(f"Fahrmodus {dm} nicht unterstützt")
 
 
 #losgelöst von SensorCar.py definieren, bspw. in run.py?
 if __name__ == '__main__':
 
-        sc = SensorCar(run_calibration=True)
+        sc = SensorCar(run_calibration=False)
         #while(input("Nochmal (j/n)") != "n"):
         #    s = sc.kalibriere_sensoren()
         #   
@@ -342,7 +353,7 @@ if __name__ == '__main__':
 
         # ToDo: Futures nutzen anstatt Threads?!
         # https://coderivers.org/blog/python-thread-vs-concurrent/
-        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.FOLLOW_LINE])
+        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION])
         thread.start()
         input("Auto fährt, zum Beenden <ENTER> drücken")
         
