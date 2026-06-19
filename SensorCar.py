@@ -209,8 +209,8 @@ class SensorCar(BaseCar):
         Returns:
             int: Die berechnete Geschwindigkeit.
         """
-        #v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
-        v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
+        v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
+        #v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
 
         return int(max(v, self.v_min))
    
@@ -317,12 +317,12 @@ class SensorCar(BaseCar):
         return self.get_config().get("calibration_line_threshold", None)
 
     @property
-    def ir_sensor_min_values(self):
-        return self.get_config().get("ir_sensor_min_values",None)
+    def ir_sensor_min_values(self) -> list:
+        return self.get_config().get("ir_sensor_min_values",{})
     
     @property
-    def ir_sensor_max_values(self):
-        return self.get_config().get("ir_sensor_max_values",None)
+    def ir_sensor_max_values(self) -> list:
+        return self.get_config().get("ir_sensor_max_values",{})
     
     @ir_sensor_min_values.setter
     def ir_sensor_min_values(self, values:list):
@@ -375,7 +375,7 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                     if (not car.search()):
                         print("Weg nicht gefunden")
                         next = input("<ENTER> zum Weitersuchen oder <x> zum Beenden")
-                        if (next == "x"):
+                        if (next != "x"):
                             continue
                         else:
                             break
