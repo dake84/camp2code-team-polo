@@ -10,19 +10,34 @@ class BaseCar():
     FORWARD_MODE = 1
     BACKWARD_MODE = -1
 
+    _json_config = {}
+
     def __init__(self):
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        self._json_config = None
-
+        self._update_config()
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
-    def set_config(self, file: str = "config.json", config = {}, delete_keys= False):
-        # not implemented yet
+    def _save_config(self, file: str = "config.json") -> bool:
+        # ToDo:
         # Löschen von Attributen/Werten nur wenn delete_keys=true
-        raise NotImplementedError
+        try:
+            with open(file, "w", encoding="utf-8") as jf:
+                json.dump(self._json_config, jf, indent=4, ensure_ascii=True)
+            return True
+        except OSError as e:
+            print(f"Fehler beim Schreiben der Config-File: {e}")
+            return False
+
+    def set_config(self, attribut: str, values = any, save_config=False) -> bool:
+        if (self._json_config is None):
+            self._update_config()
+        self._json_config[attribut] = values
+        if (save_config): self._save_config()
+
+        return False
 
     def get_config(self, file: str = "config.json", force_update = False):
         if (force_update or self._json_config is None):

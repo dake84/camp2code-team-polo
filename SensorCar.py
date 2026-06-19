@@ -53,12 +53,11 @@ class SensorCar(BaseCar):
         super().__init__()
         self._ir = Infrared()
 
-        if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None):
-            self.ir_sensor_min_values, self.ir_sensor_max_values = self.kalibriere_sensoren()
-        
-        self.kalibriere_linie()
-        
-    def kalibriere_sensoren(self, loop = 250, output_average = 100) -> Tuple[list, list]:
+        if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None) or self.calibration_line_threshold is None:
+            self.kalibriere_sensoren()
+            self.kalibriere_linie()
+       
+    def kalibriere_sensoren(self, loop = 250, output_average = 100, silent_mode=True, update_config = True) -> Tuple[list, list]:
         input("Auto orthogonal knapp vor der Linie platzieren zur Kalibrierung. Achtung: Auto bewegt sich vor- und rückwärts. <Enter> zum starten drücken.")
         messwerte = self._ir.get_average()
         sensorwerte = []
@@ -67,28 +66,28 @@ class SensorCar(BaseCar):
         while i < loop:
             if (i>loop/2): mode = BaseCar.BACKWARD_MODE
             self.drive(speed=(mode*self.v_min))
-            messwerte = self._ir.get_average()
-#            if (sum(messwerte) < self.calibration_line_threshold):
-#                self.stop()
-#                print(f"Linie gefunden! (Messwerte: {messwerte}, Summe: {sum(messwerte)})")
-#                   
-#                time.sleep(0.1)
-#                self.drive(speed=(mode*self.v_min))            
+            messwerte = self._ir.get_average()         
             sensorwerte.append(messwerte)
             i+=1
         self.stop()
 
-        sensor_min = np.min(sensorwerte, axis=0)
-        sensor_max = np.max(sensorwerte, axis=0)
+        sensor_min = np.min(sensorwerte, axis=0).tolist()
+        sensor_max = np.max(sensorwerte, axis=0).tolist()
         
-        print("Kalibrierung abgeschlossen. Ergebnisse:")
-        print(f"Sensor-Min-Werte (schwarz): {sensor_min} (Summe: {sum(sensor_min)})")
-        print(f"Sensor-Max-Werte (weiß): {sensor_max} (Summe: {sum(sensor_max)})")
-        # TODO
-        save=input ("Sensorwerte in Config-Speichern? (j/n): ")
-        if (save == "j"):
-            print("Noch nicht implementiert")
-            self._update_config()
+        if (not silent_mode):
+            print("Kalibrierung abgeschlossen. Ergebnisse:")
+            print(f"Sensor-Min-Werte (schwarz): {sensor_min} (Summe: {sum(sensor_min)})")
+            print(f"Sensor-Max-Werte (weiß): {sensor_max} (Summe: {sum(sensor_max)})")
+            # TODO
+            save=input ("Sensorwerte in Config-Speichern? (j/n): ")
+            if (save == "j"):
+                print("Noch nicht implementiert")
+                self._save_config()
+        
+        if (update_config):
+            self.ir_sensor_min_values = sensor_min
+            self.ir_sensor_max_values = sensor_max
+            self._save_config()
 
         input("<ENTER> zum Fortfahren")
         return sensor_min, sensor_max
@@ -134,14 +133,13 @@ class SensorCar(BaseCar):
         self.__stop_calibration_event.set()
         calibration_thread.join()
 
+
     def _line_calibrator(self):
         while (not self.__stop_calibration_event.is_set()):
             messwerte = self.normierte_sensorwerte()
             print(f"\rNormierte Messwerte: {messwerte}, Summe: {(sum(messwerte))}\n<ENTER> zum Beenden", end="")
             sys.stdout.flush()
             time.sleep(0.05)
-
-
 
     def lenkwinkel_berechnen(self) -> float:
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PD-Korrekturfaktoren.
@@ -200,6 +198,7 @@ class SensorCar(BaseCar):
         """
         hist = self.normierte_sensorwerte()
         line = np.sum(hist)
+        ## TODO Linienerkennung verbessern!!! (Ausreißer-Spalten erkennen)
         if (line > self.calibration_line_threshold):
             self.__zeit_linie_verloren = time.time()
             print(f"Auto hat Linie verlassen (line {hist} (sum: {line}) > calibration_line_threshold {self.calibration_line_threshold})")
@@ -276,12 +275,11 @@ class SensorCar(BaseCar):
 
     @ir_sensor_min_values.setter
     def ir_sensor_min_values(self, values:list):
-        self._json_config.__setattr__("ir_sensor_min_values", values)
+        self.set_config("ir_sensor_min_values", values)
 
     @ir_sensor_max_values.setter
     def ir_sensor_max_values(self, values:list):
-        print("In Config speichern noch nicht implementiert")
-        self._json_config.__setattr__("ir_sensor_max_values", values)
+        self.set_config("ir_sensor_max_values", values)
 
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
@@ -328,6 +326,11 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 if __name__ == '__main__':
 
         sc = SensorCar(run_calibration=False)
+        #while(input("Nochmal (j/n)") != "n"):
+        #    s = sc.kalibriere_sensoren()
+        #   
+        #    print(f"s_min: {s[0]}, s_max: {s[1]}")
+        #exit()
 
         # ToDo: Futures nutzen anstatt Threads?!
         # https://coderivers.org/blog/python-thread-vs-concurrent/
