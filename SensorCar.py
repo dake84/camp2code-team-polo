@@ -1,22 +1,13 @@
 import sys
 from typing import Tuple
 
+import DrivingMode
 from SonicCar import SonicCar
 from basisklassen import Infrared
 from BaseCar import BaseCar
 import numpy as np
 import time
 import threading
-
-class DrivingMode():
-
-    FORWARD_BACKWARD = 1
-    CIRCULAR = 2
-    APPROACH_OBSTACLE = 3
-    EXPLORE = 4
-    FOLLOW_LINE = 5
-    ADVANCED_FOLLOW_LINE = 6
-    ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 7
 
 class SensorCar(BaseCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
@@ -153,7 +144,7 @@ class SensorCar(BaseCar):
             float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
         """
 
-        messwerte = self.normierte_sensorwerte()
+        messwerte = np.ndarray(self.normierte_sensorwerte())
         sum_messwerte = sum(messwerte)
         
         # Div/0 -> Lenkwinkel geradeaus
@@ -197,20 +188,17 @@ class SensorCar(BaseCar):
             bool: True/False, basierend auf den durchschnittlichen IR-Messwerten des mittleren Sensors (auf Position 2 von 0-4). Messwert < 1 = dunkle Linie erkannt
         """
         hist = self.normierte_sensorwerte()
-        line = np.sum(hist)
-        
-        ## TODO DELTA in config / aus configu übernehmen
-        
+             
         min_sensor = min(hist)
         max_sensor = max(hist)
-        delta = 200
 
+        # Example:
         # (1000 (weiß) - 200 (schwarz) < 800 -> false --> on line
         # (1000 (weiß) - 300 (schwarz) < 800 -> true --> not on line
-        if (max_sensor - min_sensor < delta):
+        if (max_sensor - min_sensor < self.calibration_line_threshold):
 #        if (line > self.calibration_line_threshold):
             self.__zeit_linie_verloren = time.time()
-            print(f"Auto hat Linie verlassen (line {hist} (sum: {line}) > calibration_line_threshold {self.calibration_line_threshold})")
+            print(f"Auto hat Linie verlassen (line {hist} (delta: {(max_sensor-min_sensor)}) < calibration_line_threshold {self.calibration_line_threshold})")
             return False
         else:
             self.__zeit_linie_verloren = None
@@ -253,14 +241,14 @@ class SensorCar(BaseCar):
         return float(self.get_config()["bremsfaktor"])        
 
     @property
-    def ir_sensor_gewichte(self) -> np.ndarray:
+    def ir_sensor_gewichte(self) -> list:
         """Liefert die Gewichte für die Ermittlung des Lenkwinkel-Fehlers
 
         Returns:
             np.ndarray: Array mit fünf Gewichts-Werten
         
         """
-        return np.array(self.get_config()["ir_sensor_weights"])
+        return self.get_config()["ir_sensor_weights"]
 
     @property
     def v_max(self, update_config=False) -> int:
@@ -345,6 +333,8 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 if __name__ == '__main__':
 
         sc = SensorCar(run_calibration=False)
+        sc.kalibriere_sensoren(update_config=False)
+        sc.kalibriere_linie()
         #while(input("Nochmal (j/n)") != "n"):
         #    s = sc.kalibriere_sensoren()
         #   
@@ -353,7 +343,7 @@ if __name__ == '__main__':
 
         # ToDo: Futures nutzen anstatt Threads?!
         # https://coderivers.org/blog/python-thread-vs-concurrent/
-        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION])
+        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.FOLLOW_LINE])
         thread.start()
         input("Auto fährt, zum Beenden <ENTER> drücken")
         

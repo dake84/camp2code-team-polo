@@ -11,6 +11,3 @@ class CarLogger():
     def log_driving_values(self, car: BaseCar):
         lw = car.steering_angle
         v = car.speed
-
-    
-

@@ -1,12 +1,7 @@
-from BaseCar import BaseCar
-from SensorCar import SensorCar
-
-class DrivingMode:
-    
-    def drive(self, car: BaseCar): raise NotImplementedError
-
-class ModeSix(DrivingMode):
-
-    def drive(self, car: SensorCar):
-        car = car
-        
+FORWARD_BACKWARD = 1
+CIRCULAR = 2
+APPROACH_OBSTACLE = 3
+EXPLORE = 4
+FOLLOW_LINE = 5
+ADVANCED_FOLLOW_LINE = 6
+ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 7
