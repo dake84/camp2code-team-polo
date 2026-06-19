@@ -1,3 +1,4 @@
+import sys
 from typing import Tuple
 
 from basisklassen import Infrared
@@ -5,6 +6,16 @@ from BaseCar import BaseCar
 import numpy as np
 import time
 import threading
+
+class DrivingMode():
+
+    FORWARD_BACKWARD = 1
+    CIRCULAR = 2
+    APPROACH_OBSTACLE = 3
+    EXPLORE = 4
+    FOLLOW_LINE = 5
+    ADVANCED_FOLLOW_LINE = 6
+    ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 7
 
 class SensorCar(BaseCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
@@ -25,6 +36,9 @@ class SensorCar(BaseCar):
     # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden
     __suchzeit = 1.5
 
+    __stop_calibration_event = threading.Event()
+
+
 
     def __init__(self, run_calibration=False):
         """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
@@ -39,12 +53,12 @@ class SensorCar(BaseCar):
         super().__init__()
         self._ir = Infrared()
 
-        if (run_calibration):
-            self.sensor_min, self.sensor_max = self.kalibriere_sensoren()
+        if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None):
+            self.ir_sensor_min_values, self.ir_sensor_max_values = self.kalibriere_sensoren()
         
-
-
-    def kalibriere_sensoren(self, loop = 250, output_average = 100) -> Tuple[np.ndarray,np.ndarray]:
+        self.kalibriere_linie()
+        
+    def kalibriere_sensoren(self, loop = 250, output_average = 100) -> Tuple[list, list]:
         input("Auto orthogonal knapp vor der Linie platzieren zur Kalibrierung. Achtung: Auto bewegt sich vor- und rückwärts. <Enter> zum starten drücken.")
         messwerte = self._ir.get_average()
         sensorwerte = []
@@ -64,14 +78,20 @@ class SensorCar(BaseCar):
             i+=1
         self.stop()
 
-        self.sensor_min = np.min(sensorwerte, axis=0)
-        self.sensor_max = np.max(sensorwerte, axis=0)
+        sensor_min = np.min(sensorwerte, axis=0)
+        sensor_max = np.max(sensorwerte, axis=0)
         
         print("Kalibrierung abgeschlossen. Ergebnisse:")
-        print(f"Sensor-Min-Werte: {self.sensor_min} (Summe: {sum(self.sensor_min)})")
-        print(f"Sensor-Max-Werte: {self.sensor_max} (Summe: {sum(self.sensor_max)})")
+        print(f"Sensor-Min-Werte (schwarz): {sensor_min} (Summe: {sum(sensor_min)})")
+        print(f"Sensor-Max-Werte (weiß): {sensor_max} (Summe: {sum(sensor_max)})")
+        # TODO
+        save=input ("Sensorwerte in Config-Speichern? (j/n): ")
+        if (save == "j"):
+            print("Noch nicht implementiert")
+            self._update_config()
+
         input("<ENTER> zum Fortfahren")
-        return self.sensor_min, self.sensor_max
+        return sensor_min, sensor_max
 
     def sensor_historie(self, history_length: int = 0) -> list:
         if (history_length<1): history_length = self._history_length
@@ -91,18 +111,37 @@ class SensorCar(BaseCar):
 
         for i in range(len(messwerte)):
             roh = messwerte[i]
-            s_min = self.sensor_min[i]
-            s_max = self.sensor_max[i]
+            s_min = self.ir_sensor_min_values[i]
+            s_max = self.ir_sensor_max_values[i]
         
             if s_max == s_min:
                 normiert = 0
             else:
                 v = (roh-s_min) / (s_max-s_min)
                 v = max(0.0, min(1.0, v))
+                # 1000 = 100% weiß, 0 = 100% schwarz
                 normiert = int(v*1000)
             normierte_werte.append(normiert)
 
         return normierte_werte
+
+    def kalibriere_linie(self):
+        input("Line-Threshold ermitteln. Auto so auf Linie positionieren, dass sie gerade noch registriert wird. <Enter> zum Beginnen")
+
+        calibration_thread = threading.Thread(target=self._line_calibrator)
+        calibration_thread.start()
+        input()
+        self.__stop_calibration_event.set()
+        calibration_thread.join()
+
+    def _line_calibrator(self):
+        while (not self.__stop_calibration_event.is_set()):
+            messwerte = self.normierte_sensorwerte()
+            print(f"\rNormierte Messwerte: {messwerte}, Summe: {(sum(messwerte))}\n<ENTER> zum Beenden", end="")
+            sys.stdout.flush()
+            time.sleep(0.05)
+
+
 
     def lenkwinkel_berechnen(self) -> float:
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PD-Korrekturfaktoren.
@@ -227,6 +266,22 @@ class SensorCar(BaseCar):
     def calibration_line_threshold(self) -> float:
         return float(self.get_config()["calibration_line_threshold"])
 
+    @property
+    def ir_sensor_min_values(self) -> list:
+        return self.get_config()["ir_sensor_min_values"]
+    
+    @property
+    def ir_sensor_max_values(self) -> list:
+        return self.get_config()["ir_sensor_max_values"]
+
+    @ir_sensor_min_values.setter
+    def ir_sensor_min_values(self, values:list):
+        self._json_config.__setattr__("ir_sensor_min_values", values)
+
+    @ir_sensor_max_values.setter
+    def ir_sensor_max_values(self, values:list):
+        print("In Config speichern noch nicht implementiert")
+        self._json_config.__setattr__("ir_sensor_max_values", values)
 
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
@@ -234,37 +289,47 @@ class SensorCar(BaseCar):
 # Gedanke: Funktion auto_fahren in SensorCar integrieren
 stop_event = threading.Event()
 
-def auto_fahren(sc : SensorCar):
+def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 
-    print("Auto fährt...")
+    print(f"Auto fährt (Fahrmodus {dm})...")
     
-    while not stop_event.is_set():
-        line = sc.normierte_sensorwerte()
-        print(f"line: {line}, sum(line): {sum(line)}")
-        if (sc.is_on_line()):
-           # Reload config.json from disk
-           sc._update_config()
-           lw = sc.lenkwinkel_berechnen()
-           v = sc.geschwindigkeit_berechnen(lw)
-           sc.drive(v, lw)
-           print(f"Driving (v: {v}, lw: {lw})")
+    if (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION)):
+        if isinstance(car, SensorCar):
+            while not stop_event.is_set():
+                line = car.normierte_sensorwerte()
+                print(f"line: {line}, sum(line): {sum(line)}")
+                if (car.is_on_line()):
+                    # Reload config.json from disk
+                    car._update_config()
+                    lw = car.lenkwinkel_berechnen()
+                    v = car.geschwindigkeit_berechnen(lw)
+                    car.drive(v, lw)
+                    print(f"Driving (v: {v}, lw: {lw})")
+                elif (dm == DrivingMode.FOLLOW_LINE):
+                    # Stoppen sobald Linie verloren
+                    car.stop()
+                    while not car.is_on_line() and not stop_event.is_set():
+                        # Reload config.json from disk
+                        car._update_config()
+                        time.sleep(0.5)
+                else:
+                    # Modus 6,7 noch nicht implementiert
+                    raise NotImplementedError
+
+                #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
+            car.stop()
         else:
-            sc.stop()
-            while not sc.is_on_line() and not stop_event.is_set():
-                # Reload config.json from disk
-                sc._update_config()
-                time.sleep(0.5)
+            raise TypeError("Für Fahrmodus 5-7 muss sein SensorCar übergeben werden.")
 
-    #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
-    
-    sc.stop()
 
 #losgelöst von SensorCar.py definieren, bspw. in run.py?
 if __name__ == '__main__':
 
-        sc = SensorCar(run_calibration=True)
+        sc = SensorCar(run_calibration=False)
 
-        thread = threading.Thread(target=auto_fahren, args=[sc])
+        # ToDo: Futures nutzen anstatt Threads?!
+        # https://coderivers.org/blog/python-thread-vs-concurrent/
+        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.FOLLOW_LINE])
         thread.start()
         input("Auto fährt, zum Beenden <ENTER> drücken")
         

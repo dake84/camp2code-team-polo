@@ -19,6 +19,10 @@ class BaseCar():
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
+    def set_config(self, file: str = "config.json", config = {}, delete_keys= False):
+        # not implemented yet
+        # Löschen von Attributen/Werten nur wenn delete_keys=true
+        raise NotImplementedError
 
     def get_config(self, file: str = "config.json", force_update = False):
         if (force_update or self._json_config is None):
