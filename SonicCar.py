@@ -27,6 +27,9 @@ class SonicCar(BaseCar):
         self._sensor_ready = Event() # Ist eine Flag, ob aktuelle Werte da sind -> Wenn ja, der andere kann sich den aktuelln Wert holen wenn nicht gelockt ist
         self._latest_distance = None
         self._latest_distance_time = None
+        self._latest_speed = None
+        self._latest_steering_angle = None
+
 
         # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
         super().__init__()
@@ -52,6 +55,19 @@ class SonicCar(BaseCar):
         with self._sensor_lock: # Wenn _sensor_lock frei ist, können Daten abgerufen werden
             return self._latest_distance, self._latest_distance_time
 
+    def _set_latest_drive_state(self, speed_value: int, steering_angle_value: int):
+        with self._sensor_lock:
+            self._latest_speed = speed_value
+            self._latest_steering_angle = steering_angle_value
+
+    def _get_latest_drive_state(self):
+        with self._sensor_lock:
+            return self._latest_speed, self._latest_steering_angle
+
+    def _get_latest_state(self):
+        with self._sensor_lock:
+            return self._latest_distance, self._latest_distance_time, self._latest_speed, self._latest_steering_angle
+
     def _drive_cmd(self, speed: int = None, steer: int = None):
         """Workarount umd den speed/Lenkung zu setzen
 
@@ -63,9 +79,15 @@ class SonicCar(BaseCar):
             setzt über die 'drive' Methode aus BaseCar die Werte
         """        
         try:
-            return self.drive(speed=speed, steer=steer)
+            self.drive(speed=speed, steer=steer)
         except TypeError:
-            return self.drive(speed=speed, steering_angle=steer)
+            self.drive(speed=speed, steering_angle=steer)
+
+        self._set_latest_drive_state(self.speed, self.steering_angle)
+
+    def _stop_cmd(self):
+        self.stop()
+        self._set_latest_drive_state(self.speed, self.steering_angle)
 
     def get_distance(self):
         """Hier wird direkt auf den Ultraschallsensor zugegriffen. Dies sollte NUR in einem Thread laufen
@@ -80,6 +102,9 @@ class SonicCar(BaseCar):
             -4: Error in time measurement
         """        
         my_distance = self.us.distance()
+
+        print(my_distance)
+
         set_max_distance = 100
 
         if my_distance == -1:
@@ -90,7 +115,7 @@ class SonicCar(BaseCar):
             my_distance = 0
         elif my_distance == -4:
             my_distance = set_max_distance
-
+        
         return my_distance
 
     def stop_car(self, actual_distance: int, max_distance: int = 30):
@@ -108,7 +133,7 @@ class SonicCar(BaseCar):
             return True
 
         if max_distance > actual_distance:
-            self.stop()
+            self._stop_cmd()
             return False
         else:
             return True
@@ -122,6 +147,8 @@ class SonicCar(BaseCar):
             max_distance (int): Maximale Distance. Defaults is 5.
         """        
         stop_car_bool = True
+
+        self._set_latest_drive_state(self.speed, self.steering_angle)
 
         while stop_car_bool:
             actual_distance, actual_time = self._get_latest_distance() # Holt sich den letzten Sensorwert
@@ -149,7 +176,7 @@ class SonicCar(BaseCar):
         richtung_text = 'links' if ausweich_lenkung == 45 else 'rechts'
         zufalls_zeit = random.randint(1, 4)
 
-        self.stop()
+        self._stop_cmd()
         #print(f'Hindernis erkannt. Geschwindigkeit: {self.speed}, Lenkwinkel: {self.steering_angle}')
         time.sleep(1)
 
@@ -157,7 +184,7 @@ class SonicCar(BaseCar):
         #print(f'Ausweichfahrt {richtung_text}. Geschwindigkeit: {self.speed}, Lenkwinkel: {self.steering_angle}')
         time.sleep(zufalls_zeit) # Hier die Rückwärtsfahrzeit zufällig setzen
 
-        self.stop()
+        self._stop_cmd()
 
     def drive_explore(self,
                     actual_speed: int,
@@ -193,7 +220,7 @@ class SonicCar(BaseCar):
         actual_speed = max(30, min(actual_speed, 100))
         steering_angle = max(45, min(steering_angle, 135))
 
-        self._drive_cmd(speed = actual_speed, steer = steering_angle)
+        self._drive_cmd(speed=actual_speed, steer=steering_angle)
 
         return actual_speed, steering_angle, speed_dir, steer_dir, counter
 
@@ -221,8 +248,8 @@ class SonicCar(BaseCar):
             data_distance = []
 
         data_time.append(time.time())
-        data_speed.append(self.speed)
-        data_steer.append(self.steering_angle)
+        data_speed.append(self._latest_speed)
+        data_steer.append(self._latest_steering_angle)
         data_distance.append(actual_distance)
 
         return data_time, data_speed, data_steer, data_distance
@@ -242,6 +269,9 @@ class SonicCar(BaseCar):
         speed_direction = random.choice([-1, 1])
         steer_direction = random.choice([-1, 1])
         counter = 0
+
+        # initialen Fahrzustand setzen
+        self._set_latest_drive_state(self.speed, self.steering_angle)
 
         # warten bis erster Sensorwert vorliegt
         self._sensor_ready.wait()
@@ -278,10 +308,9 @@ class SonicCar(BaseCar):
                                                                                  counter
                                                                                 )
 
-
             time.sleep(0.02)
 
-        self.stop()
+        self._stop_cmd()
 
     def get_drive_parameter(self, explorer_time: int = 10):
         """Soll alleine im Thread laufen. Holt sich die Daten und schreibt in die __init__
@@ -310,12 +339,12 @@ class SonicCar(BaseCar):
             # letzten Wert für room_explorer setzen
             self._set_latest_distance(actual_distance)
 
-            data_time, data_speed, data_steer, data_distance = self.get_data(data_time = data_time,
-                                                                                data_speed = data_speed,
-                                                                                data_steer = data_steer,
-                                                                                data_distance = data_distance,
-                                                                                actual_distance = actual_distance
-                                                                            )
+            data_time, data_speed, data_steer, data_distance = self.get_data(data_time=data_time,
+                                                                             data_speed=data_speed,
+                                                                             data_steer=data_steer,
+                                                                             data_distance=data_distance,
+                                                                             actual_distance=actual_distance
+                                                                             )
 
             time.sleep(0.05)
 
@@ -323,30 +352,53 @@ class SonicCar(BaseCar):
 
         return drive_parameter_data
 
+    def fahrmodus_3(self):
+        return print('Fahrmodus 3')
+    
+    def fahrmodus_4(self, Fahrdauer: int = 20, max_distance: int = 30):
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future1 = executor.submit(self.get_drive_parameter, explorer_time=Fahrdauer)
+            future2 = executor.submit(self.room_explorer, explorer_time=Fahrdauer, max_distance=30)
+
+            ergebnis1 = future1.result()
+            ergebnis2 = future2.result()
+
+        if len(ergebnis1[0]) > 0:
+            t_rel = np.array(ergebnis1[0]) - ergebnis1[0][0]
+
+            plt.figure()
+            plt.plot(t_rel, np.array(ergebnis1[1]))
+            plt.title('get_drive_parameter: speed over time')
+            plt.xlabel('time / s')
+            plt.ylabel('speed')
+            plt.show()
+
+            plt.figure()
+            plt.plot(t_rel, np.array(ergebnis1[3]))
+            plt.title('get_drive_parameter: distance over time')
+            plt.xlabel('time / s')
+            plt.ylabel('distance')
+            plt.show()
+
+            plt.figure()
+            plt.plot(t_rel, np.array(ergebnis1[2]))
+            plt.title('get_drive_parameter: steering angle over time')
+            plt.xlabel('time / s')
+            plt.ylabel('steering angle')
+            plt.show()
+
+
 
 if __name__ == '__main__':
     print('Hier mal die main')
 
-    Fahrdauer = 30
-    car1 = SonicCar()
+    sc = SonicCar()
+    #sc.fahrmodus_4(Fahrdauer = 20, max_distance = 30)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        future1 = executor.submit(car1.get_drive_parameter, explorer_time = Fahrdauer)
-        future2 = executor.submit(car1.room_explorer, explorer_time = Fahrdauer, max_distance = 30)
+    for i in range(60):
 
-        ergebnis1 = future1.result()
-        ergebnis2 = future2.result()
+        sc.get_distance()
+        time.sleep(0.1)
 
-    plt.figure()
-    plt.plot(np.array(ergebnis1[0]) - ergebnis1[0][0], np.array(ergebnis1[1]))
-    plt.title('get_drive_parameter: speed over time')
-    plt.xlabel('time / s')
-    plt.ylabel('speed')
-    plt.show()
-
-    plt.figure()
-    plt.plot(np.array(ergebnis1[0]) - ergebnis1[0][0], np.array(ergebnis1[3]))
-    plt.title('get_drive_parameter: speed over time')
-    plt.xlabel('time / s')
-    plt.ylabel('speed')
-    plt.show()
+        
