@@ -178,7 +178,7 @@ class SensorCar(BaseCar):
         Returns:
             int: Die berechnete Geschwindigkeit.
         """
-        v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
+        v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
         return int(max(v, self.v_min))
    
     def is_on_line(self) -> bool:
