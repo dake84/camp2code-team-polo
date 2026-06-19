@@ -14,19 +14,6 @@ class SensorCar(BaseCar):
 
     """
 
-    # Speichert eine Historie der Messwerte, um Rauschen auszugleichen (Zugriff über Methode sensor_historie)
-    _sensor_historie = []
-    # Anzahl der letzten Werte, für die Ermittlung des Durchschnitt-Messwerts
-    _history_length = 5
-
-    # Letzte Abweichung zur schwarzen Linie (für delta KD)
-    __previous_error = 0
-    # Merkt sich die zuletzt eingeschlagene Richtung (Suchmodus) -1 = links, +1 = rechts, 0 = Mitte
-    __letzte_richtung = 0
-    # Merkt sich die Zeit, zu der die Linie verloren wurde (Suchmodus)
-    __zeit_linie_verloren = None
-    # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden
-    __suchzeit = 1.5
 
     __stop_calibration_event = threading.Event()
 
@@ -42,6 +29,19 @@ class SensorCar(BaseCar):
         """
         super().__init__()
         self._ir = Infrared()
+        # Speichert eine Historie der Messwerte, um Rauschen auszugleichen (Zugriff über Methode sensor_historie)
+        self._sensor_historie = []
+        # Anzahl der letzten Werte, für die Ermittlung des Durchschnitt-Messwerts
+        self._history_length = 5
+
+        # Letzte Abweichung zur schwarzen Linie (für delta KD)
+        self.__previous_error = 0
+        # Merkt sich die zuletzt eingeschlagene Richtung (Suchmodus) -1 = links, +1 = rechts, 0 = Mitte
+        self.__letzte_richtung = 0
+        # Merkt sich die Zeit, zu der die Linie verloren wurde (Suchmodus)
+        self.__zeit_linie_verloren = 0
+        # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden
+        self.__suchzeit = 5
 
         if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None) or self.calibration_line_threshold is None:
             self.kalibriere_sensoren()
@@ -144,14 +144,14 @@ class SensorCar(BaseCar):
             float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
         """
 
-        messwerte = np.ndarray(self.normierte_sensorwerte())
+        messwerte = self.normierte_sensorwerte()
         sum_messwerte = sum(messwerte)
         
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
             return 90
         
-        error = sum((messwerte*self.ir_sensor_gewichte))/sum_messwerte
+        error = sum(np.multiply(messwerte, self.ir_sensor_gewichte))/sum_messwerte
         dKP = (self.korrektur_proportional * error) 
         dKD = (self.korrektur_differential * (error - self.__previous_error))
         u = dKP + dKD
@@ -159,12 +159,12 @@ class SensorCar(BaseCar):
         self.__previous_error = error
 
         # Richtung für Suchmodus merken
+        print(f"Current Error: {error}")
         if (error > 0.2):
             self.__letzte_richtung = 1
         elif (error < -0.2):
             self.__letzte_richtung = -1
-        else:
-            self.__letzte_richtung = 0
+
 
         #print(f"dKP: {dKP}, dKD: {dKD}, u: {u}, lw: {lw}")
         return lw
@@ -181,13 +181,13 @@ class SensorCar(BaseCar):
         v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
         return int(max(v, self.v_min))
    
-    def is_on_line(self) -> bool:
+    def is_on_line(self, lost_time: float=0, history_length:int=0) -> bool:
         """Prüft, ob das Auto sich mittig auf der Linie befindet, basierend auf den IR-Messwerten.
 
         Returns:
             bool: True/False, basierend auf den durchschnittlichen IR-Messwerten des mittleren Sensors (auf Position 2 von 0-4). Messwert < 1 = dunkle Linie erkannt
         """
-        hist = self.normierte_sensorwerte()
+        hist = self.normierte_sensorwerte(history_length)
              
         min_sensor = min(hist)
         max_sensor = max(hist)
@@ -197,13 +197,22 @@ class SensorCar(BaseCar):
         # (1000 (weiß) - 300 (schwarz) < 800 -> true --> not on line
         if (max_sensor - min_sensor < self.calibration_line_threshold):
 #        if (line > self.calibration_line_threshold):
-            self.__zeit_linie_verloren = time.time()
-            print(f"Auto hat Linie verlassen (line {hist} (delta: {(max_sensor-min_sensor)}) < calibration_line_threshold {self.calibration_line_threshold})")
+            if (lost_time == 0): self.__zeit_linie_verloren = time.time()
+            #print(f"Auto hat Linie verlassen (line {hist} (delta: {(max_sensor-min_sensor)}) < calibration_line_threshold {self.calibration_line_threshold})")
             return False
         else:
-            self.__zeit_linie_verloren = None
+            self.__zeit_linie_verloren = 0
             return True
 
+    def search(self) -> bool:
+        if (self.__zeit_linie_verloren > 0):
+            while (time.time() - self.__zeit_linie_verloren < self.__suchzeit):
+                self.drive(self.v_min, (90+(self.__letzte_richtung*45)))
+                if (self.is_on_line(lost_time=self.__zeit_linie_verloren, history_length=100)):
+                    return True
+            return False
+        raise RuntimeError("Keine Suchzeit gesetzt (Lost-Time: {self.__zeit_linie_verloren}, Search-Time: {self.__suchzeit})")
+    
     @property
     def korrektur_proportional(self) -> float:
         """Liefert den aktuellen Wert für die proportionale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
@@ -311,9 +320,13 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                         car._update_config()
                         time.sleep(0.5)
                 elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE):
-                    # Modus 6 noch nicht implementiert
-                    raise NotImplementedError(f"Fahrmodus {dm} nicht unterstützt")
-
+                    # Suchen sobald Linie verloren
+                    print("Suche Weg...")
+                    if (not car.search()):
+                        print("Weg nicht gefunden")
+                        #break
+                    else:
+                        print("Weg gefunden")
                 #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
             car.stop()
             return
@@ -333,8 +346,9 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 if __name__ == '__main__':
 
         sc = SensorCar(run_calibration=False)
-        sc.kalibriere_sensoren(update_config=False)
-        sc.kalibriere_linie()
+        input("<Enter> to go")
+        #sc.kalibriere_sensoren(update_config=False)
+        # sc.kalibriere_linie()
         #while(input("Nochmal (j/n)") != "n"):
         #    s = sc.kalibriere_sensoren()
         #   
@@ -343,12 +357,12 @@ if __name__ == '__main__':
 
         # ToDo: Futures nutzen anstatt Threads?!
         # https://coderivers.org/blog/python-thread-vs-concurrent/
-        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.FOLLOW_LINE])
+        thread = threading.Thread(target=auto_fahren, args=[sc, DrivingMode.ADVANCED_FOLLOW_LINE])
         thread.start()
         input("Auto fährt, zum Beenden <ENTER> drücken")
         
         stop_event.set()
 
         thread.join()
-
+        sc.stop()
         print("Programm vollständig beendet")
