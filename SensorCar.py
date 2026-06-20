@@ -165,19 +165,31 @@ class SensorCar(BaseCar):
         messwerte = self.normierte_sensorwerte()
         sum_messwerte = sum(messwerte)
         
+        self.integral = 0
+
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
             return 90
         
         error = sum(np.multiply(messwerte, self.ir_sensor_gewichte))/sum_messwerte
+        
+        # P
         dKP = (self.korrektur_proportional * error) 
+        
+        # I
+        self.integral += error
+        self.integral = max(min(self.integral, 50), -50)   # Anti-Windup
+        dKI = self.korrektur_integral * self.integral 
+        
+        # D
         dKD = (self.korrektur_differential * (error - self.__previous_error))
-        u = dKP + dKD
+        u = dKP + dKI + dKD
         lw = max(45, min(135, (90+u)))
         self.__previous_error = error
 
         # Richtung für Suchmodus merken
         print(f"Current Error: {error}")
+        print(u)
         if (error > 0.2):
             self.__letzte_richtung = 1
         elif (error < -0.2):
@@ -243,6 +255,18 @@ class SensorCar(BaseCar):
         """
         return float(self.get_config()["korrektur_proportional"])
 
+    @property
+    def korrektur_integral (self) -> float:
+        """Liefert den aktuellen Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "korrektur_integral" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: Korrekturwert für die integrale Steuerung   
+        """
+        return float(self.get_config()["korrektur_integral"])
+    
     @property
     def korrektur_differential(self) -> float:
         """Liefert den aktuellen Wert für die differentiale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
