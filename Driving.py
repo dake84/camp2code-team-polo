@@ -3,7 +3,7 @@ import time
 from typing import List, Optional
 
 from BaseCar import BaseCar
-from CarLogger import CarLogger
+from CarLogger import CarLogger, Loggable
 from SensorCar import SensorCar
 from SonicCar import SonicCar
 
@@ -64,7 +64,7 @@ class StopReason(int):
             return int(value) == self._reason
         return False
 
-class DriveController():
+class DriveController(Loggable):
 
     def __init__(self, car:Optional[BaseCar]=None, driving_mode:int=DrivingMode.FORWARD_BACKWARD, car_logger:Optional[CarLogger]=None):
         self._dm = driving_mode
@@ -78,6 +78,8 @@ class DriveController():
         if (driving_mode not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode])): 
             raise ValueError(f"DrivingMode {driving_mode} nicht unterstützt für Fahrzeug vom Typ {type(car)} (bedingt {DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode]}).")
     
+        self._lock = threading.Lock()
+
     def drive_car(self, stop_event:threading.Event, driving_mode:Optional[int]=None):
         dm = driving_mode if driving_mode is not None else self._dm
         if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
@@ -104,7 +106,6 @@ class DriveController():
 
             self._car.stop()
             self._l.debug(f"Fahrmodus 1 beendet. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")            
-            pass
         elif (dm in (DrivingMode.CIRCULAR, DrivingMode.CIRCULAR_LEFT, DrivingMode.CIRCULAR_RIGHT)):
             direction = (135, "rechts/Uhrzeigersinn") if dm == DrivingMode.CIRCULAR_RIGHT else (45, "links/gegen Uhrzeigersinn")
             
@@ -134,7 +135,6 @@ class DriveController():
 
             self._car.stop()
             print(f"Fahrmodus 2 {direction[1]} beendet.")              
-            pass
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
             raise NotImplementedError(f"Fahrmodus {dm} noch nicht implementiert")
         elif (dm == DrivingMode.EXPLORE):
@@ -146,9 +146,7 @@ class DriveController():
 
         # just to be surrrre...
         # self.stop(self._stop_reason)
-
-    
-
+ 
     @property
     def run(self) -> bool:
         return self._run
@@ -209,11 +207,13 @@ class DriveController():
                 v = self._calc_speed_from_steering_angle(lw, v_min, v_max)
 
                 self._car.drive(v, lw)
+                time.sleep(0.1)
             elif (driving_mode in (DrivingMode.ADVANCED_FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION)):
                 lost_line_time = time.time()
                 search_time = 0
-                while ((lost_line_time+search_time) < time.time() and not self._is_on_line(self.ir_sensor_values, minimum_line_contrast)):
+                while ((lost_line_time+search_time) > time.time() and not self._is_on_line(self.ir_sensor_values, minimum_line_contrast)):
                     self._search(last_direction, v_min)
+                    time.sleep(0.1)
             else:
                 self.stop_car(StopReason.LOST_LINE)
 
@@ -236,16 +236,27 @@ class DriveController():
     def _calc_steering_angle_from_ir_sensors(self, messwerte:list[float], korrektur_proportional:float, korrektur_integral:float, summe_integral:float, anti_windup:float, korrektur_differential:float, previous_error:float, last_time:float) -> tuple[float, float, float, int]:
         if not isinstance(self._car, SensorCar): raise ValueError(self.__ve(SensorCar))
 
+        # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
+
         raise NotImplementedError(f"Fahrmodus noch nicht implementiert")
 
     def _calc_speed_from_steering_angle(self, lenkwinkel:float, v_min:int, v_max:int) -> int:
         #assert (45 < lenkwinkel < 135), "Lenkwinkel muss zwischen 45 und 135° sein"
         if (45 > lenkwinkel or 135 < lenkwinkel):
             raise ValueError(f"Lenkwinkel muss zwischen 45 und 135° sein (war: {lenkwinkel})")
-        return  int(v_min + (v_max - v_min) * (1 - ((lenkwinkel-90)/45)**2))
+        self._speed = int(v_min + (v_max - v_min) * (1 - ((lenkwinkel-90)/45)**2))
+        return self._speed
 
     def __ve(self, typ:type) -> str:
         return f"{type(self._car)} nicht kompatibel mit dieser Funktion. Mindestens Fahrzeug vom Typ {typ} notwendig."
 
 
+    # TODO LOG COMPUTED VALUES
+    def get_logging_payload(self) -> dict:
+        with self._lock:
+            payload = self._car.get_logging_payload()
+            payload["lenkwinkel"] = "yet to be implemented"
+            payload["error"] = "yet to be implemented"
+            payload["previous_error"] = "yet to be implemented"
+            return payload
 

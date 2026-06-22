@@ -1,12 +1,13 @@
 
-from threading import Lock
+from threading import Lock, RLock
 from typing import Any, Optional
 
+from CarLogger import Loggable
 from ConfigReader import ConfigReader
 from basisklassen import BackWheels, FrontWheels
 import time
 
-class BaseCar():
+class BaseCar(Loggable):
 
     FORWARD_MODE = 1
     BACKWARD_MODE = -1
@@ -22,7 +23,7 @@ class BaseCar():
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
 
-        self._lock = Lock()
+        self._lock = RLock()
 
     def get_logging_payload(self) -> dict:
         with self._lock:

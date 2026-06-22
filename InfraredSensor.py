@@ -54,3 +54,4 @@ class InfraredSensor(Infrared):
             v = self.sensor_values
             self._dynamic_calibration(v)
             self._car.ir_sensor_values = self._normalize(v)
+            time.sleep(0.01)
