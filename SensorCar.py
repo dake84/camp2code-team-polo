@@ -5,7 +5,6 @@ import DrivingMode
 from SonicCar import SonicCar
 from basisklassen import Infrared
 from BaseCar import BaseCar
-from basisklassen import FrontWheels
 import numpy as np
 import time
 import threading
@@ -18,7 +17,7 @@ class SensorCar(BaseCar):
 
     __stop_calibration_event = threading.Event()
 
-    def __init__(self, run_calibration=True):
+    def __init__(self, run_calibration=False):
         """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
 
         Wenn keine Referenzen übergeben werden, führt das Objekt automatisch eine
@@ -48,25 +47,14 @@ class SensorCar(BaseCar):
             self.kalibriere_sensoren()
             self.kalibriere_linie()
        
-    def kalibriere_sensoren(self, loop = 250, output_average = 100, silent_mode=False, update_config = True) -> Tuple[list, list]:
-        """Kalibriert IR Sensoren und aktualisiert config.json mit ermittelten Referenzwerten für schwarz (min) und weiß (max).
-
-        Args:
-            loop (int, optional): _description_. Defaults to 250.
-            output_average (int, optional): _description_. Defaults to 100.
-            silent_mode (bool, optional): _description_. Defaults to True.
-            update_config (bool, optional): _description_. Defaults to True.
-
-        Returns:
-            Tuple[list, list]: _description_
-        """
+    def kalibriere_sensoren(self, loop = 250, output_average = 100, silent_mode=True, update_config = True) -> Tuple[list, list]:
         input("Auto orthogonal knapp vor der Linie platzieren zur Kalibrierung. Achtung: Auto bewegt sich vor- und rückwärts. <Enter> zum starten drücken.")
         messwerte = self._ir.get_average()
         sensorwerte = []
         i = 0
         mode = BaseCar.FORWARD_MODE
         while i < loop:
-            if (i>loop/2): mode = BaseCar.BACKWARD_MODE # was passiert hier? und wieso keine neue Zeile?
+            if (i>loop/2): mode = BaseCar.BACKWARD_MODE
             self.drive(speed=(mode*self.v_min))
             messwerte = self._ir.get_average()         
             sensorwerte.append(messwerte)
@@ -83,6 +71,7 @@ class SensorCar(BaseCar):
             # TODO
             save=input ("Sensorwerte in Config-Speichern? (j/n): ")
             if (save == "j"):
+                print("Noch nicht implementiert")
                 self._save_config()
         
         if (update_config):
@@ -128,28 +117,21 @@ class SensorCar(BaseCar):
 
     def kalibriere_linie(self):
         input("Line-Threshold ermitteln. Auto so auf Linie positionieren, dass sie gerade noch registriert wird. <Enter> zum Beginnen")
+
         calibration_thread = threading.Thread(target=self._line_calibrator)
         calibration_thread.start()
         input()
         self.__stop_calibration_event.set()
         calibration_thread.join()
-        self.calibration_line_threshold = self._calibration_line_threshold
-        save=input ("Sensorwerte in Config-Speichern? (j/n): ")
-        if (save == "j"):
-            self._save_config()
 
-    def _line_calibrator(self, update_config=True):
+    def _line_calibrator(self):
         while (not self.__stop_calibration_event.is_set()):
             messwerte = self.normierte_sensorwerte()
             min_mw = min(messwerte)
             max_mw = max(messwerte)
-            calibration_line_threshold = max_mw - min_mw
-            self._calibration_line_threshold = calibration_line_threshold
-            print(f"\rNormierte Messwerte: {messwerte}, Summe: {sum(messwerte)}, Min: {min_mw}, Max: {max_mw}, Diff: {calibration_line_threshold}\n<ENTER> zum Beenden", end="")            
+            print(f"\rNormierte Messwerte: {messwerte}, Summe: {sum(messwerte)}, Min: {min_mw}, Max: {max_mw}, Diff: {max_mw-min_mw}\n<ENTER> zum Beenden", end="")
             sys.stdout.flush()
             time.sleep(0.05)
-            
-
 
     def lenkwinkel_berechnen(self) -> float:
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PD-Korrekturfaktoren.
@@ -166,31 +148,19 @@ class SensorCar(BaseCar):
         messwerte = self.normierte_sensorwerte()
         sum_messwerte = sum(messwerte)
         
-        self.integral = 0
-
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
             return 90
         
         error = sum(np.multiply(messwerte, self.ir_sensor_gewichte))/sum_messwerte
-        
-        # P
         dKP = (self.korrektur_proportional * error) 
-        
-        # I
-        self.integral += error
-        self.integral = max(min(self.integral, 50), -50)   # Anti-Windup
-        dKI = self.korrektur_integral * self.integral 
-        
-        # D
         dKD = (self.korrektur_differential * (error - self.__previous_error))
-        u = dKP + dKI + dKD
+        u = dKP + dKD
         lw = max(45, min(135, (90+u)))
         self.__previous_error = error
 
         # Richtung für Suchmodus merken
         print(f"Current Error: {error}")
-        print(u)
         if (error > 0.2):
             self.__letzte_richtung = 1
         elif (error < -0.2):
@@ -259,18 +229,6 @@ class SensorCar(BaseCar):
         return float(self.get_config()["korrektur_proportional"])
 
     @property
-    def korrektur_integral (self) -> float:
-        """Liefert den aktuellen Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
-
-        Raises:
-            KeyError: Wert "korrektur_integral" in Config.Json nicht gefunden.
-        
-        Returns:
-            float: Korrekturwert für die integrale Steuerung   
-        """
-        return float(self.get_config()["korrektur_integral"])
-    
-    @property
     def korrektur_differential(self) -> float:
         """Liefert den aktuellen Wert für die differentiale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
 
@@ -313,17 +271,17 @@ class SensorCar(BaseCar):
         return int(self.get_config()["v_min"])
 
     @property
-    def calibration_line_threshold(self) -> float | None:
-        return self.get_config().get("calibration_line_threshold", None)
+    def calibration_line_threshold(self) -> float:
+        return float(self.get_config()["calibration_line_threshold"])
 
     @property
-    def ir_sensor_min_values(self):
-        return self.get_config().get("ir_sensor_min_values",None)
+    def ir_sensor_min_values(self) -> list:
+        return self.get_config()["ir_sensor_min_values"]
     
     @property
-    def ir_sensor_max_values(self):
-        return self.get_config().get("ir_sensor_max_values",None)
-    
+    def ir_sensor_max_values(self) -> list:
+        return self.get_config()["ir_sensor_max_values"]
+
     @ir_sensor_min_values.setter
     def ir_sensor_min_values(self, values:list):
         self.set_config("ir_sensor_min_values", values)
@@ -332,9 +290,6 @@ class SensorCar(BaseCar):
     def ir_sensor_max_values(self, values:list):
         self.set_config("ir_sensor_max_values", values)
 
-    @calibration_line_threshold.setter
-    def calibration_line_threshold(self, value: float):
-        self.set_config("calibration_line_threshold", value)
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
 # DKE: ginge, siehe: https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads
@@ -398,9 +353,8 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
 
 #losgelöst von SensorCar.py definieren, bspw. in run.py?
 if __name__ == '__main__':
-        fw = FrontWheels(turning_offset=25) # Initialisierung Frontlenkung mit Offset, so ok?
+
         sc = SensorCar(run_calibration=False)
-        fw.turn(90)                         # Vorschlag: setting geradeaus vor Start
         input("<Enter> to go")
         #sc.kalibriere_sensoren(update_config=False)
         # sc.kalibriere_linie()
@@ -420,5 +374,4 @@ if __name__ == '__main__':
 
         thread.join()
         sc.stop()
-        fw.turn(90)                         # Vorschlag: setting geradeaus zum Ende
         print("Programm vollständig beendet")
