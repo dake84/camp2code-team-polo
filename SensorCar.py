@@ -166,8 +166,6 @@ class SensorCar(BaseCar):
         messwerte = self.normierte_sensorwerte()
         sum_messwerte = sum(messwerte)
         
-        self.integral = 0
-
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
             return 90
