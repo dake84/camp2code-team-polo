@@ -85,20 +85,23 @@ class SonicCar(BaseCar):
 
         set_max_distance = 300
         set_min_distance = 0
+        distance_clamped = my_distance
+       
 
         if my_distance == -1:
-            my_distance = set_max_distance
+            distance_clamped = set_max_distance
         elif my_distance == -2:
-            my_distance = set_max_distance
+            distance_clamped = set_max_distance
         elif my_distance == -3:
-            my_distance = set_min_distance
+            distance_clamped = set_min_distance
         elif my_distance == -4:
-            my_distance = set_max_distance
-         # Ausreißer filtern
-        elif not (set_min_distance <= my_distance <= set_max_distance):
-            return set_max_distance
-        
-        return my_distance
+            distance_clamped = set_max_distance
+        elif not (set_min_distance <= my_distance <= set_max_distance ):
+            distance_clamped = set_max_distance
+
+
+        print("Ausgabe:",my_distance, distance_clamped)
+        return my_distance, distance_clamped
 
     def stop_car(self, actual_distance: int, max_distance: int = 5):
         """Stopt das Auto wenn der 'max_distance' Wert unterschritten wird.
