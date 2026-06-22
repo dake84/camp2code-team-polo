@@ -80,17 +80,24 @@ class SonicCar(BaseCar):
             -4: Error in time measurement
         """        
         my_distance = self.us.distance()
-        set_max_distance = 40
+
+        print(my_distance)
+
+        set_max_distance = 300
+        set_min_distance = 0
 
         if my_distance == -1:
             my_distance = set_max_distance
         elif my_distance == -2:
             my_distance = set_max_distance
         elif my_distance == -3:
-            my_distance = 0
+            my_distance = set_min_distance
         elif my_distance == -4:
             my_distance = set_max_distance
-
+         # Ausreißer filtern
+        elif not (set_min_distance <= my_distance <= set_max_distance):
+            return set_max_distance
+        
         return my_distance
 
     def stop_car(self, actual_distance: int, max_distance: int = 5):
