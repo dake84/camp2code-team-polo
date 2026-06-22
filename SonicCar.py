@@ -1,3 +1,4 @@
+from CarLogger import CarLogger
 from basisklassen import BackWheels, FrontWheels, Ultrasonic
 from BaseCar import *
 import time
@@ -10,9 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 class SonicCar(BaseCar):
 
-    def __init__(self):
+    def __init__(self, config:Optional[ConfigReader]=None):
         self.us = Ultrasonic()
-        super().__init__()
+        super().__init__(config)
 
     def get_distance(self):
         ''' Error types:

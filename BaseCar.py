@@ -1,10 +1,12 @@
-from typing import Any
 
+from threading import Lock
+from typing import Any, Optional
+
+from CarLogger import CarLogger
+from ConfigReader import ConfigReader
 from basisklassen import BackWheels, FrontWheels
 import time
-import json
 
- 
 class BaseCar():
 
     FORWARD_MODE = 1
@@ -12,115 +14,115 @@ class BaseCar():
 
     _json_config = {}
 
-    def __init__(self):
+    def __init__(self, config:Optional[ConfigReader]=None):
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        self._update_config()
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
-    def _save_config(self, file: str = "config.json") -> bool:
-        # ToDo:
-        # Löschen von Attributen/Werten nur wenn delete_keys=true
-        try:
-            with open(file, "w", encoding="utf-8") as jf:
-                json.dump(self._json_config, jf, indent=4, ensure_ascii=True)
-            return True
-        except OSError as e:
-            print(f"Fehler beim Schreiben der Config-File: {e}")
-            return False
+        self._config = config if config is not None else ConfigReader(type(self))
 
+        self._lock = Lock()
+
+    def get_logging_payload(self) -> dict:
+        with self._lock:
+            return {
+                "timestamp": time.time(),
+                "steering_angle": self.steering_angle,
+                "speed": self.speed,
+                "direction": self.direction
+            }
+
+
+    def get_car_properties(self) -> dict[str, Any]:
+        return {
+            "steering_angle": self._steering_angle,
+            "speed": self._speed
+        }
+
+
+    # self._config
+    def _save_config(self) -> bool:
+        return self._config._save_config()
+
+    # Legacy, use self._config.set_config() instead
     def set_config(self, attribut: str, values = any, save_config=False) -> bool:
-        if (self._json_config is None):
-            self._update_config()
-        self._json_config[attribut] = values
-        if (save_config): self._save_config()
+        return self._config.set_config(attribut, values, save_config)
 
-        return False
-
-    def get_config(self, file: str = "config.json", force_update = False):
-        if (force_update or self._json_config is None):
-            self._update_config(file)     
-        if (self._json_config is None):
-            return {}
-        return self._json_config
-
-    def _update_config(self, file: str = "config.json") -> Any:
-        try:
-            with open(file, "r") as f:
-                self._json_config = json.load(f)
-        except:
-            print("Keine geeignete Datei config.json gefunden!")
-            raise AttributeError(name=f"Datei {file} nicht verfügbar")
+    # Legacy, use self._config.get_config() instead
+    def get_config(self, file: str = "config.json", force_update = False) -> dict:
+        return self._config.get_config(force_update)
     
+    # Legacy, use self._config._update_config() instead
+    def _update_config(self):
+        self._config._load_config_file()
+
+    # Value from cfg_file
     @property
     def turning_offset(self) -> int:
         return int(self.get_config()["turning_offset"])
 
+    # Value from cfg_file
     @property
     def forward_a(self) -> int:
         return int(self.get_config()["forward_A"])
     
+    # Value from cfg_file
     @property
     def forward_b(self) -> int:
         return int(self.get_config()["forward_B"])
-
 
     def test_wheels(self):
         self._fw.test()
         self._bw.test()
 
+    # Live value (with lock)
     @property
     def steering_angle(self):
-        return self._steering_angle
+        with self._lock:
+            return self._steering_angle
  
+    # Live value (with lock)
     @steering_angle.setter
-    def steering_angle(self, valid_value):
-        if valid_value < 45:
-            self._steering_angle = 45       
-        elif valid_value > 135:
-            self._steering_angle = 135
-        else:
-            self._steering_angle = valid_value
-
-        self._fw.turn(self._steering_angle)
+    def steering_angle(self, angle:int):
+        angle = min(135, max(45, angle))
+        self._fw.turn(angle)
+        with self._lock:
+            self._steering_angle
     
+    # Live value (with lock)
     @property
     def speed(self):
-        return self._mode * self._bw.speed
+        with self._lock:
+            return self._mode * self._speed
 
+    # Live value (with lock)
     @speed.setter
-    def speed(self, valid_value):
-        if (valid_value >= 0 and valid_value <= 100):
-            self._bw.speed = valid_value
+    def speed(self, speed):
+        speed = max(-100, min(100, speed))
+        self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
+        if (speed >= 0):
+            self._bw.speed = speed
             self._mode = self.FORWARD_MODE
             self._bw.forward()
-        elif (valid_value < 0 and valid_value >= -100):
-            self._bw.speed = -1 * valid_value
+        else:
+            self._bw.speed = -1 * speed
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
-        else:
-            raise ValueError("Geschwindigkeit: Wert zwischen -100 und 100 eingeben")
+        with self._lock:
+            self._speed = speed
 
-    # Direction
+    # Direction (equals mode)
+    # Live value (with lock)
     @property
     def direction(self):
-        if self.speed > 0:
-            return 1
-        elif self.speed < 0:
-            return -1
-        else:
-            return 0
+        with self._lock:
+            return self._mode
 
-    def drive(self, speed = None, steer = None):
-        if speed == None:
-            speed = self.speed
-        self.speed = speed
-    
-        if steer == None:
-            steer = self.steering_angle
-        self.steering_angle = steer
+    def drive(self, speed:Optional[int]=None, steering_angle:Optional[int]=None):
+        self.speed = speed if speed is not None else self._speed
+        self.steering_angle = steering_angle if steering_angle is not None else self._steering_angle
 
     def stop(self):
         self.drive(0,90)
