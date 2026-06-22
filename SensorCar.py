@@ -34,14 +34,23 @@ class SensorCar(BaseCar):
         self._sensor_historie = []
         # Anzahl der letzten Werte, für die Ermittlung des Durchschnitt-Messwerts
         self._history_length = 5
-
+        # Initialisiert Integral für Fehler
+        self._integral = 0
+        # Initialisiert Gewichtung für KD
+        self._kd_weight = 0
+        # Letzte Abweichung zur schwarzen Linie (für delta KD)
+        self._last_derivative = 0
+        # Initialisierung Slew Rate
+        self._slew_rate = 0
+        # Letzte Abweichung zur schwarzen Linie (für delta KD)
+        self._lw_previous = 0
         # Letzte Abweichung zur schwarzen Linie (für delta KD)
         self.__previous_error = 0
         # Merkt sich die zuletzt eingeschlagene Richtung (Suchmodus) -1 = links, +1 = rechts, 0 = Mitte
         self.__letzte_richtung = 0
         # Merkt sich die Zeit, zu der die Linie verloren wurde (Suchmodus)
         self.__zeit_linie_verloren = 0
-        # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden
+        # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden      
         self.__suchzeit = 5
 
         if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None) or self.calibration_line_threshold is None:
@@ -171,20 +180,42 @@ class SensorCar(BaseCar):
             return 90
         
         error = sum(np.multiply(messwerte, self.ir_sensor_gewichte))/sum_messwerte
-        
+        # print(error)
+        # if abs(error) < 0.001:
+        #     error = 0
+
         # P
         dKP = (self.korrektur_proportional * error) 
         
         # I
-        self.integral += error
-        self.integral = max(min(self.integral, 50), -50)   # Anti-Windup
-        dKI = self.korrektur_integral * self.integral 
+        self._integral += error
+        self._integral = max(min(self._integral, self.korrektur_integral_max_boundary), self.korrektur_integral_min_boundary)   # Anti-Windup
+        dKI = self.korrektur_integral * self._integral 
         
         # D
-        dKD = (self.korrektur_differential * (error - self.__previous_error))
+        derivative = self._kd_weight * (error - self.__previous_error) + (1-self._kd_weight)*self._last_derivative
+        self._last_derivative = derivative
+        dKD = (self.korrektur_differential * derivative)
+
+
         u = dKP + dKI + dKD
-        lw = max(45, min(135, (90+u)))
+
+        lw = max(45, min(135, 90 + u))
+
+        # Slew-Rate-Limit in beide Richtungen
+        max_step = self._slew_rate
+        delta = lw - self._lw_previous
+
+        if delta > max_step:
+            lw_final = self._lw_previous + max_step
+        elif delta < -max_step:
+            lw_final = self._lw_previous - max_step
+        else:
+            lw_final = lw
+
+        self._lw_previous = lw_final
         self.__previous_error = error
+
 
         # Richtung für Suchmodus merken
         print(f"Current Error: {error}")
@@ -196,9 +227,9 @@ class SensorCar(BaseCar):
 
 
         #print(f"dKP: {dKP}, dKD: {dKD}, u: {u}, lw: {lw}")
-        return lw
+        return lw_final
 
-    def geschwindigkeit_berechnen(self, lenkwinkel : float, update_config=False):
+    def geschwindigkeit_berechnen(self, lw_final : float, update_config=False):
         """Berechnet Geschwindigkeit in Abhängigkeit von Lenkwinkel
 
         Args:
@@ -207,7 +238,7 @@ class SensorCar(BaseCar):
         Returns:
             int: Die berechnete Geschwindigkeit.
         """
-        v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
+        v = self.v_min + (self.v_max - self.v_min) * (1 - ((lw_final-90)/45)**2)
         #v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
 
         return int(max(v, self.v_min))
@@ -269,28 +300,28 @@ class SensorCar(BaseCar):
         return float(self.get_config()["korrektur_integral"])
 
     @property
-    def korrektur_integral_min_value (self) -> float:
+    def korrektur_integral_min_boundary (self) -> float:
         """Liefert den aktuellen Min-Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
 
         Raises:
-            KeyError: Wert "korrektur_integral_min_value" in Config.Json nicht gefunden.
+            KeyError: Wert "korrektur_integral_min_boundary" in Config.Json nicht gefunden.
         
         Returns:
             float: Min. Korrekturwert für die integrale Steuerung   
         """
-        return float(self.get_config()["korrektur_integral_min_value"])
+        return float(self.get_config()["korrektur_integral_min_boundary"])
 
     @property
-    def korrektur_integral_max_value (self) -> float:
+    def korrektur_integral_max_boundary (self) -> float:
         """Liefert den aktuellen Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
 
         Raises:
-            KeyError: Wert "korrektur_integral_max_value" in Config.Json nicht gefunden.
+            KeyError: Wert "korrektur_integral_max_boundary" in Config.Json nicht gefunden.
         
         Returns:
             float: Max. Korrekturwert für die integrale Steuerung   
         """
-        return float(self.get_config()["korrektur_integral_max_value"])
+        return float(self.get_config()["korrektur_integral_max_boundary"])
     
     @property
     def korrektur_differential(self) -> float:
@@ -304,6 +335,30 @@ class SensorCar(BaseCar):
         """
         return float(self.get_config()["korrektur_differential"])
     
+    @property
+    def kd_weight(self) -> float:
+        """Liefert den aktuellen Wert für kd_weight, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "kd_weight" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: kd_weight   
+        """
+        return float(self.get_config()["kd_weight"])
+    
+    @property
+    def slew_rate(self) -> float:
+        """Liefert slew rate für Lenkwinkel, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "slew_rate" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: slew_rate  
+        """
+        return float(self.get_config()["slew_rate"])
+     
     @property
     def bremsfaktor(self) -> float: 
         """Liefert den aktuellen Wert für den Bremsfaktor, der über Methode get_config() aus der Datei json.config ausgelesen wird. Wird verwendet, um die Lenkwinkel-abhängige Geschwindigkeit zu berechnen.
@@ -376,12 +431,12 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                     # Reload config.json from disk
                     car._update_config()
 
-                    lw = car.lenkwinkel_berechnen()
-                    v = car.geschwindigkeit_berechnen(lw)
+                    lw_final = car.lenkwinkel_berechnen()
+                    v = car.geschwindigkeit_berechnen(lw_final)
 
-                    car.drive(v, lw)
+                    car.drive(v, lw_final)
 
-                    print(f"Driving (v: {v}, lw: {lw})")
+                    print(f"Driving (v: {v}, lw: {lw_final})")
                 elif (dm == DrivingMode.FOLLOW_LINE):
                     # Stoppen sobald Linie verloren
                     print(f"Line lost at: {sc.normierte_sensorwerte()}")
