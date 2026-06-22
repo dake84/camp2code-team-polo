@@ -37,14 +37,14 @@ class SonicCar(BaseCar):
         
         return my_distance
     
-    def stop_car(self, max_distance: int = 5):
+    def stop_car(self, max_distance = 5):
         if max_distance > self.get_distance():
             self.stop()
             return False
         else:
             return True
 
-    def drive_straigt_ahead(self, speed_max: int = 80, max_distance: int = 5):
+    def drive_straigt_ahead(self, speed_max = 80, max_distance = 5):
         # Geschwindigkeit abhängig von Abstand zu Hinderniss
         actual_distance = self.get_distance()
 
@@ -135,7 +135,7 @@ class SonicCar(BaseCar):
 
         return data_time, data_speed, data_steer, data_distance
 
-    def room_explorer(self, explorer_time: int = 30, max_distance: int = 5):
+    def room_explorer(self, explorer_time = 30, max_distance = 5):
         bool_time = True
         t_start = time.time()
 
@@ -184,10 +184,42 @@ class SonicCar(BaseCar):
 
         return drive_explore_data
 
+    def get_drive_parameter(self, explorer_time = 10):
+
+        bool_time = True
+        t_start = time.time()
+
+        data_time, data_speed, data_steer, data_distance = self.get_data(data_time = None, 
+                                                                                    data_speed = None,
+                                                                                    data_steer = None,
+                                                                                    data_distance = None)
+
+        while bool_time == True:
+                if time.time() - t_start > explorer_time:
+                    bool_time = False
+                
+                data_time, data_speed, data_steer, data_distance = self.get_data(data_time = data_time, 
+                                                                                    data_speed = data_speed,
+                                                                                    data_steer = data_steer,
+                                                                                    data_distance = data_distance)
+        
+        drive_explore_data = data_time, data_speed, data_steer, data_distance
+
+        plt.plot(np.array(drive_explore_data[0]) - drive_explore_data[0][0], np.array(drive_explore_data[1]))
+        plt.show()
+
+        return drive_explore_data
+
 
 if __name__ == '__main__':
     print('Hier mal die main')
 
     car1 = SonicCar()
-    car1.room_explorer(explorer_time = 10, max_distance = 5)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future1 = executor.submit(car1.get_drive_parameter, explorer_time=10)
+        future2 = executor.submit(car1.room_explorer, explorer_time=10, max_distance=5)
+
+        ergebnis1 = future1.result()
+        ergebnis2 = future2.result()
 
