@@ -84,18 +84,19 @@ class SensorCar(BaseCar):
 
     def sensor_historie(self, history_length: int = 0) -> list:
         if (history_length<1): history_length = self._history_length
-        if (len(self._sensor_historie) > self._history_length):
+        self._sensor_historie.append(self._ir.read_analog())
+
+        if (len(self._sensor_historie) >= history_length):
             # Kürze Historie, falls länger als length
-            self._sensor_historie = self._sensor_historie[-self._history_length:]
+            self._sensor_historie = self._sensor_historie[-history_length:]
+        else:
+            while(len(self._sensor_historie)<history_length): 
+                self._sensor_historie.append(self._ir.read_analog())
         
         return self._sensor_historie
 
     def normierte_sensorwerte(self, history_length: int=0) -> list:
-        if (history_length<1): history_length = self._history_length
-        self._sensor_historie.append(self._ir.read_analog())
-
         messwerte = np.mean(self.sensor_historie(history_length), axis = 0)
-
         normierte_werte = []
 
         for i in range(len(messwerte)):
@@ -178,7 +179,9 @@ class SensorCar(BaseCar):
         Returns:
             int: Die berechnete Geschwindigkeit.
         """
-        v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
+        #v = self.v_min + (self.v_max - self.v_min) * (1 - ((lenkwinkel-90)/45)**2)
+        v = max(0, self.v_max - (self.bremsfaktor * abs((lenkwinkel - 90))))
+
         return int(max(v, self.v_min))
    
     def is_on_line(self, lost_time: float=0, history_length:int=0) -> bool:
@@ -208,7 +211,7 @@ class SensorCar(BaseCar):
         if (self.__zeit_linie_verloren > 0):
             while (time.time() - self.__zeit_linie_verloren < self.__suchzeit):
                 self.drive(self.v_min, (90+(self.__letzte_richtung*45)))
-                if (self.is_on_line(lost_time=self.__zeit_linie_verloren, history_length=100)):
+                if (self.is_on_line(lost_time=self.__zeit_linie_verloren, history_length=1)):
                     return True
             return False
         raise RuntimeError("Keine Suchzeit gesetzt (Lost-Time: {self.__zeit_linie_verloren}, Search-Time: {self.__suchzeit})")
@@ -314,6 +317,7 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                     print(f"Driving (v: {v}, lw: {lw})")
                 elif (dm == DrivingMode.FOLLOW_LINE):
                     # Stoppen sobald Linie verloren
+                    print(f"Line lost at: {sc.normierte_sensorwerte()}")
                     car.stop()
                     while not car.is_on_line() and not stop_event.is_set():
                         # Reload config.json from disk
@@ -321,10 +325,15 @@ def auto_fahren(car : BaseCar, dm : int=DrivingMode.FOLLOW_LINE):
                         time.sleep(0.5)
                 elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE):
                     # Suchen sobald Linie verloren
+                    print(f"Line lost at: {sc.normierte_sensorwerte()}")
                     print("Suche Weg...")
                     if (not car.search()):
                         print("Weg nicht gefunden")
-                        #break
+                        next = input("<ENTER> zum Weitersuchen oder <x> zum Beenden")
+                        if (next == "x"):
+                            continue
+                        else:
+                            break
                     else:
                         print("Weg gefunden")
                 #    print(f"Lenkwinkel: {lw}, Geschwindigkeit: {v}")
