@@ -267,6 +267,30 @@ class SensorCar(BaseCar):
             float: Korrekturwert für die integrale Steuerung   
         """
         return float(self.get_config()["korrektur_integral"])
+
+    @property
+    def korrektur_integral_min_value (self) -> float:
+        """Liefert den aktuellen Min-Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "korrektur_integral_min_value" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: Min. Korrekturwert für die integrale Steuerung   
+        """
+        return float(self.get_config()["korrektur_integral_min_value"])
+
+    @property
+    def korrektur_integral_max_value (self) -> float:
+        """Liefert den aktuellen Wert für die integrale Korrektur, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "korrektur_integral_max_value" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: Max. Korrekturwert für die integrale Steuerung   
+        """
+        return float(self.get_config()["korrektur_integral_max_value"])
     
     @property
     def korrektur_differential(self) -> float:
