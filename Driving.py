@@ -16,7 +16,7 @@ class DrivingMode():
     EXPLORE = 40
     FOLLOW_LINE = 50
     ADVANCED_FOLLOW_LINE = 60
-    ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70,
+    ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70
     STADIA_CONTROLLER = 100
 
     SUPPORTED_DRIVING_MODES = {
@@ -29,7 +29,7 @@ class DrivingMode():
         FOLLOW_LINE: SensorCar,
         ADVANCED_FOLLOW_LINE: SensorCar,
         ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION: SensorCar,
-        STADIA_CONTROLLER: BaseCar,
+        STADIA_CONTROLLER: BaseCar
     }
 
     @staticmethod
@@ -75,12 +75,12 @@ class DriveController():
         # Im Test Mode wird die cfg laufend nachgeladen (macht's vieeeel langsamer)
         self._test_mode = True
 
-        if (driving_mode not in DrivingMode.SUPPORTED_DRIVING_MODES or isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode])): 
-            raise ValueError(f"DrivingMode {driving_mode} nicht unterstützt für Fahrzeug vom Typ {type(car)}.")
+        if (driving_mode not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode])): 
+            raise ValueError(f"DrivingMode {driving_mode} nicht unterstützt für Fahrzeug vom Typ {type(car)} (bedingt {DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode]}).")
     
     def drive_car(self, stop_event:threading.Event, driving_mode:Optional[int]=None):
         dm = driving_mode if driving_mode is not None else self._dm
-        if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
+        if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
             raise ValueError(f"DrivingMode {dm} nicht unterstützt für Fahrzeug vom Typ {type(self._car)}.")
 
         self.run = True

@@ -3,12 +3,12 @@ import logging
 import threading
 import time
 
-from BaseCar import BaseCar
+import BaseCar
 
 
 class CarLogger():
 
-    def __init__(self, car:BaseCar, logfile="car_log.json", log_name="CarLogger", log_level=logging.INFO):
+    def __init__(self, car:BaseCar.BaseCar, logfile="car_log.json", log_name="CarLogger", log_level=logging.INFO):
         self._lastTime = 0
 
         self._logger = logging.getLogger(log_name)

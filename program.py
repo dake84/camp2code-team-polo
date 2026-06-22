@@ -1,17 +1,17 @@
 
 import threading
 
-from CarLogger import CarLogger
+import CarLogger
 import Driving
-from InfraredSensor import InfraredSensors
-from SensorCar import SensorCar
+import InfraredSensor
+import SensorCar
 
 
 if __name__ == '__main__':
-    sc = SensorCar()
+    sc = SensorCar.SensorCar()
     
-    ir = InfraredSensors(sc)
-    cl = CarLogger(sc)
+    ir = InfraredSensor.InfraredSensor(sc)
+    cl = CarLogger.CarLogger(sc)
     dc = Driving.DriveController(sc, Driving.DrivingMode.FORWARD_BACKWARD)
 
 

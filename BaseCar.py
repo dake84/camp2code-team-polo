@@ -2,7 +2,6 @@
 from threading import Lock
 from typing import Any, Optional
 
-from CarLogger import CarLogger
 from ConfigReader import ConfigReader
 from basisklassen import BackWheels, FrontWheels
 import time
@@ -18,10 +17,10 @@ class BaseCar():
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
+        self._config = config if config is not None else ConfigReader("car")
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
-        self._config = config if config is not None else ConfigReader(type(self))
 
         self._lock = Lock()
 
@@ -61,17 +60,17 @@ class BaseCar():
     # Value from cfg_file
     @property
     def turning_offset(self) -> int:
-        return int(self.get_config()["turning_offset"])
+        return self.get_config().get("turning_offset", 0)
 
     # Value from cfg_file
     @property
     def forward_a(self) -> int:
-        return int(self.get_config()["forward_A"])
+        return self.get_config().get("forward_A", 0)
     
     # Value from cfg_file
     @property
     def forward_b(self) -> int:
-        return int(self.get_config()["forward_B"])
+        return self.get_config().get("forward_B", 0)
 
     def test_wheels(self):
         self._fw.test()

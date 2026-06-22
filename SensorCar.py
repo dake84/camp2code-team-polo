@@ -1,6 +1,5 @@
 from typing import Optional
 from BaseCar import BaseCar
-from SonicCar import SonicCar
 
 from ConfigReader import ConfigReader
 

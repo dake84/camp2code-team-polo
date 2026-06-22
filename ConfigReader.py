@@ -2,20 +2,19 @@ import json
 import threading
 from typing import Any, Optional
 
-from BaseCar import BaseCar
-from InfraredSensor import InfraredSensors
-
 class ConfigReader():
 
-    DEFAULT_NAMESPACES = {
-        BaseCar: "car",
-        InfraredSensors: "ir_sensors"
-    }
+    #DEFAULT_NAMESPACES = {
+    #    BaseCar.BaseCar: "car",
+    #    InfraredSensor.InfraredSensor: "ir_sensors"
+    #}
 
-    def __init__(self, cfg_namespace:str|type, config_file="new_config.json") -> None:
+    def __init__(self, cfg_namespace:str, config_file="new_config.json") -> None:
         self._config_file = config_file
-        self._cfg_namespace = self.DEFAULT_NAMESPACES[type] if isinstance(cfg_namespace, type) else cfg_namespace 
+    #    self._cfg_namespace = self.DEFAULT_NAMESPACES[type] if isinstance(cfg_namespace, type) else cfg_namespace 
+        self._cfg_namespace = cfg_namespace
         self._lock = threading.Lock()
+        self._load_config_file()
         pass
 
     def _load_config_file(self):

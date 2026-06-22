@@ -5,18 +5,18 @@ from typing import Optional
 
 import numpy as np
 
-from ConfigReader import ConfigReader
+import ConfigReader
 from SensorCar import SensorCar
 from basisklassen import Infrared
 
 
-class InfraredSensors(Infrared):
+class InfraredSensor(Infrared):
 
-    def __init__(self, car:SensorCar, sensor_config:Optional[ConfigReader]=None) -> None:
+    def __init__(self, car:SensorCar, sensor_config:Optional[ConfigReader.ConfigReader]=None) -> None:
         super().__init__()
         # Legacy Code
         self._history_length = 1
-        self._cfg = sensor_config if sensor_config is not None else ConfigReader(type(self))
+        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("ir_sensors")
         self._car = car 
         self._sensor_min_values = self._cfg.get_list("sensor_min_values", [200,200,200,200,200])
         self._sensor_max_values = self._cfg.get_list("sensor_max_values", [800,800,800,800,800])
