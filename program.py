@@ -38,10 +38,9 @@ if __name__ == '__main__':
 
     stop_event = threading.Event()
 
-
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
-    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.APPROACH_OBSTACLE])
+    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.EXPLORE])
     #dl_thread=threading.Thread(target=dl.run, args=[stop_event])
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 

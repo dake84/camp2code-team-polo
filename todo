@@ -1,13 +1,13 @@
 
 Driving.py:
-- Lenkwinkel-Berechung in DriveController implementieren und Log-Values bereitstellen
+- Lenkwinkel-Berechung in DriveController implementieren und Log-Values bereitstellen -> @Peter
 --> Geloggte Werte auswerten zur Verbesserung Fahrparameter
 - Ultrasonic-Fahrmodi in DriveController implementieren (Methode drive_car())
--- Fahrmodus 3: drive_straigt_ahead @all
--- Fahrmodus 4: room_explorer @all
+-- Fahrmodus 3: drive_straigt_ahead @all -> ok
+-- Fahrmodus 4: room_explorer @Jan -> morgen
 - SensorMin-/SensorMax-Values in Config schreiben (nach "Kalibrierungsfahrt") (mglw. eigener Fahrmodus analog "Explore" bzw. "Obstacle Detection" -> kann das Auto wieder zum Ursprungsort zurückfinden???)
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/ (google-style)
-- Nice-To-Have: Keyboard-Fahrmodus in DriveController implementieren (Methode drive_car())
+- Nice-To-Have: Keyboard-Fahrmodus in DriveController implementieren (Methode drive_car()) --> @Markus
 - Nice-To-Have: Stadia/PS-Controller-Fahrmodus in DriveController implementieren (Methode drive_car())
 - Nice-To-Have: new_config.json programmatisch erzeugen (bspw. als Methode im Car/Sensor/DrivingController ("write_default_config(self): self._config.save_config()"?))
 - Error in Error-Log schreiben (aus Thread heraus) @Peter
@@ -33,6 +33,7 @@ InfraredSensor.py:
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
 Dashboard.py:
+- Aufbau / Setup ->@Heinrich
 - SensorCar Werte für Dashboard bereitstellen
 - DriveController Werte für Dashboard bereitstellen
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/

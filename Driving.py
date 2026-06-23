@@ -74,9 +74,8 @@ class DriveController(Loggable):
         self._dm = driving_mode
         self._car = car if car is not None else BaseCar()
         
-        self._log = logging.getLogger(__name__)
-        #logging.basicConfig(filename="drive_contoller.log", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-        self._log.error("FEHLER!!!!")
+        self._log = logging.getLogger(self.__class__.__name__)
+
 
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("drive_controller")
 
@@ -159,8 +158,11 @@ class DriveController(Loggable):
                 self._log.error(e)
         elif (dm == DrivingMode.EXPLORE):
             # Fahrmodus 4
-            if isinstance(self._car, SensorCar):
-                self._room_explorer(self._car, stop_event)
+            try:
+                if isinstance(self._car, SensorCar):
+                    self._room_explorer(self._car, stop_event)
+            except Exception as e:
+                self._log.error(e)
         elif (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE)):
             self._follow_line(dm, stop_event)
         elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION):
@@ -262,7 +264,7 @@ class DriveController(Loggable):
                     car.drive(car.v_max, 90)
     
                 actual_distance = car.distance
-                
+
             self.stop_car(StopReason.OBSTACLE_AHEAD)
         
     def _calculate_speed_from_distance(self, car:SonicCar, distance:int):
