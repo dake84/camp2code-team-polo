@@ -1,11 +1,28 @@
 {
     "ir_sensors": {
         "sensor_min_values": [0,0,0,0,0],
-        "sensor_max_values": [800,800,800,800,800]
+        "sensor_max_values": [800,800,800,800,800],
+        "korrektur_proportional": 50,
+        "korrektur_integral": 10,
+        "korrektur_differential": 150,
+        "korrektur_integral_min_boundary": -30,
+        "korrektur_integral_max_boundary": 30,
+        "kd_weight": 0.1,
+        "slew_rate": 3,
+        "ir_sensor_weights": [
+            2,
+            1,
+            0,
+            -1,
+            -2
+        ],
+    "calibration_line_threshold_dyn": 0.5,
+     "error tolerance" : 0.01
+
     },
     "car": {
         "turning_offset": 0,
-        "v_min": 20,
+        "v_min": 30,
         "v_max": 100
     },
     "us_sensors": {

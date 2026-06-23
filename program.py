@@ -6,7 +6,7 @@ import Driving
 import InfraredSensor
 import UltrasonicSensor
 import SensorCar
-
+import signal
 import sys
 import traceback
 
@@ -18,7 +18,7 @@ def dump_threads(signum, frame):
         traceback.print_stack(stack)
     sys.exit(1)
 
-import signal
+
 signal.signal(signal.SIGINT, dump_threads)
 
 if __name__ == '__main__':
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     us_sensor_thread.join()
     print("...ended!")
     print("Ending logging thread...", end="")
-    dl_thread.join()
+    # dl_thread.join()
     cl_thread.join()
     print("...ended!")
     print("Ending controller thread...", end="")
