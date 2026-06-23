@@ -123,7 +123,7 @@ class SonicCar(BaseCar):
 
 
         print("Ausgabe:",my_distance, distance_clamped)
-        return distance_clamped
+        return my_distance, distance_clamped
 
     def stop_car(self, actual_distance: int, max_distance: int = 30):
         """Stopt das Auto wenn der 'max_distance' Wert unterschritten wird.
@@ -144,36 +144,6 @@ class SonicCar(BaseCar):
             return False
         else:
             return True
-
-    def drive_straigt_ahead(self, speed_max: int = 80, max_distance: int = 30):
-        """Drive Methode: Fährt so lange gerade aus, bis die 'max'distance' unterschritten wurde. 
-           Wenn 'max_distance' unterschritten wird, wird aus 'BaseCar' die Methdoe 'stop()' aufgeraufen
-
-        Args:
-            speed_max (int): Maximale Geschwindigkeit. Defaults ist 80.
-            max_distance (int): Maximale Distance. Defaults is 5.
-        """        
-        stop_car_bool = True
-
-        self._set_latest_drive_state(self.speed, self.steering_angle)
-
-        while stop_car_bool:
-            actual_distance, actual_time = self._get_latest_distance() # Holt sich den letzten Sensorwert
-
-            if actual_distance is None:
-                time.sleep(0.02)
-                continue
-
-            if actual_distance < 40:
-                actual_speed = actual_distance + 15
-                stop_car_bool = self.stop_car(actual_distance=actual_distance,
-                                              max_distance=max_distance)
-                if stop_car_bool:
-                    self._drive_cmd(speed=actual_speed, steer=90)
-            else:
-                self._drive_cmd(speed=speed_max, steer=90)
-
-            time.sleep(0.02)
 
     def overcome_obstacle(self):
         """Methode, damit das Auto, wenn es auf ein Hinderniss stößt, Rückwerts fährt mit Lenkung
@@ -359,8 +329,35 @@ class SonicCar(BaseCar):
 
         return drive_parameter_data
 
-    def fahrmodus_3(self):
-        return print('Fahrmodus 3')
+    def fahrmodus_3(self, speed_max: int = 80, max_distance: int = 30):
+        """Drive Methode: Fährt so lange gerade aus, bis die 'max'distance' unterschritten wurde. 
+           Wenn 'max_distance' unterschritten wird, wird aus 'BaseCar' die Methdoe 'stop()' aufgeraufen
+
+        Args:
+            speed_max (int): Maximale Geschwindigkeit. Defaults ist 80.
+            max_distance (int): Maximale Distance. Defaults is 5.
+        """        
+        stop_car_bool = True
+
+        self._set_latest_drive_state(self.speed, self.steering_angle)
+
+        while stop_car_bool:
+            actual_distance, actual_time = self._get_latest_distance() # Holt sich den letzten Sensorwert
+
+            if actual_distance is None:
+                time.sleep(0.02)
+                continue
+
+            if actual_distance < 40:
+                actual_speed = actual_distance + 15
+                stop_car_bool = self.stop_car(actual_distance=actual_distance,
+                                              max_distance=max_distance)
+                if stop_car_bool:
+                    self._drive_cmd(speed=actual_speed, steer=90)
+            else:
+                self._drive_cmd(speed=speed_max, steer=90)
+
+            time.sleep(0.02)
     
     def fahrmodus_4(self, Fahrdauer: int = 20, max_distance: int = 30):
 
@@ -401,11 +398,6 @@ if __name__ == '__main__':
     print('Hier mal die main')
 
     sc = SonicCar()
-    #sc.fahrmodus_4(Fahrdauer = 20, max_distance = 30)
+    sc.fahrmodus_4(Fahrdauer = 20, max_distance = 30)
 
-    for i in range(60):
-
-        sc.get_distance()
-        time.sleep(0.1)
-
-   
+        
