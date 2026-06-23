@@ -85,7 +85,6 @@ class DriveController(Loggable):
         self._lw_debug_values = {}
 
 
-
     def drive_car(self, stop_event:threading.Event, driving_mode:Optional[int]=None):
         dm = driving_mode if driving_mode is not None else self._dm
         if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
@@ -142,8 +141,10 @@ class DriveController(Loggable):
             self._car.stop()
             print(f"Fahrmodus 2 {direction[1]} beendet.")              
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
+            # Fahrmodus 3
             raise NotImplementedError(f"Fahrmodus {dm} noch nicht implementiert")
         elif (dm == DrivingMode.EXPLORE):
+            # Fahrmodus 4
             raise NotImplementedError(f"Fahrmodus {dm} noch nicht implementiert")
         elif (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE)):
             self._follow_line(dm, stop_event)
