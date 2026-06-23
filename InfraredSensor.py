@@ -68,7 +68,7 @@ class InfraredSensor(Infrared):
         )
 
     def _dynamic_calibration(self, sensors:list[float]):
-        learning_rate = self._cfg.get("learning_rate", 0.1)
+        learning_rate = self._cfg.get_float("learning_rate", 0.1)
         self._log.debug(f"Calibrating IR-Sensors with learning_rate {learning_rate} dynamically...")
 
         for i in range(len(sensors)):
