@@ -355,6 +355,8 @@ class DriveController(Loggable):
         # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
         with self._lock:
             self._log.debug("Zweischenwert.... für die Log-Datei")
+            self._log.error("Fehler")
+            
             self._lw_debug_values["integral"] = 0
             self._lw_debug_values["sum_messwerte"] = 0
 

@@ -24,7 +24,6 @@ class BaseCar(Loggable):
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
         self._log = logging.getLogger(self.__class__.__name__)
 
-
         self._lock = RLock()
 
     def get_logging_payload(self, log_level:int=logging.INFO) -> dict:

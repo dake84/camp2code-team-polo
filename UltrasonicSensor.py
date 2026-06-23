@@ -12,19 +12,19 @@ import logging
 
 class UltrasonicSensor(Ultrasonic):
 
-    def __init__(self, car:SonicCar, sensor_config:Optional[ConfigReader.ConfigReader]=None, scan_frequency:int=20) -> None:
+    def __init__(self, car:SonicCar, sensor_config:Optional[ConfigReader.ConfigReader]=None) -> None:
         super().__init__()
 
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("us_sensors")
         self._car = car 
 
-        self._log = logging.getLogger(__name__)
+        self._log = logging.getLogger(self.__class__.__name__)
         logging.basicConfig(filename="ultrasensors.log", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
         self._min_distance = self._cfg.get("min_distance", 0)
         self._max_distance = self._cfg.get("max_distance", 0)
 
-        self._scan_frequency = scan_frequency
+        self._scan_frequency = self._cfg.get_int("scan_frequency", 50)
 
 
     @property

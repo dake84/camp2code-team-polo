@@ -1,15 +1,22 @@
 {
-    "turning_offset": 0,
-    "forward_A": 0,
-    "forward_B": 0,
-    "bremsfaktor": 1.5,
-    "v_max": 50,
-    "v_min": 25,
-    "ir_sensor_weights": [2,1,0,-1,-2],
-    "korrektur_proportional": 50,
-    "korrektur_integral": 10,
-    "korrektur_differential": 150,
-    "calibration_line_threshold": 4300,
-    "ir_sensor_min_values": [5.5, 5.7, 5, 7, 8.2],
-    "ir_sensor_max_values": [59.6, 59.3, 58.3, 68.9, 91.2]
+    "car": {
+        "turning_offset": 0,
+        "v_min": 20,
+        "v_max": 100
+    },
+    "us_sensors": {
+        "min_distance": 0,
+        "max_distance": 300,
+        "scan_frequency": 10
+    },
+    "ir_sensors": {
+        "sensor_min_values": [0,0,0,0,0],
+        "sensor_max_values": [800,800,800,800,800],
+        "scan_frequency": 50
+    },
+    "drive_controller": {
+        "ultrasonic_max_distance_to_stop": 30,
+        "explorer_max_time": 5
+        
+    }
 }
