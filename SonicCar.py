@@ -123,7 +123,7 @@ class SonicCar(BaseCar):
 
 
         print("Ausgabe:",my_distance, distance_clamped)
-        return my_distance, distance_clamped
+        return distance_clamped
 
     def stop_car(self, actual_distance: int, max_distance: int = 30):
         """Stopt das Auto wenn der 'max_distance' Wert unterschritten wird.
