@@ -1,3 +1,8 @@
 {
-
+    "ir_sensors": {
+        "sensor_min_values": [0,...]
+    },
+    "car": {
+        "turning_offset": 0
+    }
 }

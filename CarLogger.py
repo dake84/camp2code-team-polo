@@ -1,13 +1,15 @@
 
-from abc import ABC
+from abc import ABC, abstractmethod
 import logging
 import threading
 import time
+from pythonjsonlogger import jsonlogger
 
 class Loggable(ABC):
 
-    def get_logging_payload(self) -> dict:
-        return {}
+    @abstractmethod
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
+        pass
         
 
 
@@ -26,11 +28,17 @@ class CarLogger():
         file_handler.setLevel(log_level)
         
         # Einfaches Format für die Datei (Zeit - Nachricht)
-        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        #formatter = logging.Formatter('%(asctime)s - %(message)s')
+        formatter = jsonlogger.JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+            rename_fields={"asctime": "timestamp", "levelname": "level"}
+        )
         file_handler.setFormatter(formatter)
         
         # Handler an den Logger hängen
         self._logger.addHandler(file_handler)
+
+        self._log_level = log_level
 
     @property
     def logger(self):
@@ -45,4 +53,4 @@ class CarLogger():
             time.sleep(0.1)
        
     def log_car_state(self):
-        self._logger.info(self._car.get_logging_payload())
+        self._logger.log(self._log_level, self._car.get_logging_payload())

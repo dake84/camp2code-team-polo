@@ -1,0 +1,35 @@
+
+Driving.py:
+- Lenkwinkel-Berechung in DriveController implementieren und Log-Values bereitstellen
+--> Geloggte Werte auswerten zur Verbesserung Fahrparameter
+- Ultrasonic-Fahrmodi in DriveController implementieren (Methode drive_car())
+- Keyboard-Fahrmodus in DriveController implementieren (Methode drive_car())
+- Stadia/PS-Controller-Fahrmodus in DriveController implementieren (Methode drive_car())
+- new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))
+- SensorMin-/SensorMax-Values in Config schreiben (nach "Kalibrierungsfahrt") (mglw. eigener Fahrmodus analog "Explore" bzw. "Obstacle Detection" -> kann das Auto wieder zum Ursprungsort zurückfinden???)
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
+
+program.py
+- Auswahl Fahrmodi + mgl. Anzeige Statistiken nach Fahrt in program.py implementieren (interaktive Konsole)
+- Fahrmodi per CLI-Argumente übergeben ("argparse") --> https://www.geeksforgeeks.org/python/command-line-option-and-argument-parsing-using-argparse-in-python/
+- "Run-Button" in VSC konfigurieren (run / debug configuration) --> https://python.land/creating-python-programs/python-in-vscode
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
+
+UltrasonicSensor.py:
+- Ultrasonic-Sensor analog InfraredSensors implementieren
+- new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))
+--> als eigenen Thread in program.py implementieren
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
+
+InfraredSensor.py:
+- new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
+
+Dashboard.py:
+- SensorCar Werte für Dashboard bereitstellen
+- DriveController Werte für Dashboard bereitstellen
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
+
+CarLogger.py:
+- Umgang mit "Debug"-Logeinträgen (bspw. eigenes Log?) --> https://docs.python.org/3/howto/logging.html#logging-basic-tutorial
+- Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/

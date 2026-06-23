@@ -1,6 +1,7 @@
 
-from threading import Lock, RLock
+from threading import RLock
 from typing import Any, Optional
+import logging
 
 from CarLogger import Loggable
 from ConfigReader import ConfigReader
@@ -25,7 +26,7 @@ class BaseCar(Loggable):
 
         self._lock = RLock()
 
-    def get_logging_payload(self) -> dict:
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
         with self._lock:
             return {
                 "timestamp": time.time(),
@@ -99,7 +100,7 @@ class BaseCar(Loggable):
 
     # Live value (with lock)
     @speed.setter
-    def speed(self, speed):
+    def speed(self, speed):       
         speed = max(-100, min(100, speed))
         self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
         if (speed >= 0):
@@ -126,90 +127,3 @@ class BaseCar(Loggable):
 
     def stop(self):
         self.drive(0,90)
-
-### MW: Test Fahrmodi ###
-
-def test_fahrmodus_1(car):
-    print('Starte Fahrmodus 1')
-    car.stop()
-    time.sleep(1)
-
-    car.drive(30)
-    print(f"3 Sekunden vorwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(3)
-
-    car.stop()
-    print(f"1 Sekunde Stopp. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(1)
-    
-    car.drive(-30)
-    print(f"3 Sekunden rückwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(3)
-
-    car.stop()
-    print(f"Fahrmodus 1 beendet. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-
-def test_fahrmodus_2_rechts(car):
-    print('Starte Fahrmodus 2 (Rechts/Uhrzeigersinn)')
-    car.stop()
-    time.sleep(1)
-
-    car.drive(30)
-    print(f"1 Sekunde vorwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(1)
-
-    car.drive(30, 135)
-    print(f"8 Sekunden rechts vorwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(8)
-
-    car.stop()
-    print(f"Kurzer Zwischenstopp. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(2)
-
-    car.drive(-30, 135)
-    print(f"8 Sekunden rechts rückwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(8)
-
-    car.drive(-30, 90)
-    print(f"1 Sekunde rückwärts zum Startpunkt. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(1)
-
-    car.stop()
-    print(f"Fahrmodus 2 rechts beendet.")
-
-def test_fahrmodus_2_links(car):
-    print('Starte Fahrmodus 2 (Links/Gegen Uhrzeigersinn)')
-    car.stop()
-    time.sleep(1)
-
-    car.drive(30)
-    print(f"1 Sekunde vorwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(1)
-
-    car.drive(30, 45)
-    print(f"8 Sekunden links vorwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(8)
-
-    car.stop()
-    print(f"Kurzer Zwischenstopp. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(2)
-
-    car.drive(-30, 45)
-    print(f"8 Sekunden links rückwärts. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(8)
-
-    car.drive(-30, 90)
-    print(f"1 Sekunde rückwärts zum Startpunkt. Geschwindigkeit: {car.speed}, Lenkwinkel: {car.steering_angle}")
-    time.sleep(1)
-
-    car.stop()
-    print(f"Fahrmodus 2 links beendet.")
-
-if __name__ == '__main__':
-    print('Testfahrt beginnt')
- 
-    car1 = BaseCar()
-    test_fahrmodus_1(car1)
-    #test_fahrmodus_2_rechts(car1)
-    #test_fahrmodus_2_links(car1)
-

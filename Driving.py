@@ -1,6 +1,7 @@
 import threading
 import time
-from typing import List, Optional
+from typing import Optional
+import logging
 
 from BaseCar import BaseCar
 from CarLogger import CarLogger, Loggable
@@ -79,6 +80,11 @@ class DriveController(Loggable):
             raise ValueError(f"DrivingMode {driving_mode} nicht unterstützt für Fahrzeug vom Typ {type(car)} (bedingt {DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode]}).")
     
         self._lock = threading.Lock()
+
+        # Inititalize var for lenkwinkel calc debug values
+        self._lw_debug_values = {}
+
+
 
     def drive_car(self, stop_event:threading.Event, driving_mode:Optional[int]=None):
         dm = driving_mode if driving_mode is not None else self._dm
@@ -236,7 +242,12 @@ class DriveController(Loggable):
     def _calc_steering_angle_from_ir_sensors(self, messwerte:list[float], korrektur_proportional:float, korrektur_integral:float, summe_integral:float, anti_windup:float, korrektur_differential:float, previous_error:float, last_time:float) -> tuple[float, float, float, int]:
         if not isinstance(self._car, SensorCar): raise ValueError(self.__ve(SensorCar))
 
+        
         # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
+        with self._lock:
+            self._lw_debug_values["integral"] = 0
+            self._lw_debug_values["sum_messwerte"] = 0
+
 
         raise NotImplementedError(f"Fahrmodus noch nicht implementiert")
 
@@ -250,13 +261,12 @@ class DriveController(Loggable):
     def __ve(self, typ:type) -> str:
         return f"{type(self._car)} nicht kompatibel mit dieser Funktion. Mindestens Fahrzeug vom Typ {typ} notwendig."
 
-
     # TODO LOG COMPUTED VALUES
-    def get_logging_payload(self) -> dict:
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
         with self._lock:
             payload = self._car.get_logging_payload()
             payload["lenkwinkel"] = "yet to be implemented"
-            payload["error"] = "yet to be implemented"
-            payload["previous_error"] = "yet to be implemented"
+            if (log_level == logging.DEBUG):
+                payload["lenkwinkel_calculus"] = self._lw_debug_values
             return payload
 

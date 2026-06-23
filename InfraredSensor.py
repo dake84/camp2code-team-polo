@@ -3,8 +3,6 @@ import threading
 import time
 from typing import Optional
 
-import numpy as np
-
 import ConfigReader
 from SensorCar import SensorCar
 from basisklassen import Infrared
