@@ -1,3 +1,5 @@
+from typing import Any
+
 from basisklassen import BackWheels, FrontWheels
 import time
 import json
@@ -8,26 +10,49 @@ class BaseCar():
     FORWARD_MODE = 1
     BACKWARD_MODE = -1
 
+    _json_config = {}
+
     def __init__(self):
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        self._json_config = None
-
+        self._update_config()
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
 
+    def _save_config(self, file: str = "config.json") -> bool:
+        # ToDo:
+        # Löschen von Attributen/Werten nur wenn delete_keys=true
+        try:
+            with open(file, "w", encoding="utf-8") as jf:
+                json.dump(self._json_config, jf, indent=4, ensure_ascii=True)
+            return True
+        except OSError as e:
+            print(f"Fehler beim Schreiben der Config-File: {e}")
+            return False
+
+    def set_config(self, attribut: str, values = any, save_config=False) -> bool:
+        if (self._json_config is None):
+            self._update_config()
+        self._json_config[attribut] = values
+        if (save_config): self._save_config()
+
+        return False
 
     def get_config(self, file: str = "config.json", force_update = False):
         if (force_update or self._json_config is None):
-            try:
-                with open(file, "r") as f:
-                    self._json_config = json.load(f)
-            except:
-                print("Keine geeignete Datei config.json gefunden!")
-                raise AttributeError(name=f"Datei {file} nicht verfügbar")
-        
+            self._update_config(file)     
+        if (self._json_config is None):
+            return {}
         return self._json_config
+
+    def _update_config(self, file: str = "config.json") -> Any:
+        try:
+            with open(file, "r") as f:
+                self._json_config = json.load(f)
+        except:
+            print("Keine geeignete Datei config.json gefunden!")
+            raise AttributeError(name=f"Datei {file} nicht verfügbar")
     
     @property
     def turning_offset(self) -> int:
