@@ -5,12 +5,11 @@ import time
 from typing import Optional
 
 import ConfigReader
-from Configurable import Configurable
 from SensorCar import SensorCar
 from basisklassen import Infrared
 
 # Maybe later ;-P
-#class InfraredSensor(Configurable, Infrared):
+#class InfraredSensor(ConfigReader.Configurable, Infrared):
 class InfraredSensor(Infrared):
 
     def __init__(self, car:SensorCar, sensor_config:Optional[ConfigReader.ConfigReader]=None) -> None:

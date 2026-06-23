@@ -3,6 +3,13 @@ import threading
 import logging
 from typing import Any, Optional
 
+class Configurable():
+    
+    def __init__(self, config_reader:Optional[ConfigReader]=None):
+        self._cfg = config_reader if config_reader is not None else ConfigReader("ir_sensors")
+
+
+
 class ConfigReader():
 
     #DEFAULT_NAMESPACES = {
