@@ -5,7 +5,6 @@ from dash import Dash, Input, Output, State, dcc, html
 
 from SonicCar import SonicCar
 
-
 import threading
 app = Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -69,6 +68,7 @@ def update_values(n):
 # Button, bei n_clicks wird start_fahrmodus gestartet
 @app.callback(
     Input('button_start_fahrmodi', 'n_clicks'),
+    prevent_initial_call=True
 )
 def start_fahrmodus(clicks): # Für jeden Input brauch tdie Funktion eine Variable
     threading.Thread(target = car.fahrmodus_4(Fahrdauer = 5), daemon = True).start()

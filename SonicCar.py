@@ -72,8 +72,8 @@ class SonicCar(BaseCar):
         """Workarount umd den speed/Lenkung zu setzen
 
         Args:
-            speed (int, optional): Speed Wert zwischen -100 bis 100. Defaults to None.
-            steer (int, optional): Lenkwinken: 45 bis 135 - 90 ist gerade aus. Defaults to None.
+            speed (int): Speed Wert zwischen -100 bis 100. Defaults to None.
+            steer (int): Lenkwinken: 45 bis 135 - 90 ist gerade aus. Defaults to None.
 
         Returns:
             setzt über die 'drive' Methode aus BaseCar die Werte
@@ -105,18 +105,25 @@ class SonicCar(BaseCar):
 
         print(my_distance)
 
-        set_max_distance = 100
+        set_max_distance = 300
+        set_min_distance = 0
+        distance_clamped = my_distance
+       
 
         if my_distance == -1:
-            my_distance = set_max_distance
+            distance_clamped = set_max_distance
         elif my_distance == -2:
-            my_distance = set_max_distance
+            distance_clamped = set_max_distance
         elif my_distance == -3:
-            my_distance = 0
+            distance_clamped = set_min_distance
         elif my_distance == -4:
-            my_distance = set_max_distance
-        
-        return my_distance
+            distance_clamped = set_max_distance
+        elif not (set_min_distance <= my_distance <= set_max_distance ):
+            distance_clamped = set_max_distance
+
+
+        print("Ausgabe:",my_distance, distance_clamped)
+        return distance_clamped
 
     def stop_car(self, actual_distance: int, max_distance: int = 30):
         """Stopt das Auto wenn der 'max_distance' Wert unterschritten wird.
@@ -401,5 +408,4 @@ if __name__ == '__main__':
         sc.get_distance()
         time.sleep(0.1)
 
-  from dash import Dash, html
    
