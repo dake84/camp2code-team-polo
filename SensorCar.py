@@ -33,7 +33,7 @@ class SensorCar(BaseCar):
         # Speichert eine Historie der Messwerte, um Rauschen auszugleichen (Zugriff über Methode sensor_historie)
         self._sensor_historie = []
         # Anzahl der letzten Werte, für die Ermittlung des Durchschnitt-Messwerts
-        self._history_length = 5
+        self._history_length = 1
         # Initialisiert Integral für Fehler
         self._integral = 0
         # Initialisiert Gewichtung für KD
@@ -42,6 +42,8 @@ class SensorCar(BaseCar):
         self._last_derivative = 0
         # Initialisierung Slew Rate
         self._slew_rate = 0
+        # Initialisierung Error Tolerance
+        self._error_tolerance = 0
         # Letzte Abweichung zur schwarzen Linie (für delta KD)
         self._lw_previous = 0
         # Letzte Abweichung zur schwarzen Linie (für delta KD)
@@ -53,7 +55,9 @@ class SensorCar(BaseCar):
         # Wie lange das Auto nach der Linie suchen soll (Suchmodus) in Sekunden      
         self.__suchzeit = 5
 
-        if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None) or self.calibration_line_threshold is None:
+        self._last_delta_t_time = 0
+
+        if (run_calibration or self.ir_sensor_min_values is None or self.ir_sensor_max_values is None):
             self.kalibriere_sensoren()
             self.kalibriere_linie()
        
@@ -142,10 +146,6 @@ class SensorCar(BaseCar):
         input()
         self.__stop_calibration_event.set()
         calibration_thread.join()
-        self.calibration_line_threshold = self._calibration_line_threshold
-        save=input ("Sensorwerte in Config-Speichern? (j/n): ")
-        if (save == "j"):
-            self._save_config()
 
     def _line_calibrator(self, update_config=True):
         while (not self.__stop_calibration_event.is_set()):
@@ -153,7 +153,6 @@ class SensorCar(BaseCar):
             min_mw = min(messwerte)
             max_mw = max(messwerte)
             calibration_line_threshold = max_mw - min_mw
-            self._calibration_line_threshold = calibration_line_threshold
             print(f"\rNormierte Messwerte: {messwerte}, Summe: {sum(messwerte)}, Min: {min_mw}, Max: {max_mw}, Diff: {calibration_line_threshold}\n<ENTER> zum Beenden", end="")            
             sys.stdout.flush()
             time.sleep(0.05)
@@ -171,6 +170,8 @@ class SensorCar(BaseCar):
         Returns:
             float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
         """
+        last_delta_t_time = self._last_delta_t_time if (self._last_delta_t_time > 0) else time.time()
+        current_delta_t_time = time.time()
 
         messwerte = self.normierte_sensorwerte()
         sum_messwerte = sum(messwerte)
@@ -180,22 +181,25 @@ class SensorCar(BaseCar):
             return 90
         
         error = sum(np.multiply(messwerte, self.ir_sensor_gewichte))/sum_messwerte
-        # print(error)
-        # if abs(error) < 0.001:
+        print(error)
+        # if abs(error) < self._error_tolerance:
         #     error = 0
 
         # P
         dKP = (self.korrektur_proportional * error) 
         
         # I
-        self._integral += error
+        self._integral += error * (current_delta_t_time-last_delta_t_time)
         self._integral = max(min(self._integral, self.korrektur_integral_max_boundary), self.korrektur_integral_min_boundary)   # Anti-Windup
         dKI = self.korrektur_integral * self._integral 
         
         # D
-        derivative = self._kd_weight * (error - self.__previous_error) + (1-self._kd_weight)*self._last_derivative
-        self._last_derivative = derivative
-        dKD = (self.korrektur_differential * derivative)
+        # derivative = self._kd_weight * (error - self.__previous_error) + (1-self._kd_weight)*self._last_derivative
+        # self._last_derivative = derivative
+        # dKD = (self.korrektur_differential * derivative)
+        dKD = 0
+        if (current_delta_t_time > last_delta_t_time):
+            dKD = (self.korrektur_differential * ((error - self.__previous_error))/(current_delta_t_time-last_delta_t_time))
 
 
         u = dKP + dKI + dKD
@@ -253,19 +257,22 @@ class SensorCar(BaseCar):
              
         min_sensor = min(hist)
         max_sensor = max(hist)
+        
 
         # Example:
         # (1000 (weiß) - 200 (schwarz) < 800 -> false --> on line
         # (1000 (weiß) - 300 (schwarz) < 800 -> true --> not on line
-        if (max_sensor - min_sensor < self.calibration_line_threshold):
-#        if (line > self.calibration_line_threshold):
-            if (lost_time == 0): self.__zeit_linie_verloren = time.time()
-            #print(f"Auto hat Linie verlassen (line {hist} (delta: {(max_sensor-min_sensor)}) < calibration_line_threshold {self.calibration_line_threshold})")
-            return False
-        else:
-            self.__zeit_linie_verloren = 0
-            return True
 
+        
+        if (min_sensor/(max_sensor+0.000000000000001) < self.calibration_line_threshold_dyn):
+            self.__zeit_linie_verloren = 0
+            #print(f"Auto hat Linie verlassen (line {hist} (delta: {(max_sensor-min_sensor)}) < calibration_line_threshold {self.calibration_line_threshold})")
+            return True
+        else:
+            if (lost_time == 0): self.__zeit_linie_verloren = time.time()
+            print(min_sensor/max_sensor)
+            return False
+            
     def search(self) -> bool:
         if (self.__zeit_linie_verloren > 0):
             while (time.time() - self.__zeit_linie_verloren < self.__suchzeit):
@@ -360,6 +367,18 @@ class SensorCar(BaseCar):
         return float(self.get_config()["slew_rate"])
      
     @property
+    def error_tolerance(self) -> float:
+        """Liefert Fehlertoleranz für Lenkwinkel, der über Methode get_config() aus der Datei json.config ausgelesen wird.
+
+        Raises:
+            KeyError: Wert "error_tolerance" in Config.Json nicht gefunden.
+        
+        Returns:
+            float: error_tolerance  
+        """
+        return float(self.get_config()["error_tolerance"])
+     
+    @property
     def bremsfaktor(self) -> float: 
         """Liefert den aktuellen Wert für den Bremsfaktor, der über Methode get_config() aus der Datei json.config ausgelesen wird. Wird verwendet, um die Lenkwinkel-abhängige Geschwindigkeit zu berechnen.
 
@@ -390,8 +409,8 @@ class SensorCar(BaseCar):
         return int(self.get_config()["v_min"])
 
     @property
-    def calibration_line_threshold(self) -> float | None:
-        return self.get_config().get("calibration_line_threshold", None)
+    def calibration_line_threshold_dyn(self) -> float | None:
+        return self.get_config().get("calibration_line_threshold_dyn", None)
 
     @property
     def ir_sensor_min_values(self) -> list:
@@ -408,10 +427,6 @@ class SensorCar(BaseCar):
     @ir_sensor_max_values.setter
     def ir_sensor_max_values(self, values:list):
         self.set_config("ir_sensor_max_values", values)
-
-    @calibration_line_threshold.setter
-    def calibration_line_threshold(self, value: float):
-        self.set_config("calibration_line_threshold", value)
 
 # Müsste untenstehender Code noch in die Class Sensor Car integriert werden, damit die IR-gestützte Funktion auto_fahren() als Methode der Klasse SensorCar aufgerufen werden kann? 
 # DKE: ginge, siehe: https://www.w3tutorials.net/blog/run-class-methods-in-threads-python/#2-why-run-class-methods-in-threads

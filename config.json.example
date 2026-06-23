@@ -33,5 +33,6 @@
         290.0,
         286.9
     ],
-    "calibration_line_threshold": 73
+    "calibration_line_threshold_dyn": 0.7,
+     "error tolerance" : 0.00
 }
