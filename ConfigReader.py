@@ -10,7 +10,7 @@ class ConfigReader():
     #    InfraredSensor.InfraredSensor: "ir_sensors"
     #}
 
-    def __init__(self, cfg_namespace:str, config_file="new_config.json", logger:Optional[logging.Logger]=None) -> None:
+    def __init__(self, cfg_namespace:str, config_file="config.json", logger:Optional[logging.Logger]=None) -> None:
         self._config_file = config_file
         self._cfg_namespace = cfg_namespace
         self._lock = threading.Lock()
