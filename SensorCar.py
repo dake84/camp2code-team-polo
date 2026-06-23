@@ -1,11 +1,12 @@
+import logging
 from typing import Optional
 
 import numpy as np
-from BaseCar import BaseCar
 
 from ConfigReader import ConfigReader
+from SonicCar import SonicCar
 
-class SensorCar(BaseCar):
+class SensorCar(SonicCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
 
     """
@@ -46,7 +47,7 @@ class SensorCar(BaseCar):
         with self._lock:
             self._ir_sensor_values.append(ir_sensor_values)
 
-    def get_logging_payload(self) -> dict:
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
         payload = super().get_logging_payload()
         payload["ir_sensor_values"] = self.ir_sensor_value_history()
         return payload

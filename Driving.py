@@ -1,10 +1,12 @@
+import random
 import threading
 import time
-from typing import Optional
+from typing import Optional, Tuple
 import logging
 
 from BaseCar import BaseCar
 from CarLogger import CarLogger, Loggable
+import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
 
@@ -67,10 +69,11 @@ class StopReason(int):
 
 class DriveController(Loggable):
 
-    def __init__(self, car:Optional[BaseCar]=None, driving_mode:int=DrivingMode.FORWARD_BACKWARD, car_logger:Optional[CarLogger]=None):
+    def __init__(self, car:Optional[BaseCar]=None, driving_mode:int=DrivingMode.FORWARD_BACKWARD, car_logger:Optional[CarLogger]=None, sensor_config:Optional[ConfigReader.ConfigReader]=None):
         self._dm = driving_mode
         self._car = car if car is not None else BaseCar()
         self._l = car_logger if car_logger is not None else CarLogger(self._car)
+        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("drive_controller")
 
 
         # Im Test Mode wird die cfg laufend nachgeladen (macht's vieeeel langsamer)
@@ -78,7 +81,6 @@ class DriveController(Loggable):
 
         if (driving_mode not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode])): 
             raise ValueError(f"DrivingMode {driving_mode} nicht unterstützt für Fahrzeug vom Typ {type(car)} (bedingt {DrivingMode.SUPPORTED_DRIVING_MODES[driving_mode]}).")
-    
         self._lock = threading.Lock()
 
         # Inititalize var for lenkwinkel calc debug values
@@ -87,8 +89,12 @@ class DriveController(Loggable):
 
     def drive_car(self, stop_event:threading.Event, driving_mode:Optional[int]=None):
         dm = driving_mode if driving_mode is not None else self._dm
+        self._car._update_config()
+
         if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
-            raise ValueError(f"DrivingMode {dm} nicht unterstützt für Fahrzeug vom Typ {type(self._car)}.")
+            error = ValueError(f"DrivingMode {dm} nicht unterstützt für Fahrzeug vom Typ {type(self._car)}.")
+            self._l.error(error)
+            raise error
 
         self.run = True
 
@@ -141,11 +147,12 @@ class DriveController(Loggable):
             self._car.stop()
             print(f"Fahrmodus 2 {direction[1]} beendet.")              
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
-            # Fahrmodus 3
-            raise NotImplementedError(f"Fahrmodus {dm} noch nicht implementiert")
+            if isinstance(self._car, SensorCar):
+                self._approach_obstacle(self._car, stop_event)
         elif (dm == DrivingMode.EXPLORE):
             # Fahrmodus 4
-            raise NotImplementedError(f"Fahrmodus {dm} noch nicht implementiert")
+            if isinstance(self._car, SensorCar):
+                self._room_explorer(self._car, stop_event)
         elif (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE)):
             self._follow_line(dm, stop_event)
         elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION):
@@ -162,6 +169,93 @@ class DriveController(Loggable):
     def run(self, run:bool):
         if (run): self._stop_reason = None
         self._run = run
+
+    def _room_explorer(self, car:SonicCar, stop_event:threading.Event):
+        explorer_max_time = self._cfg.get_int("explorer_max_time", 30)
+        ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+        t_start = time.time()
+
+        actual_speed_drive_explore = 60
+        steering_angle_drive_explore = 90
+        speed_direction = random.choice([-1, 1])
+        steer_direction = random.choice([-1, 1])
+        counter = 0
+
+
+        while (not stop_event.is_set() and (time.time()-t_start > explorer_max_time)):
+            car.drive(actual_speed_drive_explore, steering_angle_drive_explore)
+
+            actual_distance = car.distance
+            
+            if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
+                car.speed = self._calculate_speed_from_distance(car, actual_distance)
+
+            if (actual_distance <= ultrasonic_max_distance_to_stop):
+                self._overcome_obstacle(car)
+            else:
+                actual_speed_drive_explore, steering_angle_drive_explore, speed_direction, steer_direction, counter = self.drive_explore(car, actual_speed_drive_explore,
+                                                                                 steering_angle_drive_explore,
+                                                                                 speed_direction,
+                                                                                 steer_direction,
+                                                                                 counter
+                                                                                )
+                
+
+    def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
+
+        counter += 1
+
+        # Richtung nur alle x Zyklen ändern
+        if counter >= 25:
+            counter = 0
+            speed_dir = random.choice([-1, 1])
+            steer_dir = random.choice([-1, 1])
+
+        # kleine Schritte -> smooth
+        actual_speed += speed_dir * 1
+        steering_angle += int(steer_dir * 1.5)
+
+        # Grenzen
+        actual_speed = max(30, min(actual_speed, 100))
+        steering_angle = max(45, min(steering_angle, 135))
+
+        self._l.debug(f"Exploriere den Raum..... (Geschwindigkeit: {actual_speed}, Lenkwinkel: {steering_angle})")
+        car.drive(actual_speed, steering_angle)
+
+        return actual_speed, steering_angle, speed_dir, steer_dir, counter
+
+    def _overcome_obstacle(self, car:SonicCar):        
+      
+        car.stop()
+
+        # Lenkt links oder rechts ein
+        ausweich_lenkung = random.choice(
+            (
+                (45, "links"), 
+                (135, "rechts")
+            )
+        )
+
+        zufalls_zeit = random.randint(1, 4)
+        self._l.debug(f"Overcoming obstacle..... driving to the {ausweich_lenkung[1]}")
+
+        car.drive(-30, ausweich_lenkung[0])
+        time.sleep(zufalls_zeit) # Hier die Rückwärtsfahrzeit zufällig setzen
+
+
+    def _approach_obstacle(self, car:SonicCar, stop_event:threading.Event):
+            ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+            actual_distance = car.distance
+            self._l.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual-distance: {actual_distance}")
+            while (not stop_event.is_set() and actual_distance < ultrasonic_max_distance_to_stop):
+                if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
+                    car.speed = self._calculate_speed_from_distance(car, actual_distance)
+
+            self.stop_car(StopReason.OBSTACLE_AHEAD)
+        
+    def _calculate_speed_from_distance(self, car:SonicCar, distance:int):
+            car.speed = distance+car.v_min
+            self._l.debug(f"Speed set because we are approaching an obstacle :-o (Speed: {car.speed}, Distance: {distance})")
 
     def stop_car(self, reason:StopReason|int=0):
         self._stop_reason = StopReason(reason)

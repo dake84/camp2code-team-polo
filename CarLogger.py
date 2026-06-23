@@ -15,9 +15,9 @@ class Loggable(ABC):
 
 class CarLogger():
 
-    def __init__(self, car:Loggable, logfile="car_log.json", log_name="CarLogger", log_level=logging.INFO):
+    def __init__(self, log_object:Loggable, logfile="car_log.json", log_name="CarLogger", log_level=logging.INFO):
         self._lastTime = 0
-        self._car = car
+        self._car = log_object
 
         # 1. Logger erstellen
         self._logger = logging.getLogger(log_name)
@@ -28,11 +28,11 @@ class CarLogger():
         file_handler.setLevel(log_level)
         
         # Einfaches Format für die Datei (Zeit - Nachricht)
-        #formatter = logging.Formatter('%(asctime)s - %(message)s')
-        formatter = jsonlogger.JsonFormatter(
-            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
-            rename_fields={"asctime": "timestamp", "levelname": "level"}
-        )
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        #formatter = jsonlogger.JsonFormatter(
+        #    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+        #    rename_fields={"asctime": "timestamp", "levelname": "level"}
+        #)
         file_handler.setFormatter(formatter)
         
         # Handler an den Logger hängen
@@ -44,8 +44,11 @@ class CarLogger():
     def logger(self):
         return self._logger
 
-    def debug(self, msg:str):
+    def debug(self, msg):
         return self.logger.debug(msg)
+    
+    def error(self, msg):
+        return self.logger.error(msg)
     
     def run(self, stop_event:threading.Event):
         while not stop_event.is_set():

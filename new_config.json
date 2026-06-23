@@ -1,8 +1,20 @@
 {
     "ir_sensors": {
-        "sensor_min_values": [0,...]
+        "sensor_min_values": [0,0,0,0,0],
+        "sensor_max_values": [800,800,800,800,800]
     },
     "car": {
-        "turning_offset": 0
+        "turning_offset": 0,
+        "v_min": 20,
+        "v_max": 100
+    },
+    "us_sensors": {
+        "min_distance": 0,
+        "max_distance": 300
+    },
+    "drive_controller": {
+        "ultrasonic_max_distance_to_stop": 30,
+        "explorer_max_time": 5
+        
     }
 }

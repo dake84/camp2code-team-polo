@@ -45,6 +45,9 @@ class ConfigReader():
         dv = default if default is not None else {}
         return self.get_config().get(attribut, dv)
 
+    def get_int(self, attribut:str, dv:int) -> int:
+        return int(self.get_config().get(attribut, dv))
+
     def _save_config(self) -> bool:
         try:
             with open(self._config_file, "w", encoding="utf-8") as jf:

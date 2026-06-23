@@ -42,6 +42,14 @@ class BaseCar(Loggable):
             "speed": self._speed
         }
 
+    @property
+    def v_min(self) -> int:
+        return self._config.get_int("v_min", 20)
+
+    @property
+    def v_max(self) -> int:
+        return self._config.get_int("v_max", 100)
+
 
     # self._config
     def _save_config(self) -> bool:

@@ -4,6 +4,7 @@ import threading
 import CarLogger
 import Driving
 import InfraredSensor
+import UltrasonicSensor
 import SensorCar
 
 import sys
@@ -23,10 +24,16 @@ signal.signal(signal.SIGINT, dump_threads)
 if __name__ == '__main__':
     sc = SensorCar.SensorCar()
     
+    # Liest IR-Sensor und schreibt Werte ins Auto
     ir = InfraredSensor.InfraredSensor(sc)
+    us = UltrasonicSensor.UltrasonicSensor(sc)
+    
+    # Liest Werte aus dem Auto und schreibt sie in ein Log-File
     cl = CarLogger.CarLogger(sc)
-    dc = Driving.DriveController(sc, Driving.DrivingMode.FORWARD_BACKWARD)
-    dl = CarLogger.CarLogger(car=dc, logfile="driving_controller_log.json", log_name="driving_controller_log")
+    # Liest Werte aus dem Auto und steuert das Auto
+    dc = Driving.DriveController(sc, Driving.DrivingMode.APPROACH_OBSTACLE)
+    # Liest Werte aus dem Controller und schreibt sie in ein Log-File
+    dl = CarLogger.CarLogger(log_object=dc, logfile="driving_controller_log.json", log_name="driving_controller_log")
 
 
     stop_event = threading.Event()
