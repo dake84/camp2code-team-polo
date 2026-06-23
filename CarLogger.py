@@ -3,8 +3,7 @@ from abc import ABC, abstractmethod
 import logging
 import threading
 import time
-from pythonjsonlogger import jsonlogger
-
+  
 class Loggable(ABC):
 
     @abstractmethod

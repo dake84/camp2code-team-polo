@@ -8,6 +8,7 @@ from SensorCar import SensorCar
 from SonicCar import SonicCar
 from basisklassen import Ultrasonic
 
+import logging
 
 class UltrasonicSensor(Ultrasonic):
 
@@ -17,27 +18,28 @@ class UltrasonicSensor(Ultrasonic):
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("us_sensors")
         self._car = car 
 
+        self._log = logging.getLogger(__name__)
+        logging.basicConfig(filename="ultrasensors.log", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
         self._min_distance = self._cfg.get("min_distance", 0)
         self._max_distance = self._cfg.get("max_distance", 0)
-
-        # Legacy Code
-        self._history_length = 1
-        self._run = True
 
         self._scan_frequency = scan_frequency
 
 
     @property
     def sensor_values(self) -> int:
-        return self.distance()
+        d = self.distance()
+        self._log.debug(f"Sensor-Wert ausgelesen: {d}")
+        return d
 
     # Gibt die Distanz in cm zurück (int-Wert)
     def _normalize(self, sensors:int) -> int:
 
         min_d = self._cfg.get_int("min_distance", 0)
-        max_d = self._cfg.get_int("max_distance", 0)
+        max_d = self._cfg.get_int("max_distance", 300)
 
-        my_distance = self.sensor_values
+        my_distance = sensors
         distance_clamped = my_distance     
 
         if my_distance == -1:
@@ -48,14 +50,33 @@ class UltrasonicSensor(Ultrasonic):
             distance_clamped = min_d
         elif my_distance == -4:
             distance_clamped = max_d
+        # not(0 <= -4 <= 300) --> true
+        #   return max_d
         elif not (min_d <= my_distance <= max_d):
             distance_clamped = max_d
+
+        self._log.debug(f"Normalisierter Wert: {distance_clamped}")
 
         return distance_clamped
 
 
     def read_loop(self, stop_event:threading.Event):
         while (not stop_event.is_set()):
-            v = self.sensor_values
-            self._car.distance = self._normalize(v)
-            time.sleep(1/self._scan_frequency)
+            try:
+                v = self.sensor_values
+                self._car.distance = self._normalize(v)
+            except Exception as e:
+                self._log.error(e)
+            finally:
+                time.sleep(1/self._scan_frequency)
+
+
+
+if __name__ == '__main__':
+    sc = SonicCar()
+    us = UltrasonicSensor(sc)
+    stop_event = threading.Event()
+
+    while True:
+        us.read_loop(stop_event)
+        print(sc.distance)

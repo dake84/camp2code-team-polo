@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 import logging
 
 from BaseCar import BaseCar
-from CarLogger import CarLogger, Loggable
+from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
@@ -69,10 +69,15 @@ class StopReason(int):
 
 class DriveController(Loggable):
 
-    def __init__(self, car:Optional[BaseCar]=None, driving_mode:int=DrivingMode.FORWARD_BACKWARD, car_logger:Optional[CarLogger]=None, sensor_config:Optional[ConfigReader.ConfigReader]=None):
+    def __init__(self, car:Optional[BaseCar]=None, driving_mode:int=DrivingMode.FORWARD_BACKWARD, sensor_config:Optional[ConfigReader.ConfigReader]=None):
+        print("Check, bin da!!!")
         self._dm = driving_mode
         self._car = car if car is not None else BaseCar()
-        self._l = car_logger if car_logger is not None else CarLogger(self._car)
+        
+        self._log = logging.getLogger(__name__)
+        #logging.basicConfig(filename="drive_contoller.log", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+        self._log.error("FEHLER!!!!")
+
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("drive_controller")
 
 
@@ -93,51 +98,51 @@ class DriveController(Loggable):
 
         if (dm not in DrivingMode.SUPPORTED_DRIVING_MODES or not isinstance(self._car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])): 
             error = ValueError(f"DrivingMode {dm} nicht unterstützt für Fahrzeug vom Typ {type(self._car)}.")
-            self._l.error(error)
+            self._log.error(error)
             raise error
 
         self.run = True
 
         if (dm == DrivingMode.FORWARD_BACKWARD):
-            self._l.debug('Starte Fahrmodus 1')
+            self._log.debug('Starte Fahrmodus 1')
             self._car.stop()
             time.sleep(1)
 
             self._car.drive(30)
-            self._l.debug(f"3 Sekunden vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"3 Sekunden vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(3)
 
             self._car.stop()
-            self._l.debug(f"1 Sekunde Stopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"1 Sekunde Stopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(1)
             
             self._car.drive(-30)
-            self._l.debug(f"3 Sekunden rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"3 Sekunden rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(3)
 
             self._car.stop()
-            self._l.debug(f"Fahrmodus 1 beendet. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")            
+            self._log.debug(f"Fahrmodus 1 beendet. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")            
         elif (dm in (DrivingMode.CIRCULAR, DrivingMode.CIRCULAR_LEFT, DrivingMode.CIRCULAR_RIGHT)):
             direction = (135, "rechts/Uhrzeigersinn") if dm == DrivingMode.CIRCULAR_RIGHT else (45, "links/gegen Uhrzeigersinn")
             
-            self._l.debug('Starte Fahrmodus 2 ({direction[1]})')
+            self._log.debug('Starte Fahrmodus 2 ({direction[1]})')
             self._car.stop()
             time.sleep(1)
 
             self._car.drive(30)
-            self._l.debug(f"1 Sekunde vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"1 Sekunde vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(1)
 
             self._car.drive(30, direction[0])
-            self._l.debug(f"8 Sekunden {direction[1]} vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"8 Sekunden {direction[1]} vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(8)
 
             self._car.stop()
-            self._l.debug(f"Kurzer Zwischenstopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"Kurzer Zwischenstopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(2)
 
             self._car.drive(-30, direction[0])
-            self._l.debug(f"8 Sekunden {direction[1]} rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+            self._log.debug(f"8 Sekunden {direction[1]} rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
             time.sleep(8)
 
             self._car.drive(-30, 90)
@@ -147,8 +152,11 @@ class DriveController(Loggable):
             self._car.stop()
             print(f"Fahrmodus 2 {direction[1]} beendet.")              
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
-            if isinstance(self._car, SensorCar):
-                self._approach_obstacle(self._car, stop_event)
+            try:
+                if isinstance(self._car, SensorCar):
+                    self._approach_obstacle(self._car, stop_event)
+            except Exception as e:
+                self._log.error(e)
         elif (dm == DrivingMode.EXPLORE):
             # Fahrmodus 4
             if isinstance(self._car, SensorCar):
@@ -198,8 +206,7 @@ class DriveController(Loggable):
                                                                                  speed_direction,
                                                                                  steer_direction,
                                                                                  counter
-                                                                                )
-                
+                                                                                )                
 
     def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
 
@@ -219,7 +226,7 @@ class DriveController(Loggable):
         actual_speed = max(30, min(actual_speed, 100))
         steering_angle = max(45, min(steering_angle, 135))
 
-        self._l.debug(f"Exploriere den Raum..... (Geschwindigkeit: {actual_speed}, Lenkwinkel: {steering_angle})")
+        self._log.debug(f"Exploriere den Raum..... (Geschwindigkeit: {actual_speed}, Lenkwinkel: {steering_angle})")
         car.drive(actual_speed, steering_angle)
 
         return actual_speed, steering_angle, speed_dir, steer_dir, counter
@@ -237,30 +244,35 @@ class DriveController(Loggable):
         )
 
         zufalls_zeit = random.randint(1, 4)
-        self._l.debug(f"Overcoming obstacle..... driving to the {ausweich_lenkung[1]}")
+        self._log.debug(f"Overcoming obstacle..... driving to the {ausweich_lenkung[1]}")
 
         car.drive(-30, ausweich_lenkung[0])
         time.sleep(zufalls_zeit) # Hier die Rückwärtsfahrzeit zufällig setzen
 
-
     def _approach_obstacle(self, car:SonicCar, stop_event:threading.Event):
+            
             ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
             actual_distance = car.distance
-            self._l.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual-distance: {actual_distance}")
-            while (not stop_event.is_set() and actual_distance < ultrasonic_max_distance_to_stop):
+            self._log.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual_distance: {actual_distance}")
+            while (not stop_event.is_set() and actual_distance > ultrasonic_max_distance_to_stop):
+                
                 if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
                     car.speed = self._calculate_speed_from_distance(car, actual_distance)
-
+                else:
+                    car.drive(car.v_max, 90)
+    
+                actual_distance = car.distance
+                
             self.stop_car(StopReason.OBSTACLE_AHEAD)
         
     def _calculate_speed_from_distance(self, car:SonicCar, distance:int):
             car.speed = distance+car.v_min
-            self._l.debug(f"Speed set because we are approaching an obstacle :-o (Speed: {car.speed}, Distance: {distance})")
+            self._log.debug(f"Speed set because we are approaching an obstacle :-o (Speed: {car.speed}, Distance: {distance})")
 
     def stop_car(self, reason:StopReason|int=0):
         self._stop_reason = StopReason(reason)
         self._run = False
-        self._l.debug(f"Car stopped for {reason}")
+        self._log.debug(f"Car stopped for {reason}")
         self._car.stop()
 
     def obstacle_ahead(self):

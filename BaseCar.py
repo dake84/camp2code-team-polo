@@ -22,6 +22,7 @@ class BaseCar(Loggable):
         self._config = config if config is not None else ConfigReader("car")
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
+        self._log = logging.getLogger(self.__class__.__name__)
 
 
         self._lock = RLock()
@@ -108,7 +109,7 @@ class BaseCar(Loggable):
 
     # Live value (with lock)
     @speed.setter
-    def speed(self, speed):       
+    def speed(self, speed): 
         speed = max(-100, min(100, speed))
         self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
         if (speed >= 0):
