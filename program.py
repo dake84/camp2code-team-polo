@@ -73,7 +73,7 @@ if __name__ == '__main__':
     # Liest Werte aus dem Auto und schreibt sie in ein Log-File
     cl = CarLogger.CarLogger(sc)
     # Liest Werte aus dem Auto und steuert das Auto
-    dc = Driving.DriveController(sc, Driving.DrivingMode.APPROACH_OBSTACLE)
+    dc = Driving.DriveController(sc)
     # Liest Werte aus dem Controller und schreibt sie in ein Log-File
     # dl = CarLogger.CarLogger(log_object=dc, logfile="driving_controller_log.json", log_name="driving_controller_log")
 
@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
-    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.FOLLOW_LINE])
+    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.APPROACH_OBSTACLE])
     #dl_thread=threading.Thread(target=dl.run, args=[stop_event])
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 
@@ -98,17 +98,20 @@ if __name__ == '__main__':
         print("...started!")
 
         while True:
-            user_input = input("Kalibrierungsfahrt starten? (j/n)")
-            if (user_input == "j"):
+            user_input = input("Kalibrierungsfahrt (1) oder reguläres Fahrprogramm(2) ?")
+            if (user_input == "1"):
 
                 kf = Driving.Kalibrierungsfahrt(dc)
                 kf.fahre_kalibrierungsfahrt(threading.Event())
                 if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden? (j/n)")):
                     ir.save_calibration()
+                    stop_event.set()
                     break
+                stop_event.set()
                 break
 
-            elif (user_input == "n"):
+            elif (user_input == "2"):
+     
                 print("Starting logging thread...", end="")
                 #dl_thread.start()
                 cl_thread.start()
@@ -116,16 +119,16 @@ if __name__ == '__main__':
                 print("Starting controller thread...", end="")
                 controller_thread.start()
                 print("...started!")
+                input("Drücke Enter zum Stoppen…")
+                stop_event.set()
                 break
 
             else:
-                print("Nur j oder n zulässig")
+                print("Nur 1 oder 2 zulässig")
                 continue
                 
 
-        input("Stop?")
 
-        stop_event.set()
 
     except KeyboardInterrupt:
         stop_event.set()
@@ -140,10 +143,12 @@ if __name__ == '__main__':
         print("...ended!")
         print("Ending logging thread...", end="")
         # dl_thread.join()
-        cl_thread.join()
+        if cl_thread.is_alive():
+            cl_thread.join()
         print("...ended!")
         print("Ending controller thread...", end="")
-        controller_thread.join()
+        if controller_thread.is_alive():
+            controller_thread.join()
         print("...ended!")
         
         # if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
