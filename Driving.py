@@ -158,7 +158,7 @@ class DriveController(Loggable):
                 if isinstance(self._car, SensorCar):
                     self._approach_obstacle(self._car, stop_event)
             except Exception as e:
-                self._log.error(e)
+                self._log.exception(e)
         elif (dm == DrivingMode.EXPLORE):
             # Fahrmodus 4
             self._log.info("Starte Fahrmodus 4")
@@ -168,7 +168,7 @@ class DriveController(Loggable):
                     self._log.debug("SensorCar")
                     self._room_explorer(self._car, stop_event)
             except Exception as e:
-                self._log.error(e)
+                self._log.exception(e)
         elif (dm in (DrivingMode.FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE)):
             self._follow_line(dm, stop_event)
         elif (dm == DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION):
@@ -269,13 +269,17 @@ class DriveController(Loggable):
             actual_distance = car.distance
             self._log.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual_distance: {actual_distance}")
             while (not stop_event.is_set() and actual_distance > ultrasonic_max_distance_to_stop):
-                
+                self._log.debug(f"Driving towards obstacle..... actual_distance: {actual_distance}")
+
                 if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
+                    self._log.info(f"Approaching obstacle... actual_distance: {actual_distance}")
                     car.speed = self._calculate_speed_from_distance(car, actual_distance)
                 else:
                     car.drive(car.v_max, 90)
     
                 actual_distance = car.distance
+
+            self._log.debug(f"Stopped car because we are too close to an obstacle! actual_distance: {actual_distance}")
 
             self.stop_car(StopReason.OBSTACLE_AHEAD)
         
@@ -286,7 +290,7 @@ class DriveController(Loggable):
     def stop_car(self, reason:StopReason|int=0):
         self._stop_reason = StopReason(reason)
         self._run = False
-        self._log.debug(f"Car stopped for {self._stop_reason}")
+        self._log.info(f"Car stopped for {self._stop_reason}")
         self._car.stop()
 
     def obstacle_ahead(self):

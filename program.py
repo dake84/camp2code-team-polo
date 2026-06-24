@@ -33,7 +33,7 @@ def setup_project_logging(default_level=logging.DEBUG):
     os.makedirs("logs", exist_ok=True)
     
     # Gemeinsames Format für alle Logs
-    log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    log_format = logging.Formatter('%(filename)s:%(lineno)d]: %(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Definition der Module und ihrer Log-Dateien
     log_mapping = {
