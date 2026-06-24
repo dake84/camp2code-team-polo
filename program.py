@@ -81,19 +81,43 @@ if __name__ == '__main__':
 
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
-    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.EXPLORE])
+    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.FOLLOW_LINE])
     #dl_thread=threading.Thread(target=dl.run, args=[stop_event])
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 
 
     try:
+
         sc.stop()
-        input("Starten?")
 
         print("Starting sensor thread...", end="")
         us_sensor_thread.start()
         ir_sensor_thread.start()
         print("...started!")
+
+        if ("j" == input("Kalibrierungsfahrt starten?")):
+
+            kf = Driving.Kalibrierungsfahrt(dc)
+            minv, maxv = kf.fahre_kalibrierungsfahrt(threading.Event())
+
+            # --> Wieso wartet der hier nicht
+
+
+
+            print(f"Ergebnis Kalibrierungsfahrt Auto:\n min:{minv}\n max:{maxv}")
+            c_minv = ir.sensor_min_values
+            c_maxv = ir.sensor_max_values
+            print(f"Ergebnis Kalibrierungfahrt Sensor (dynamische Kalibrierung):\n c_minv:{c_minv}\n c_maxv {c_maxv}")
+            cfg_minv = ir._cfg.get_list("ir_sensor_min_values")
+            cfg_maxv = ir._cfg.get_list("ir_sensor_max_values")
+            print(f"Werte aus cfg Datei:\n cfg_minv:{cfg_minv}\n cfg_maxv {cfg_maxv}")
+
+            if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden?")):
+                ir.sensor_min_values = minv
+                ir.sensor_max_values = maxv
+                ir.save_calibration()
+
+
         print("Starting logging thread...", end="")
         #dl_thread.start()
         cl_thread.start()

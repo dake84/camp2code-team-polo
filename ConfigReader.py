@@ -11,7 +11,7 @@ class ConfigReader:
     Namespace und stellt Hilfsmethoden für verschiedene Datentypen bereit.
     """
 
-    def __init__(self, cfg_namespace: str, config_file: str = "new_config.json", logger:Optional[logging.Logger]=None) -> None:
+    def __init__(self, cfg_namespace: str, config_file: str = "config.json", logger:Optional[logging.Logger]=None) -> None:
         """
         Initialisiert den ConfigReader und lädt die Konfigurationsdatei.
 

@@ -21,7 +21,8 @@ class DrivingMode():
     FOLLOW_LINE = 50
     ADVANCED_FOLLOW_LINE = 60
     ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70
-    STADIA_CONTROLLER = 100
+    STADIA_CONTROLLER = 100,
+    KALIBRIERUNGSFAHRT = 500
 
     SUPPORTED_DRIVING_MODES = {
         FORWARD_BACKWARD: BaseCar,
@@ -33,7 +34,8 @@ class DrivingMode():
         FOLLOW_LINE: SensorCar,
         ADVANCED_FOLLOW_LINE: SensorCar,
         ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION: SensorCar,
-        STADIA_CONTROLLER: BaseCar
+        STADIA_CONTROLLER: BaseCar,
+        KALIBRIERUNGSFAHRT: SensorCar
     }
 
     @staticmethod
@@ -151,6 +153,7 @@ class DriveController(Loggable):
             self._car.stop()
             print(f"Fahrmodus 2 {direction[1]} beendet.")              
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
+            self._log.info("Fahrmodus APPROACH_OBSTACLE")
             try:
                 if isinstance(self._car, SensorCar):
                     self._approach_obstacle(self._car, stop_event)
@@ -174,6 +177,10 @@ class DriveController(Loggable):
         # just to be surrrre...
         # self.stop(self._stop_reason)
  
+    @property
+    def car(self) -> BaseCar:
+        return self._car
+
     @property
     def run(self) -> bool:
         return self._run
@@ -279,7 +286,7 @@ class DriveController(Loggable):
     def stop_car(self, reason:StopReason|int=0):
         self._stop_reason = StopReason(reason)
         self._run = False
-        self._log.debug(f"Car stopped for {reason}")
+        self._log.debug(f"Car stopped for {self._stop_reason}")
         self._car.stop()
 
     def obstacle_ahead(self):
@@ -367,6 +374,11 @@ class DriveController(Loggable):
     def _is_on_line(self, messwerte:list[float], line_threshold:float) -> bool:
         min_sensor = min(messwerte)
         max_sensor = max(messwerte)
+        self._log.debug("Prüfung is_on_line mit min_sensor: {min_sensor}, max_sensor: {max_sensor}")
+        
+
+        if (max_sensor == 0):
+            return True
 
         return (min_sensor/max_sensor < line_threshold)
 
@@ -510,7 +522,7 @@ class DriveController(Loggable):
         u = dKP + dKI + dKD
         lw = max(45, min(135, 90 + u))
         self._log.debug(f"Errechneter Lenkwinkel (u): {u} --> normiert: {lw}")
-        lw = int(max(-slew_rate, min((lw-last_lenkwinkel, slew_rate))))
+        lw = int(max(lw-slew_rate, min((lw-last_lenkwinkel, lw+slew_rate))))
         self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
 
         
@@ -529,9 +541,12 @@ class DriveController(Loggable):
 
     def _calc_speed_from_steering_angle(self, lenkwinkel:float, v_min:int, v_max:int) -> int:
         #assert (45 < lenkwinkel < 135), "Lenkwinkel muss zwischen 45 und 135° sein"
+        self._log.info(f"Berechne Geschwindigkeit für Lenkwinkel: {lenkwinkel}")
         if (45 > lenkwinkel or 135 < lenkwinkel):
             raise ValueError(f"Lenkwinkel muss zwischen 45 und 135° sein (war: {lenkwinkel})")
+        
         self._speed = int(v_min + (v_max - v_min) * (1 - ((lenkwinkel-90)/45)**2))
+        self._log.info(self._speed)
         return self._speed
 
     def __ve(self, typ:type) -> str:
@@ -545,4 +560,26 @@ class DriveController(Loggable):
             if (log_level == logging.DEBUG):
                 payload["lenkwinkel_calculus"] = self._lw_debug_values
             return payload
+
+class Kalibrierungsfahrt():
+
+    def __init__(self, controller:DriveController) -> None:
+        self._controller = controller
+    
+    def fahre_kalibrierungsfahrt(self, stop_event:threading.Event) -> Tuple[list[float], list[float]]:
+        
+        self._controller.drive_car(stop_event, DrivingMode.APPROACH_OBSTACLE)
+        car = self._controller.car
+        if (isinstance(car, SensorCar)):
+            return car.ir_sensor_min_values, car.ir_sensor_max_values
+        
+        e = ValueError(f"Für eine Kalibrierungsfahrt muss ein Fahrzeug vom Typ {type(SensorCar)} übergeben werden!")
+        self._controller._log.error(e)
+        raise e
+        
+
+
+
+
+
 
