@@ -89,28 +89,39 @@ if __name__ == '__main__':
 
     try:
 
+
         sc.stop()
-      
+    
         print("Starting sensor thread...", end="")
         us_sensor_thread.start()
         ir_sensor_thread.start()
         print("...started!")
 
-        if ("j" == input("Kalibrierungsfahrt starten?")):
+        while True:
+            user_input = input("Kalibrierungsfahrt starten? (j/n)")
+            if (user_input == "j"):
 
-            kf = Driving.Kalibrierungsfahrt(dc)
-            kf.fahre_kalibrierungsfahrt(threading.Event())
-            if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden?")):
-                ir.save_calibration()
+                kf = Driving.Kalibrierungsfahrt(dc)
+                kf.fahre_kalibrierungsfahrt(threading.Event())
+                if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden? (j/n)")):
+                    ir.save_calibration()
+                    break
+                break
 
+            elif (user_input == "n"):
+                print("Starting logging thread...", end="")
+                #dl_thread.start()
+                cl_thread.start()
+                print("...started!")
+                print("Starting controller thread...", end="")
+                controller_thread.start()
+                print("...started!")
+                break
 
-        print("Starting logging thread...", end="")
-        #dl_thread.start()
-        cl_thread.start()
-        print("...started!")
-        print("Starting controller thread...", end="")
-        controller_thread.start()
-        print("...started!")
+            else:
+                print("Nur j oder n zulässig")
+                continue
+                
 
         input("Stop?")
 
@@ -135,5 +146,5 @@ if __name__ == '__main__':
         controller_thread.join()
         print("...ended!")
         
-        if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
-            ir.save_calibration()
+        # if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
+        #     ir.save_calibration()
