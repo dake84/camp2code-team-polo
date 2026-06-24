@@ -5,7 +5,7 @@ Driving.py:
 - Ultrasonic-Fahrmodi in DriveController implementieren (Methode drive_car())
 -- Fahrmodus 3: drive_straigt_ahead @all -> ok
 -- Fahrmodus 4: room_explorer @Jan -> morgen
-- SensorMin-/SensorMax-Values in Config schreiben (nach "Kalibrierungsfahrt") (mglw. eigener Fahrmodus analog "Explore" bzw. "Obstacle Detection" -> kann das Auto wieder zum Ursprungsort zurückfinden???)
+- SensorMin-/SensorMax-Values in Config schreiben (nach "Kalibrierungsfahrt") (mglw. eigener Fahrmodus analog "Explore" bzw. "Obstacle Detection" -> kann das Auto wieder zum Ursprungsort zurückfinden???) -  -erledigt
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/ (google-style)
 - Nice-To-Have: Keyboard-Fahrmodus in DriveController implementieren (Methode drive_car()) --> @Markus
 - Nice-To-Have: Stadia/PS-Controller-Fahrmodus in DriveController implementieren (Methode drive_car())
@@ -18,18 +18,18 @@ program.py
 - "Run-Button" in VSC konfigurieren (run / debug configuration) --> https://python.land/creating-python-programs/python-in-vscode
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
-SonicCar.py
-- Fahrlogik in DriveController migrieren (SonicCar liefert ausschl. State des Autos)
-- Implmentierung logging-methode in soniccar.py
+SonicCar.py  -erledigt
+- Fahrlogik in DriveController migrieren (SonicCar liefert ausschl. State des Autos) -erledigt
+- Implmentierung logging-methode in soniccar.py -erledigt
 
 UltrasonicSensor.py:
-- Ultrasonic-Sensor analog InfraredSensors implementieren
+- Ultrasonic-Sensor analog InfraredSensors implementieren  -erledigt
 - new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))
 --> als eigenen Thread in program.py implementieren
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
 InfraredSensor.py:
-- new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))
+- new_config.json programmatisch erzeugen (bspw. als Methode im Car und Sensor ("write_default_config(self): self._config.save_config()"?))  -erledigt
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
 Dashboard.py:
@@ -39,7 +39,7 @@ Dashboard.py:
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
 CarLogger.py:
-- Umgang mit "Debug"-Logeinträgen (bspw. eigenes Log?) --> https://docs.python.org/3/howto/logging.html#logging-basic-tutorial
+- Umgang mit "Debug"-Logeinträgen (bspw. eigenes Log?) --> https://docs.python.org/3/howto/logging.html#logging-basic-tutorial  -erledigt
 - Docstrings --> https://realpython.com/how-to-write-docstrings-in-python/
 
 Präsentation:

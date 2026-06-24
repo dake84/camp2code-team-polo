@@ -174,8 +174,11 @@ class DriveController(Loggable):
                 self._log.error(e)
         elif (dm == DrivingMode.EXPLORE):
             # Fahrmodus 4
+            self._log.info("Starte Fahrmodus 4")
             try:
+                print("try")
                 if isinstance(self._car, SensorCar):
+                    self._log.debug("SensorCar")
                     self._room_explorer(self._car, stop_event)
             except Exception as e:
                 self._log.error(e)
@@ -206,9 +209,10 @@ class DriveController(Loggable):
         speed_direction = random.choice([-1, 1])
         steer_direction = random.choice([-1, 1])
         counter = 0
-
-
-        while (not stop_event.is_set() and (time.time()-t_start > explorer_max_time)):
+        print("Vor while")
+        self._log.debug(f"Gehe in Schleife (stop_event: {not stop_event.is_set()}, Zeit: {time.time()-t_start < explorer_max_time})")
+        while (not stop_event.is_set() and (time.time()-t_start < explorer_max_time)):
+            print("In while")
             car.drive(actual_speed_drive_explore, steering_angle_drive_explore)
 
             actual_distance = car.distance
@@ -228,6 +232,7 @@ class DriveController(Loggable):
 
     def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
 
+        self._log.debug(actual_speed, steering_angle, speed_dir, steer_dir, counter)
         counter += 1
 
         # Richtung nur alle x Zyklen ändern
@@ -543,6 +548,9 @@ class DriveController(Loggable):
         
         # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
         with self._lock:
+            self._log.debug("Zweischenwert.... für die Log-Datei")
+            self._log.error("Fehler")
+            
             self._lw_debug_values["integral"] = 0
             self._lw_debug_values["sum_messwerte"] = 0
 
