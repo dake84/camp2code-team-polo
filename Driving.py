@@ -271,6 +271,11 @@ class DriveController(Loggable):
             while (not stop_event.is_set() and actual_distance > ultrasonic_max_distance_to_stop):
                 self._log.debug(f"Driving towards obstacle..... actual_distance: {actual_distance}")
 
+#                us_error = car.last_error
+#                if (us != 0):
+#                    self._log.info("Auto meldet Fehler: {us_error}")
+
+
                 if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
                     self._log.info(f"Approaching obstacle... actual_distance: {actual_distance}")
                     car.speed = self._calculate_speed_from_distance(car, actual_distance)
@@ -283,9 +288,10 @@ class DriveController(Loggable):
 
             self.stop_car(StopReason.OBSTACLE_AHEAD)
         
-    def _calculate_speed_from_distance(self, car:SonicCar, distance:int):
-            car.speed = distance+car.v_min
+    def _calculate_speed_from_distance(self, car:SonicCar, distance:int) -> int:
+            speed = distance+car.v_min
             self._log.debug(f"Speed set because we are approaching an obstacle :-o (Speed: {car.speed}, Distance: {distance})")
+            return speed
 
     def stop_car(self, reason:StopReason|int=0):
         self._stop_reason = StopReason(reason)
@@ -306,7 +312,7 @@ class DriveController(Loggable):
         last_direction = 0
         last_lenkwinkel = 0
         
-        while (self.run or not stop_event.is_set()):
+        while (self.run and not stop_event.is_set()):
 
             # Cfg nachladen (kostet Performance!!!!)
             if (self._test_mode): self._car._update_config()
@@ -578,7 +584,7 @@ class Kalibrierungsfahrt():
             return car.ir_sensor_min_values, car.ir_sensor_max_values
         
         e = ValueError(f"Für eine Kalibrierungsfahrt muss ein Fahrzeug vom Typ {type(SensorCar)} übergeben werden!")
-        self._controller._log.error(e)
+        self._controller._log.exception(e)
         raise e
         
 

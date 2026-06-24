@@ -108,7 +108,7 @@ class BaseCar(Loggable):
 
     # Live value (with lock)
     @speed.setter
-    def speed(self, speed): 
+    def speed(self, speed:int): 
         speed = max(-100, min(100, speed))
         self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
         if (speed >= 0):

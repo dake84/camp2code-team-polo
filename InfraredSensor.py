@@ -16,14 +16,17 @@ class InfraredSensor(Infrared):
         super().__init__()
         self._log = logging.getLogger(self.__class__.__name__)
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("ir_sensors", logger=self._log)
+        self._lock = threading.Lock()
 
         self._car = car 
 
-        self._sensor_min_values = self._cfg.get_list("sensor_min_values", [0,0,0,0,0])
-        self._sensor_max_values = self._cfg.get_list("sensor_max_values", [100,100,100,100,100])
+        self._sensor_min_values = self._cfg.get_list("sensor_min_values", [1000.,1000.,1000.,1000.,1000.])
+        self._sensor_max_values = self._cfg.get_list("sensor_max_values", [0.,0.,0.,0.,0.])
+
+        self._raw_sensor_min_values = self.sensor_values
+        self._raw_sensor_max_values = self.sensor_values
 
         self._run = True
-        self._lock = threading.Lock()
 
     @property
     def sensor_values(self) -> list[float]:
@@ -36,7 +39,27 @@ class InfraredSensor(Infrared):
             return self._sensor_min_values
     
     @property
+    def raw_sensor_max_values(self) -> list[float]:
+        """
+        Liefert die nicht-normierten Sensor_Max_Values
+        """
+        with self._lock:
+            return self._raw_sensor_max_values
+
+    @property
+    def raw_sensor_min_values(self) -> list[float]:
+        """
+        Liefert die nicht-normierten Sensor_Min_Values
+        """
+        with self._lock:
+            return self._raw_sensor_min_values
+
+
+    @property
     def sensor_max_values(self):
+        """
+        Liefert die normierten Sensor_Max_Values
+        """
         with self._lock:
             return self._sensor_max_values
     
@@ -72,14 +95,16 @@ class InfraredSensor(Infrared):
         self._log.debug(f"Calibrating IR-Sensors with learning_rate {learning_rate} dynamically...")
 
         for i in range(len(sensors)):
-            min = self.sensor_min_values[i]
-            max = self.sensor_max_values[i]
+            min = self._sensor_min_values[i]
+            max = self._sensor_max_values[i]
             if (sensors[i] < min):
                 self.sensor_min_values[i] = min - learning_rate * (min-sensors[i])
+                self._raw_sensor_min_values[i] = sensors[i]
                 self._log.info(f"Sensor {i} calibrated. Old min_value {min}, new min value: {sensors[i]}. Newly calibrated min_value: {self.sensor_min_values[i]}")
             
             if (sensors[i] > max):
                 self.sensor_max_values[i] = max + learning_rate * (sensors[i] - max)
+                self._raw_sensor_max_values[i] = sensors[i]
                 self._log.info(f"Sensor {i} calibrated. Old max_value {max}, new max value: {sensors[i]}. Newly calibrated max_value: {self.sensor_max_values[i]}")
         
         self._log.debug("Calibration ended")

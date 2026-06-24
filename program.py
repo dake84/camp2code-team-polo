@@ -4,6 +4,7 @@ import signal
 import threading
 
 import CarLogger
+import ConfigReader
 import Driving
 import InfraredSensor
 import UltrasonicSensor
@@ -89,7 +90,7 @@ if __name__ == '__main__':
     try:
 
         sc.stop()
-
+      
         print("Starting sensor thread...", end="")
         us_sensor_thread.start()
         ir_sensor_thread.start()
@@ -98,23 +99,8 @@ if __name__ == '__main__':
         if ("j" == input("Kalibrierungsfahrt starten?")):
 
             kf = Driving.Kalibrierungsfahrt(dc)
-            minv, maxv = kf.fahre_kalibrierungsfahrt(threading.Event())
-
-            # --> Wieso wartet der hier nicht
-
-
-
-            print(f"Ergebnis Kalibrierungsfahrt Auto:\n min:{minv}\n max:{maxv}")
-            c_minv = ir.sensor_min_values
-            c_maxv = ir.sensor_max_values
-            print(f"Ergebnis Kalibrierungfahrt Sensor (dynamische Kalibrierung):\n c_minv:{c_minv}\n c_maxv {c_maxv}")
-            cfg_minv = ir._cfg.get_list("ir_sensor_min_values")
-            cfg_maxv = ir._cfg.get_list("ir_sensor_max_values")
-            print(f"Werte aus cfg Datei:\n cfg_minv:{cfg_minv}\n cfg_maxv {cfg_maxv}")
-
+            kf.fahre_kalibrierungsfahrt(threading.Event())
             if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden?")):
-                ir.sensor_min_values = minv
-                ir.sensor_max_values = maxv
                 ir.save_calibration()
 
 
@@ -130,6 +116,13 @@ if __name__ == '__main__':
 
         stop_event.set()
 
+    except KeyboardInterrupt:
+        stop_event.set()
+
+    finally:
+        # Just to be surrrrre
+        sc.stop()
+
         print("Ending sensor thread...", end="")
         ir_sensor_thread.join()
         us_sensor_thread.join()
@@ -144,6 +137,3 @@ if __name__ == '__main__':
         
         if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
             ir.save_calibration()
-    finally:
-        # Just to be surrrrre
-        sc.stop()
