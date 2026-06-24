@@ -86,36 +86,40 @@ if __name__ == '__main__':
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 
 
-    print("Starting sensor thread...", end="")
-    us_sensor_thread.start()
-    ir_sensor_thread.start()
-    print("...started!")
-    print("Starting logging thread...", end="")
-    #dl_thread.start()
-    cl_thread.start()
-    print("...started!")
-    print("Starting controller thread...", end="")
-    controller_thread.start()
-    print("...started!")
+    try:
+        sc.stop()
+        input("Starten?")
 
-    input("Stop?")
+        print("Starting sensor thread...", end="")
+        us_sensor_thread.start()
+        ir_sensor_thread.start()
+        print("...started!")
+        print("Starting logging thread...", end="")
+        #dl_thread.start()
+        cl_thread.start()
+        print("...started!")
+        print("Starting controller thread...", end="")
+        controller_thread.start()
+        print("...started!")
 
-    stop_event.set()
+        input("Stop?")
 
-    print("Ending sensor thread...", end="")
-    ir_sensor_thread.join()
-    us_sensor_thread.join()
-    print("...ended!")
-    print("Ending logging thread...", end="")
-    # dl_thread.join()
-    cl_thread.join()
-    print("...ended!")
-    print("Ending controller thread...", end="")
-    controller_thread.join()
-    print("...ended!")
-    
-    if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
-        ir.save_calibration()
+        stop_event.set()
 
-    # Just to be surrrrre
-    sc.stop()
+        print("Ending sensor thread...", end="")
+        ir_sensor_thread.join()
+        us_sensor_thread.join()
+        print("...ended!")
+        print("Ending logging thread...", end="")
+        # dl_thread.join()
+        cl_thread.join()
+        print("...ended!")
+        print("Ending controller thread...", end="")
+        controller_thread.join()
+        print("...ended!")
+        
+        if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
+            ir.save_calibration()
+    finally:
+        # Just to be surrrrre
+        sc.stop()

@@ -77,22 +77,6 @@ class DriveController(Loggable):
         
         self._log = logging.getLogger(self.__class__.__name__)
 
-        # Anzahl der letzten Werte, für die Ermittlung des Durchschnitt-Messwerts
-        self._history_length = 1
-        # Initialisiert Integral für Fehler
-        self._integral = 0
-        # Initialisiert Gewichtung für KD
-        self._kd_weight = 0
-        # Letzte Abweichung zur schwarzen Linie (für delta KD)
-        self._last_derivative = 0
-        # Initialisierung Slew Rate
-        self._slew_rate = 0
-        # Initialisierung Error Tolerance
-        self._error_tolerance = 0
-        #Initialisierung last_time_stamp
-        self._last_time_stamp = 0
-
-
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("drive_controller")
 
 
@@ -306,9 +290,10 @@ class DriveController(Loggable):
         last_time = time.time()
         
         # These values will be set in the driving loooooop
-        last_integral = 0
-        last_error = 0
+        summe_integral = 0
+        previous_error = 0
         last_direction = 0
+        last_lenkwinkel = 0
         
         while (self.run or not stop_event.is_set()):
 
@@ -316,33 +301,49 @@ class DriveController(Loggable):
             if (self._test_mode): self._car._update_config()
 
             # These values must come from the Car-Configuration-File
-            korrektur_proportional = self._car.get_config().get("korrektur_proportional", 5)
-            korrektur_integral = self._car.get_config().get("korrektur_integral", 0)
-            anti_windup = self._car.get_config().get("anti_windup", 0.3)
-            korrektur_differential = self._car.get_config().get("korrektur_differential", 0)
-            v_min = self._car.get_config().get("v_min", 20)
-            v_max = self._car.get_config().get("v_max", 70)
+            korrektur_proportional = self._cfg.get_float("korrektur_proportional", 5)
+            korrektur_integral = self._cfg.get_float("korrektur_integral", 0)
+            korrektur_integral_boundary = self._cfg.get_float("korrektur_integral_boundary", 30)
+            korrektur_differential = self._cfg.get_float("korrektur_differential", 0)
+            
+            v_min = self._cfg.get_int("v_min", 20)
+            v_max = self._cfg.get_int("v_max", 70)
+            
+            sensor_gewichte = self._cfg.get_list("ir_sensor_weights", [2,1,0,-1,-2])
+            slew_rate = self._cfg.get_int("slew_rate", 3)
             
             # Erforderlicher Kontrast zur Linienerkennung (in Prozent)
             minimum_line_contrast = self._car.get_config().get("minimum_line_contrast", 0.5)
             
             # Offset vom Lenkwinkel zur Erkennung der letzten Richtung (90 +- lw_threshold)
-            steering_direction_offset = self._car.get_config().get("steering_direction_offset", 0.2)
+            steering_direction_offset = self._car.get_config().get("steering_direction_offset", 0.05)
 
             if (self._is_on_line(self.ir_sensor_values, minimum_line_contrast)):
                 
                 # Lenkwinkel berechnen und zeitpersistente Werte merken
-                last_time, last_integral, last_error, lw = self._calc_steering_angle_from_ir_sensors(self.ir_sensor_values, korrektur_proportional, korrektur_integral, last_integral, anti_windup, korrektur_differential, last_error, last_time)
+                last_time, summe_integral, previous_error, last_lenkwinkel = self._calc_steering_angle_from_ir_sensors(
+                        self.ir_sensor_values, 
+                        sensor_gewichte, 
+                        slew_rate, 
+                        korrektur_proportional, 
+                        korrektur_integral, 
+                        summe_integral, 
+                        korrektur_integral_boundary,
+                        korrektur_differential,
+                        previous_error,
+                        last_time,
+                        last_lenkwinkel
+                    )
 
                 # Letzte Lenkrichtung merken
-                if (lw > (90+steering_direction_offset)):
+                if (last_lenkwinkel > (90+steering_direction_offset)):
                     last_direction = 1
-                elif (lw < (90-steering_direction_offset)):
+                elif (last_lenkwinkel < (90-steering_direction_offset)):
                     last_direction = -1
 
-                v = self._calc_speed_from_steering_angle(lw, v_min, v_max)
+                v = self._calc_speed_from_steering_angle(last_lenkwinkel, v_min, v_max)
 
-                self._car.drive(v, lw)
+                self._car.drive(v, last_lenkwinkel)
                 time.sleep(0.1)
             elif (driving_mode in (DrivingMode.ADVANCED_FOLLOW_LINE, DrivingMode.ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION)):
                 lost_line_time = time.time()
@@ -467,9 +468,7 @@ class DriveController(Loggable):
         """
         return self._cfg.get_float("error_tolerance", 0)
 
-
-    def _calc_steering_angle_from_ir_sensors(self, messwerte:list[float], korrektur_proportional:float, korrektur_integral:float, korrektur_differential:float):
-        
+    def _calc_steering_angle_from_ir_sensors(self, messwerte:list[float], sensor_gewichtung:list[float], slew_rate:int, korrektur_proportional:float, korrektur_integral:float, summe_integral:float, korrektur_integral_boundary:float, korrektur_differential:float, previous_error:float, last_time:float, last_lenkwinkel:int) -> tuple[float, float, float, int]:        
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PID-Korrekturfaktoren.
 
         Die Funktion nutzt gewichtete Infrarotmesswerte, um einen Fehlerwert zu bestimmen
@@ -480,82 +479,53 @@ class DriveController(Loggable):
         Returns:
             float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
         """
+        self._log.debug(f"Starte Lenkwinkel-Berechnung mit Eingangsdaten: messwerte:{messwerte}, sensor_gewichtung:{sensor_gewichtung}, slew_rate:{slew_rate}, korrektur_proportional:{korrektur_proportional}, korrektur_integral:{korrektur_integral}, summe_integral:{summe_integral}, korrektur_integral_boundary:{korrektur_integral_boundary}, korrektur_differential:{korrektur_differential}, previous_error:{previous_error}, last_time:{last_time}, last_lenkwinkel:{last_lenkwinkel}")
         if not isinstance(self._car, SensorCar): raise ValueError(self.__ve(SensorCar))
-        
-        last_time_stamp = self._last_time_stamp if (self._last_time_stamp > 0) else time.time()
+
         current_time_stamp = time.time()
 
-        if korrektur_differential is None:
-            korrektur_differential = self.korrektur_differential
-        if korrektur_integral is None:
-            korrektur_integral = self.korrektur_integral
-        if korrektur_proportional is None:
-            korrektur_proportional = self.korrektur_proportional            
-
-        messwerte = self._car.ir_sensor_value_history(length = self._history_length, clear_history=True)
         sum_messwerte = sum(messwerte)
         
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
-            return 90
+            return time.time(), summe_integral, 0, 90
         
-        error = sum(np.multiply(messwerte, self._cfg.get_list("ir_sensor_weights")))/sum_messwerte
-        print(error)
-        # if abs(error) < self._error_tolerance:
-        #     error = 0
+        error = sum(np.multiply(messwerte, sensor_gewichtung))/sum_messwerte
+        self._log.debug(f"Aktueller Messwerte-Fehler: {error}")
 
         # P
-        dKP = (self.korrektur_proportional * error) 
-        
+        dKP = (korrektur_proportional * error) 
+
         # I
-        self._integral += error * (current_time_stamp-last_time_stamp)
-        self._integral = max(min(self._integral, self.korrektur_integral_max_boundary), self.korrektur_integral_min_boundary)   # Anti-Windup
-        dKI = self.korrektur_integral * self._integral 
-        
+        summe_integral += error * (current_time_stamp-last_time)
+        summe_integral = max(min(summe_integral, korrektur_integral_boundary), -korrektur_integral_boundary)   # Anti-Windup
+        dKI = korrektur_integral * summe_integral
+
         # D
-        # derivative = self._kd_weight * (error - self.__previous_error) + (1-self._kd_weight)*self._last_derivative
-        # self._last_derivative = derivative
-        # dKD = (self.korrektur_differential * derivative)
         dKD = 0
-        if (current_time_stamp> last_time_stamp):
-            dKD = (self.korrektur_differential * ((error - self.__previous_error))/(current_time_stamp - last_time_stamp))
-
-
-        u = dKP + dKI + dKD
-
-        lw = max(45, min(135, 90 + u))
-
-        # Slew-Rate-Limit in beide Richtungen
-        max_step = self._slew_rate
-        delta = lw - self._lw_previous
-
-        if delta > max_step:
-            lenkwinkel = self._lw_previous + max_step
-        elif delta < -max_step:
-            lenkwinkel = self._lw_previous - max_step
-        else:
-            lenkwinkel = lw
-
-        self._lw_previous = lenkwinkel
-        self.__previous_error = error
-
-
-
-
-        print(f"dKP: {dKP}, dKD: {dKD}, u: {u}, lw: {lw}")
-        return lenkwinkel
+        if (current_time_stamp> last_time):
+            dKD = (korrektur_differential * ((error - previous_error))/(current_time_stamp - last_time))
 
         
+        u = dKP + dKI + dKD
+        lw = max(45, min(135, 90 + u))
+        self._log.debug(f"Errechneter Lenkwinkel (u): {u} --> normiert: {lw}")
+        lw = int(max(-slew_rate, min((lw-last_lenkwinkel, slew_rate))))
+        self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
+
+        
+        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}")
+
         # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
+        # Diese Werte kommen dann in das JSON-DataLog
         with self._lock:
-            self._log.debug("Zweischenwert.... für die Log-Datei")
-            self._log.error("Fehler")
-            
             self._lw_debug_values["integral"] = 0
             self._lw_debug_values["sum_messwerte"] = 0
+            self._lw_debug_values["previous_error"] = previous_error
 
 
-        raise NotImplementedError(f"Fahrmodus noch nicht implementiert")
+        # last_time, summe_integral, last_error, lw
+        return current_time_stamp, summe_integral, error, lw
 
     def _calc_speed_from_steering_angle(self, lenkwinkel:float, v_min:int, v_max:int) -> int:
         #assert (45 < lenkwinkel < 135), "Lenkwinkel muss zwischen 45 und 135° sein"
