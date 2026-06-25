@@ -40,7 +40,7 @@ class DrivingMode():
 
     @staticmethod
     def is_supported_driving_mode(dm:int, car:BaseCar):
-        return isinstance(DrivingMode.SUPPORTED_DRIVING_MODES[dm], type(car))
+        return isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])
 
 class StopReason(int):
     
@@ -163,7 +163,6 @@ class DriveController(Loggable):
             # Fahrmodus 4
             self._log.info("Starte Fahrmodus 4")
             try:
-                print("try")
                 if isinstance(self._car, SensorCar):
                     self._log.debug("SensorCar")
                     self._room_explorer(self._car, stop_event)
@@ -267,6 +266,7 @@ class DriveController(Loggable):
             
             ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
             actual_distance = car.distance
+            print(actual_distance)
             self._log.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual_distance: {actual_distance}")
             while (not stop_event.is_set() and actual_distance > ultrasonic_max_distance_to_stop):
                 self._log.debug(f"Driving towards obstacle..... actual_distance: {actual_distance}")
@@ -587,9 +587,3 @@ class Kalibrierungsfahrt():
         self._controller._log.exception(e)
         raise e
         
-
-
-
-
-
-

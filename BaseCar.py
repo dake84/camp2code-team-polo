@@ -99,7 +99,7 @@ class BaseCar(Loggable):
         self._fw.turn(angle)
         with self._lock:
             self.__log.debug(f"Set steering angle: {angle}")
-            self._steering_angle
+            self._steering_angle = angle
     
     # Live value (with lock)
     @property
