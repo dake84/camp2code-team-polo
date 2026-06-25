@@ -15,16 +15,6 @@ from logging import handlers
 import sys
 import traceback
 
-# Wenn du das Programm mit Strg+C abbrichst, siehst du alle Threads:
-def dump_threads(signum, frame):
-    print("\n--- THREAD DUMP ---")
-    for thread_id, stack in sys._current_frames().items():
-        print(f"\nThread ID: {thread_id}")
-        traceback.print_stack(stack)
-    sys.exit(1)
-
-
-signal.signal(signal.SIGINT, dump_threads)
 
 def setup_project_logging(default_level=logging.DEBUG):
     """
@@ -66,7 +56,8 @@ def setup_project_logging(default_level=logging.DEBUG):
 if __name__ == '__main__':
     setup_project_logging()
     sc = SensorCar.SensorCar()
-    
+    sc.stop()
+
     # Liest IR-Sensor und schreibt Werte ins Auto
     ir = InfraredSensor.InfraredSensor(sc)
     us = UltrasonicSensor.UltrasonicSensor(sc)
@@ -74,7 +65,7 @@ if __name__ == '__main__':
     # Liest Werte aus dem Auto und schreibt sie in ein Log-File
     cl = CarLogger.CarLogger(sc)
     # Liest Werte aus dem Auto und steuert das Auto
-    dc = Driving.DriveController(sc, Driving.DrivingMode.APPROACH_OBSTACLE)
+    dc = Driving.DriveController(sc, Driving.DrivingMode.ADVANCED_FOLLOW_LINE)
     # Liest Werte aus dem Controller und schreibt sie in ein Log-File
     # dl = CarLogger.CarLogger(log_object=dc, logfile="driving_controller_log.json", log_name="driving_controller_log")
 
@@ -83,46 +74,24 @@ if __name__ == '__main__':
 
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
-    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.FOLLOW_LINE])
+    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.ADVANCED_FOLLOW_LINE])
     #dl_thread=threading.Thread(target=dl.run, args=[stop_event])
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 
-
     try:
 
-
-        sc.stop()
-    
         print("Starting sensor thread...", end="")
         us_sensor_thread.start()
         ir_sensor_thread.start()
         print("...started!")
 
-        while True:
-            user_input = input("Kalibrierungsfahrt starten? (j/n)")
-            if (user_input == "j"):
-
-                kf = Driving.Kalibrierungsfahrt(dc)
-                kf.fahre_kalibrierungsfahrt(threading.Event())
-                if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden? (j/n)")):
-                    ir.save_calibration()
-                    break
-                break
-
-            elif (user_input == "n"):
-                print("Starting logging thread...", end="")
-                #dl_thread.start()
-                cl_thread.start()
-                print("...started!")
-                print("Starting controller thread...", end="")
-                controller_thread.start()
-                print("...started!")
-                break
-
-            else:
-                print("Nur j oder n zulässig")
-                continue
-                
+        print("Starting logging thread...", end="")
+        #dl_thread.start()
+        cl_thread.start()
+        print("...started!")
+        print("Starting controller thread...", end="")
+        controller_thread.start()
+        print("...started!")
 
         input("Stop?")
 

@@ -384,12 +384,12 @@ class DriveController(Loggable):
     def _is_on_line(self, messwerte:list[float], line_threshold:float) -> bool:
         min_sensor = min(messwerte)
         max_sensor = max(messwerte)
-        self._log.debug("Prüfung is_on_line mit min_sensor: {min_sensor}, max_sensor: {max_sensor}")
         
 
         if (max_sensor == 0):
             return True
 
+        self._log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {line_threshold}, min/max: {min_sensor/max_sensor:.2f}")
         return (min_sensor/max_sensor < line_threshold)
 
   

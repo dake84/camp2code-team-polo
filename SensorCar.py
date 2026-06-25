@@ -21,9 +21,10 @@ class SensorCar(SonicCar):
                 Wenn None, werden die Referenzen automatisch kalibriert.
         """
         super().__init__(config=config)
-        self._ir_sensor_values = []
+        self._ir_sensor_values = [[0.,0.,0.,0.,0.]]
         self._ir_sensor_min_values = [0.,0.,0.,0.,0.]
         self._ir_sensor_max_values = [1.,1.,1.,1.,1.]
+        self.__log = logging.getLogger(SensorCar.__name__)
         
 
     def ir_sensor_value_history(self, length:int=0, clear_history:bool=True):
@@ -42,7 +43,9 @@ class SensorCar(SonicCar):
     @property
     def ir_sensor_values(self) -> list[float]:
         with self._lock:
-            self._log.debug(f"Rufe Sensorwerte ab, Liste: {len(self._ir_sensor_values)}")
+            self.__log.debug(f"Ausgabe der letzten gespeicherten Sensorwerte ({len(self._ir_sensor_values)} Messungen):")
+            for i in range(len(self._ir_sensor_values)):
+                self.__log.debug(f"({i}): {self._ir_sensor_values[i]}")
             return self._ir_sensor_values[-1]
     
     @ir_sensor_values.setter
@@ -70,3 +73,17 @@ class SensorCar(SonicCar):
         payload = super().get_logging_payload()
         payload["ir_sensor_values"] = self.ir_sensor_value_history()
         return payload
+    
+
+class MockSensorCar(SensorCar):
+
+    def __init__(self, config: ConfigReader | None = None):
+        super().__init__(config)
+        self.__log = logging.getLogger(SensorCar.__name__)
+    
+    @SensorCar.speed.setter
+    def speed(self, speed:int): 
+        self.__log.debug(f"Geschwindigkeit gesetzt: {speed}")
+        self._speed = speed
+
+    
