@@ -19,7 +19,7 @@ import traceback
 
 
 car_select = SensorCar.SensorCar() # SonicCar.SonicCar()
-driving_mode_select = Driving.DrivingMode.ADVANCED_FOLLOW_LINE # FORWARD_BACKWARD = 10, CIRCULAR = 20, CIRCULAR_LEFT = CIRCULAR, CIRCULAR_RIGHT = 25, APPROACH_OBSTACLE = 30, EXPLORE = 40FOLLOW_LINE = 50ADVANCED_FOLLOW_LINE = 60ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70STADIA_CONTROLLER = 100,KALIBRIERUNGSFAHRT = 500
+driving_mode_select = Driving.DrivingMode.APPROACH_OBSTACLE # FORWARD_BACKWARD = 10, CIRCULAR = 20, CIRCULAR_LEFT = CIRCULAR, CIRCULAR_RIGHT = 25, APPROACH_OBSTACLE = 30, EXPLORE = 40FOLLOW_LINE = 50ADVANCED_FOLLOW_LINE = 60ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70STADIA_CONTROLLER = 100,KALIBRIERUNGSFAHRT = 500
 
 # Wenn du das Programm mit Strg+C abbrichst, siehst du alle Threads:
 def dump_threads(signum, frame):
@@ -88,8 +88,10 @@ if __name__ == '__main__':
                 #dl_thread.start()
                 cl_thread.start()
                 print("...started!")
+                print(f"cl_thread alive? {cl_thread.is_alive()}")
                 print("Starting controller thread...", end="")
                 controller_thread.start()
+                print(f"controller_thread alive? {controller_thread.is_alive()}")
                 print("...started!")
                 input("Drücke Enter zum Stoppen…")
                 stop_event.set()

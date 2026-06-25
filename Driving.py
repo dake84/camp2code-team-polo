@@ -21,7 +21,7 @@ class DrivingMode():
     FOLLOW_LINE = 50
     ADVANCED_FOLLOW_LINE = 60
     ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70
-    STADIA_CONTROLLER = 100,
+    STADIA_CONTROLLER = 100
     KALIBRIERUNGSFAHRT = 500
 
     SUPPORTED_DRIVING_MODES = {
@@ -40,11 +40,11 @@ class DrivingMode():
 
     @staticmethod
     def is_supported_driving_mode(dm:int, car:BaseCar):
-        return isinstance(DrivingMode.SUPPORTED_DRIVING_MODES[dm], type(car))
+        return isinstance(car, DrivingMode.SUPPORTED_DRIVING_MODES[dm])
 
 class StopReason(int):
     
-    NONE=0,
+    NONE=0
     LOST_LINE = 10
     OBSTACLE_AHEAD = 20
     PROGRAM_STOPPED_BY_USER = 30
@@ -155,7 +155,7 @@ class DriveController(Loggable):
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
             self._log.info("Fahrmodus APPROACH_OBSTACLE")
             try:
-                if isinstance(self._car, SensorCar):
+                if isinstance(self._car, SonicCar):
                     self._approach_obstacle(self._car, stop_event)
             except Exception as e:
                 self._log.exception(e)
@@ -223,7 +223,7 @@ class DriveController(Loggable):
 
     def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
 
-        self._log.debug(actual_speed, steering_angle, speed_dir, steer_dir, counter)
+        self._log.debug(f"{actual_speed}, {steering_angle}, {speed_dir}, {steer_dir}, {counter}")
         counter += 1
 
         # Richtung nur alle x Zyklen ändern
