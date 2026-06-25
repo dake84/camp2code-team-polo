@@ -197,17 +197,17 @@ class DriveController(Loggable):
     def run(self, run:bool):
         if (run): self._stop_reason = None
         self._run = run
-
-    def _sleep_with_stop(self, stop_event: threading.Event, duration: float, step: float = 0.05) -> bool:
+    
+    def _sleep_with_stop(self, stop_event: threading.Event, duration: float, step_time: float = 0.05) -> bool:
         end_time = time.time() + duration
+
         while time.time() < end_time:
             if stop_event.is_set():
                 self._car.stop()
                 return True
-            if self._sleep_with_stop(stop_event, step):
-                    return
-        return False
+            time.sleep(step_time)
 
+        return False
 
     def _room_explorer(self, car:SonicCar, stop_event:threading.Event):
         explorer_max_time = self._cfg.get_int("explorer_max_time", 30)
