@@ -1,3 +1,4 @@
+import abc
 import random
 import threading
 import time
@@ -13,19 +14,11 @@ from SensorCar import SensorCar
 from SonicCar import SonicCar
 
 class StopReason(int):
-    """_summary_
 
-    Args:
-        int (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    
-    NONE=0,
-    LOST_LINE = 10
-    OBSTACLE_AHEAD = 20
-    PROGRAM_STOPPED_BY_USER = 30
+    NONE=int(0),
+    LOST_LINE = int(10)
+    OBSTACLE_AHEAD = int(20)
+    PROGRAM_STOPPED_BY_USER = int(30)
 
     STR_REASONS = {
         NONE: "No reason",
@@ -71,149 +64,246 @@ class StopReason(int):
             return int(value) == self._reason
         return False
 
-class RoomExplorer(Loggable):
-    """_summary_
+class DrivingMode(abc.ABC):
 
-    Args:
-        Loggable (_type_): _description_
-    """
-
-    def __init__(self, car:Optional[SonicCar]=None, sensor_config:Optional[ConfigReader.ConfigReader]=None):
-        """_summary_
-
-        Args:
-            car (Optional[SonicCar], optional): _description_. Defaults to None.
-            sensor_config (Optional[ConfigReader.ConfigReader], optional): _description_. Defaults to None.
-        """
+    def __init__(self, name:str, car:BaseCar, logger:logging.Logger, config:ConfigReader.ConfigReader, update_cfg:bool=False, frequency:int=500) -> None:
         super().__init__()
+        self._stop_event = None
+        self._name = name
+        self._car = car
+        self._log = logger
+        self._cfg = config
+        self._frequency = frequency
+        self._lock = threading.RLock()
+        self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
 
-        # Dein Flag für einmaliges Logging
-        self.free_logged = False
+    def start(self):
+        self._thread.start()
 
-        # Rest deiner Initialisierung
-        self._car = car if car is not None else SonicCar()
-        self.__log = logging.getLogger(self.__class__.__name__)
-        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("room_explorer")
+    def _drive(self, update_cfg:bool=False):
+        with self._lock:
+            if self.is_running():
+                raise RuntimeError("Mode is already running")
 
-        self._test_mode = True
-        self._lock = threading.Lock()
-
-
-    def drive_car(self, stop_event:threading.Event):
-        """_summary_
-
-        Args:
-            stop_event (threading.Event): _description_
-        """
-        self.__log.info("Starte RoomExplorer-Modus (Fahrmodus 4)")
-
-        # Fahrmodus 4
         try:
-            self._car._update_config()
-            self.run = True
-            self._room_explorer(self._car, stop_event)
+            if (update_cfg):
+                self._log.warning(f"Reloading config files. This will cost some performance and is not advised in production environments")
+            
+            with self._lock:
+                self._stop_event = threading.Event()
+
+            self._log.info(f"Starte {self._name}")
+
+            if (self._pre_run()):
+                self._log.debug("Pre-Run actions absolved")
+            else:
+                raise RuntimeError("Pre-Run actions failed. Aborting.")
+
+            i = 0
+            running = True
+            while (not self._stop_event.is_set() and self._run_condition() and running):
+                if (update_cfg):
+                    self._cfg._load_config_file()
+                    self._car._update_config()
+
+                running = self._run()
+                time.sleep(1/self._frequency)
+                i+=1
+
+                if (i%self._frequency == 5):
+                    self._log.debug(f"Running {self._name} in iteration #{i}")
+                
         except Exception as e:
-            self.__log.exception(e)
- 
-    @property
-    def car(self) -> SonicCar:
-        """_summary_
+            self._log.exception(e)
+        finally:
+            self._car.stop()
+            if (self._post_run()):
+                self._log.debug("Post-Run actions absolved")
+            else:
+                raise RuntimeError("Post-Run actions failed. Aborting.")                
+            with self._lock:
+                self._stop_event = None
 
-        Returns:
-            SonicCar: _description_
-        """
-        return self._car
+    @abc.abstractmethod
+    def _run_condition(self) -> bool:
+        pass
 
-    @property
-    def run(self) -> bool:
-        """_summary_
+    def _pre_run(self) -> bool:
+        return True
 
-        Returns:
-            bool: _description_
-        """
-        return self._run
+    @abc.abstractmethod
+    def _run(self) -> bool:
+        pass
 
-    @run.setter
-    def run(self, run:bool):
+    def _post_run(self) -> bool:
+        return True
+
+    def is_running(self) -> bool:
+        return self._stop_event is not None
+
+    def stop(self, reason:StopReason|int=0) -> bool:
+        if (self._stop_event is not None):
+            self._stop_event.set()
+            self._stop_car(reason)
+            return True
+        return False
+
+    def _stop_car(self, reason:StopReason|int=0):
         """_summary_
 
         Args:
-            run (bool): _description_
+            reason (StopReason | int, optional): _description_. Defaults to 0.
         """
-        if (run): self._stop_reason = None
-        self._run = run
+        self._log.info(f"Car stopped for {reason}")
+        self._car.stop()    
 
-    def _room_explorer(self, car:SonicCar, stop_event:threading.Event):
-        """_summary_
+class SonicCarMode(DrivingMode):
 
-        Args:
-            car (SonicCar): _description_
-            stop_event (threading.Event): _description_
-        """
-        explorer_max_time = self._cfg.get_int("explorer_max_time", 30)
+    def __init__(self, name:str, car:Optional[SonicCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
+        car = car if car is not None else SonicCar()
+        # just a pointer to remove linter-errors
+        self._soniccar = car
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("soniccar_controller")
+        super().__init__(name, car, logger, cfg)
+
+class ApproachObstacle(SonicCarMode):
+        
+    def __init__(self, name="Fahrmodus 3 (ApproachObstacle)", car:Optional[SonicCar]=None):
+        super().__init__(name=name, car=car)
+        
+        # Dein Flag für einmaliges Logging
+        self._free_logged = False
+
+    def _pre_run(self) -> bool:
         ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+        actual_distance = self._soniccar.distance
 
-        t_start = time.time()
-        t_end = time.time() + explorer_max_time
-        print("Los gehts....")
-        print(datetime.fromtimestamp(t_end).strftime("%Y-%m-%d %H:%M:%S"))
-        self.__log.debug(f"Erkunde den Raum für {explorer_max_time}s")
+        self._log.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual_distance: {actual_distance}")        
+        self._soniccar.speed = self._soniccar.v_min
+
+        return True
+
+    def _run_condition(self) -> bool:
+        ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+        d = self._soniccar.distance
+        if (d < ultrasonic_max_distance_to_stop):
+            self._log.info(f"Reached obstacle (distance: {d}), stopping")
+            return False
+        return True
+
+    def _run(self) -> bool:
+
+        freie_fahrt = self._set_speed_based_on_distance()
+
+        ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+        d = self._soniccar.distance
+
+        if freie_fahrt:
+            self._car.drive(self._car.speed + 5, 90)
+        elif (d < ultrasonic_max_distance_to_stop):
+            self.stop(StopReason(StopReason.OBSTACLE_AHEAD))
+            return False
+
+        return True
+
+    def _set_speed_based_on_distance(self) -> bool:
+        # False, wenn freie Fahrt, sonst true
+
+        ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
+        slow_down_window = self._cfg.get_float("slow_down_window", 0.3)
+        
+        actual_distance = self._soniccar.distance
+        self._log.debug(f"Sensor-Wert ausgelesen: {actual_distance}")
+
+        old_speed = self._soniccar.speed
+        new_speed = old_speed
+            
+        if (actual_distance <= ultrasonic_max_distance_to_stop):
+            self._log.info("Obstacle ahead, stopping...")
+            self._soniccar.stop()
+            self._free_logged = False
+            return True
+        elif (actual_distance <= ((1+slow_down_window)*ultrasonic_max_distance_to_stop)):
+            self._free_logged = False
+            self._soniccar.speed = int(self._soniccar.speed * (self._soniccar.distance/ultrasonic_max_distance_to_stop))
+            self._log.info(f"Fahrzeug nähert sich dem Hindernis (d={actual_distance}), verlangsame Fahrt ({old_speed} -> {self._soniccar.speed})")
+            return True
+        elif not self._free_logged:
+            self._log.info("Freie Fahrt voraus, kein Hindernis in Sicht")
+            self._free_logged = True
+            return False
+        
+        return False
+
+
+class RoomExplorer(ApproachObstacle):
+    def __init__(self, name="Fahrmodus 4 (RoomExplorer)", car:Optional[SonicCar]=None):
+        super().__init__(name=name, car=car)
+
+        self._explore_logged = False
+
+    def _pre_run(self):
+        explorer_max_time = self._cfg.get_int("explorer_max_time", 30)
+
+        self._t_end = time.time() + explorer_max_time
+        self._log.debug(f"Erkunde den Raum für {explorer_max_time}s bis {datetime.fromtimestamp(self._t_end).strftime("%Y-%m-%d %H:%M:%S")}")
 
         actual_speed_drive_explore = self._cfg.get_int("start_speed", 60)
         steering_angle_drive_explore = self._cfg.get_int("start_angle", 90)
-        slow_down_window = self._cfg.get_float("slow_down_window", 0.3)
+        self._car.drive(actual_speed_drive_explore, steering_angle_drive_explore)
 
-        speed_direction = random.choice([-1, 1]) # Vorwärts / Rückwärts
-        steer_direction = random.choice([-1, 1]) # Links / Rechts
+        self._counter = 0
+        self._log.debug(f"Parameter: speed_direction ({actual_speed_drive_explore}, steer_direction:{steering_angle_drive_explore})")
 
-        self.__log.debug(f"Parameter: speed_direction ({speed_direction}, steer_direction:{steer_direction})")
+        return True
 
-        counter = 0        
+    def _run_condition(self) -> bool:
+        if (self._t_end is None):
+            raise RuntimeError("Start- und/oder Endzeit nicht gesetzt (t_start: {self._t_start}, t_end: {self._t_end})")
+        return (time.time() < self._t_end)
 
-        while (not stop_event.is_set() and (time.time()-t_start < explorer_max_time)):
-            car.drive(actual_speed_drive_explore, steering_angle_drive_explore)
-
-            actual_distance = car.distance
-            self.__log.debug(f"Sensor-Wert ausgelesen: {actual_distance}")
+    def _run(self) -> bool:
             
-            if (actual_distance < ((1+slow_down_window)*ultrasonic_max_distance_to_stop)):
-                self.__log.debug("Obstacle ahead, slowing down...")
-                car.speed = self._calculate_speed_from_distance(car, actual_distance)
+        if (not self._set_speed_based_on_distance()):
+            # Freie Fahrt
+            self._log.debug("Freie Fahrt")
+            self._explore()
+        else:
+            # Ausweichmanöver einleiten
+            self._explore_logged = False
+            suchzeit_sekunden = self._overcome_obstacle()
+            self._log.info(f"Fahre rückwärts für {suchzeit_sekunden}")
+            start_suchzeit = time.time()
+            ende_suchzeit = start_suchzeit + suchzeit_sekunden
+            if (self._stop_event is None):
+                raise RuntimeError("Stop_Event not available")
+            while (not self._stop_event.is_set() and (time.time() < ende_suchzeit)):
+                time.sleep(1/self._frequency)
+            self._log.info(f"Rückwärtsfahrt beendet")
 
-            if (actual_distance <= ultrasonic_max_distance_to_stop):
-                self.__log.debug("Obstacle ahead, overcoming...")
-                self._overcome_obstacle(car)
-            else:
-                actual_speed_drive_explore, steering_angle_drive_explore, speed_direction, steer_direction, counter = self.drive_explore(car, actual_speed_drive_explore,
-                                                                                 steering_angle_drive_explore,
-                                                                                 speed_direction,
-                                                                                 steer_direction,
-                                                                                 counter
-                                                                                )                
+        return True
 
-    def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
-        """_summary_
+    def _post_run(self):
+        self._t_end = None
+        self._counter = 0
 
-        Args:
-            car (SonicCar): _description_
-            actual_speed (int): _description_
-            steering_angle (int): _description_
-            speed_dir (int): _description_
-            steer_dir (int): _description_
-            counter (int): _description_
+        return True
 
-        Returns:
-            Tuple[int, int, int, int, int]: _description_
-        """
-        if not self.free_logged:
-            self.__log.info("Freie Fahrt voraus, kein Hindernis in Sicht")
-            self.free_logged = True
-        
-        self.__log.debug(actual_speed, steering_angle, speed_dir, steer_dir, counter)
-        counter += 1
+    def _explore(self):
+        if not self._explore_logged:
+            self._log.info(f"Fahre auf Erkundungsfahrt bis zum nächsten Hindernis...")
+            self._explore_logged = True
+        actual_speed = self._soniccar.speed
+        steering_angle = self._soniccar.steering_angle
+        steer_dir = -1 if steering_angle < 90 else 1
+        speed_dir = self._soniccar.direction
+
+        self._log.debug(f"speed: {actual_speed},, angle: {steering_angle}, speed_dir: {speed_dir}, steer_dir: {steer_dir}, counter: {self._counter}")
+        self._counter += 1
 
         # Richtung nur alle x Zyklen ändern
-        if counter >= 25:
+        if self._counter >= 25:
             counter = 0
             speed_dir = random.choice([-1, 1])
             steer_dir = random.choice([-1, 1])
@@ -226,15 +316,13 @@ class RoomExplorer(Loggable):
         actual_speed = max(30, min(actual_speed, 100))
         steering_angle = max(45, min(steering_angle, 135))
 
-        self.__log.debug(f"Exploriere den Raum..... (Geschwindigkeit: {actual_speed}, Lenkwinkel: {steering_angle})")
-        car.drive(actual_speed, steering_angle)
+        self._log.debug(f"Exploriere den Raum..... (Geschwindigkeit: {actual_speed}, Lenkwinkel: {steering_angle})")
+        self._soniccar.drive(actual_speed, steering_angle)
 
-        return actual_speed, steering_angle, speed_dir, steer_dir, counter
-
-    def _overcome_obstacle(self, car:SonicCar):
+    def _overcome_obstacle(self) -> int:
+        # Gibt die Rückwärtsfahrzeit in Sekunden aus
                 
-      
-        car.stop()
+        self._soniccar.stop()
 
         # Lenkt links oder rechts ein
         ausweich_lenkung = random.choice(
@@ -244,76 +332,11 @@ class RoomExplorer(Loggable):
             )
         )
 
-        zufalls_zeit = random.randint(1, 4)
-        self.__log.info(f"Overcoming obstacle..... driving to the {ausweich_lenkung[1]}")
+        self._log.info(f"Overcoming obstacle..... driving to the {ausweich_lenkung[1]}")
 
-        car.drive(-30, ausweich_lenkung[0])
-        time.sleep(zufalls_zeit) # Hier die Rückwärtsfahrzeit zufällig setzen
+        self._soniccar.drive(-30, ausweich_lenkung[0])
+        return random.randint(1, 4)
 
-    def _approach_obstacle(self, car:SonicCar, stop_event:threading.Event):
-        """_summary_
-
-        Args:
-            car (SonicCar): _description_
-            stop_event (threading.Event): _description_
-        """
-
-            
-        ultrasonic_max_distance_to_stop = self._cfg.get_int("ultrasonic_max_distance_to_stop", 30)
-        actual_distance = car.distance
-        self.__log.debug(f"Max-Distance to stop: {ultrasonic_max_distance_to_stop}, actual_distance: {actual_distance}")
-        while (not stop_event.is_set() and actual_distance > ultrasonic_max_distance_to_stop):
-            self.__log.debug(f"Driving towards obstacle..... actual_distance: {actual_distance}")
-
-#                us_error = car.last_error
-#                if (us != 0):
-#                    self._log.info("Auto meldet Fehler: {us_error}")
-
-
-            if (actual_distance < (1.33*ultrasonic_max_distance_to_stop)):
-                self.__log.info(f"Approaching obstacle... actual_distance: {actual_distance}")
-                car.speed = self._calculate_speed_from_distance(car, actual_distance)
-            else:
-                car.drive(car.v_max, 90)
-
-            actual_distance = car.distance
-
-        self.__log.debug(f"Stopped car because we are too close to an obstacle! actual_distance: {actual_distance}")
-
-        self.stop_car(StopReason.OBSTACLE_AHEAD)
-        
-    def _calculate_speed_from_distance(self, car:SonicCar, distance:int) -> int:
-        """_summary_
-
-        Args:
-            car (SonicCar): _description_
-            distance (int): _description_
-
-        Returns:
-            int: _description_
-        """
-        old_speed = car.speed
-        speed = distance+car.v_min
-        self.__log.info(f"Fahrzeug nähert sich dem Hindernis, verlangsame Fahrt ({old_speed} -> {speed})")
-        return speed
-
-    def stop_car(self, reason:StopReason|int=0):
-        """_summary_
-
-        Args:
-            reason (StopReason | int, optional): _description_. Defaults to 0.
-        """
-        self._stop_reason = StopReason(reason)
-        self._run = False
-        self.__log.info(f"Car stopped for {self._stop_reason}")
-        self._car.stop()
-
-    def obstacle_ahead(self):
-        """_summary_
-        """
-        self.stop_car(StopReason.OBSTACLE_AHEAD)
-
-     # TODO LOG COMPUTED VALUES
     def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
         """_summary_
 
@@ -329,8 +352,3 @@ class RoomExplorer(Loggable):
             #if (log_level == logging.DEBUG):
                 #payload["lenkwinkel_calculus"] = self._lw_debug_values
             return payload
-
-
-
-
-

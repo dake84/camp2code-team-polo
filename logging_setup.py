@@ -4,7 +4,7 @@ from logging import handlers
 import os
 
 
-def setup_project_logging(default_level=logging.DEBUG):
+def setup_project_logging(default_level=logging.INFO):
     """
     Konfiguriert das Logging zentral. Erstellt für die Hauptkomponenten
     eigene Log-Dateien und setzt das initiale Log-Level.
@@ -24,7 +24,9 @@ def setup_project_logging(default_level=logging.DEBUG):
         "InfraredSensor": "logs/infrared_sensor.log",
         "UltrasonicSensor": "logs/ultrasonic_sensor.log",
         "MockSensorCar": "logs/mocksensor_car.log",
-        "RoomExplorer": "logs/roomexplorer.log"
+        "RoomExplorer": "logs/soniccar_controller.log",
+        "ApproachObstacle": "logs/soniccar_controller.log"
+
     }
 
     for logger_name, log_file in log_mapping.items():

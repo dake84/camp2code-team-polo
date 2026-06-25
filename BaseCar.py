@@ -19,7 +19,7 @@ class BaseCar(Loggable):
         self._steering_angle = 90
         self._speed = 0
         self._mode = self.FORWARD_MODE
-        self._config = config if config is not None else ConfigReader("car")
+        self._cfg = config if config is not None else ConfigReader("car")
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
         self.__log = logging.getLogger(BaseCar.__name__)
@@ -44,28 +44,28 @@ class BaseCar(Loggable):
 
     @property
     def v_min(self) -> int:
-        return self._config.get_int("v_min", 20)
+        return self._cfg.get_int("v_min", 20)
 
     @property
     def v_max(self) -> int:
-        return self._config.get_int("v_max", 100)
+        return self._cfg.get_int("v_max", 100)
 
 
     # self._config
     def _save_config(self) -> bool:
-        return self._config._save_config()
+        return self._cfg._save_config()
 
     # Legacy, use self._config.set_config() instead
     def set_config(self, attribut: str, values = any, save_config=False) -> bool:
-        return self._config.set_config(attribut, values, save_config)
+        return self._cfg.set_config(attribut, values, save_config)
 
     # Legacy, use self._config.get_config() instead
     def get_config(self, file: str = "config.json", force_update = False) -> dict:
-        return self._config.get_config(force_update)
+        return self._cfg.get_config(force_update)
     
     # Legacy, use self._config._update_config() instead
     def _update_config(self):
-        self._config._load_config_file()
+        self._cfg._load_config_file()
 
     # Value from cfg_file
     @property
@@ -103,21 +103,29 @@ class BaseCar(Loggable):
     
     # Live value (with lock)
     @property
-    def speed(self):
+    def speed(self) -> int:
         with self._lock:
             return self._mode * self._speed
 
     # Live value (with lock)
     @speed.setter
     def speed(self, speed:int): 
+        vmin = self._cfg.get_int("v_min", 20)
+        vmax = self._cfg.get_int("v_max", 100)
         speed = max(-100, min(100, speed))
         self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
-        if (speed >= 0):
+        if (speed == 0):
+            self._bw.speed = speed
+            self._mode = self.FORWARD_MODE
+            self._bw.forward()
+        elif (speed > 0):
+            speed = min(max(vmin, speed), vmax)
             self._bw.speed = speed
             self._mode = self.FORWARD_MODE
             self._bw.forward()
         else:
-            self._bw.speed = -1 * speed
+            speed = min(max(-vmin, -speed), -vmax)
+            self._bw.speed = -speed
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
         with self._lock:
