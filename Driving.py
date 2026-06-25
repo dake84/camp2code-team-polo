@@ -315,7 +315,10 @@ class DriveController(Loggable):
         while (self.run and not stop_event.is_set()):
 
             # Cfg nachladen (kostet Performance!!!!)
-            if (self._test_mode): self._car._update_config()
+            if (self._test_mode): 
+                self._car._update_config()
+                self._cfg._load_config_file()
+                self._log.warning("Achtung Test-Modus aktiviert. Config wird dynamisch nachgeladen. Das kostet uns Performance")
 
             # These values must come from the Car-Configuration-File
             korrektur_proportional = self._cfg.get_float("korrektur_proportional", 5)
