@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 import numpy as np
@@ -77,13 +78,32 @@ class SensorCar(SonicCar):
 
 class MockSensorCar(SensorCar):
 
-    def __init__(self, config: ConfigReader | None = None):
+    def __init__(self, config: ConfigReader | None = None, feste_werte:Optional[list[list[float]]]=None):
         super().__init__(config)
-        self.__log = logging.getLogger(SensorCar.__name__)
+        self.__log = logging.getLogger(MockSensorCar.__name__)
+
+        self._sensor_werte = feste_werte if (feste_werte is not None) else [
+            [0.,1.,1.,1.,1.],
+            [1.,0.,1.,1.,1.],
+            [1.,1.,0.,1.,1.],
+            [1.,1.,1.,0.,1.],
+            [1.,1.,1.,1.,0.]
+        ]
+        self._sensor_count = 0
     
     @SensorCar.speed.setter
     def speed(self, speed:int): 
         self.__log.debug(f"Geschwindigkeit gesetzt: {speed}")
         self._speed = speed
 
-    
+    @SensorCar.ir_sensor_values.getter
+    def ir_sensor_values(self) -> list[float]:
+        with self._lock:
+            counter = self._sensor_count % len(self._sensor_werte)
+            value = self._sensor_werte[counter]
+            self._sensor_count +=1
+            self.__log.debug(f"Return sensor value #{counter}: {value}")
+            time.sleep(5)
+
+            return value
+        

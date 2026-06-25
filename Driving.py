@@ -21,7 +21,7 @@ class DrivingMode():
     FOLLOW_LINE = 50
     ADVANCED_FOLLOW_LINE = 60
     ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70
-    STADIA_CONTROLLER = 100,
+    STADIA_CONTROLLER = 100
     KALIBRIERUNGSFAHRT = 500
 
     SUPPORTED_DRIVING_MODES = {
@@ -44,7 +44,7 @@ class DrivingMode():
 
 class StopReason(int):
     
-    NONE=0,
+    NONE=0
     LOST_LINE = 10
     OBSTACLE_AHEAD = 20
     PROGRAM_STOPPED_BY_USER = 30
@@ -155,7 +155,7 @@ class DriveController(Loggable):
         elif (dm == DrivingMode.APPROACH_OBSTACLE):
             self._log.info("Fahrmodus APPROACH_OBSTACLE")
             try:
-                if isinstance(self._car, SensorCar):
+                if isinstance(self._car, SonicCar):
                     self._approach_obstacle(self._car, stop_event)
             except Exception as e:
                 self._log.exception(e)
@@ -222,7 +222,7 @@ class DriveController(Loggable):
 
     def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
 
-        self._log.debug(actual_speed, steering_angle, speed_dir, steer_dir, counter)
+        self._log.debug(f"{actual_speed}, {steering_angle}, {speed_dir}, {steer_dir}, {counter}")
         counter += 1
 
         # Richtung nur alle x Zyklen ändern
@@ -310,12 +310,15 @@ class DriveController(Loggable):
         summe_integral = 0
         previous_error = 0
         last_direction = 0
-        last_lenkwinkel = 0
+        last_lenkwinkel = 90
         
         while (self.run and not stop_event.is_set()):
 
             # Cfg nachladen (kostet Performance!!!!)
-            if (self._test_mode): self._car._update_config()
+            if (self._test_mode): 
+                self._car._update_config()
+                self._cfg._load_config_file()
+                self._log.warning("Achtung Test-Modus aktiviert. Config wird dynamisch nachgeladen. Das kostet uns Performance")
 
             # These values must come from the Car-Configuration-File
             korrektur_proportional = self._cfg.get_float("korrektur_proportional", 5)
@@ -530,13 +533,22 @@ class DriveController(Loggable):
 
         
         u = dKP + dKI + dKD
-        lw = max(45, min(135, 90 + u))
-        self._log.debug(f"Errechneter Lenkwinkel (u): {u} --> normiert: {lw}")
-        lw = int(max(lw-slew_rate, min((lw-last_lenkwinkel, lw+slew_rate))))
+        # 1. Normierung
+        lw = int(max(45, min(135, 90 + u)))
+        self._log.debug
+        (f"Errechneter Lenkwinkel (u): {u} --> normiert: {lw}")
+        # 2. Anti-Slew
+        delta = lw - last_lenkwinkel
+        delta = max(-slew_rate, min(delta, slew_rate))
+        lw = last_lenkwinkel + delta
+
+        # 3. Finales Clamping
+        lw = max(45, min(135, lw))
         self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
 
         
-        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}")
+        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-last_time}, \nsumme integral:{summe_integral}")
+        self._log.info(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-last_time}, \nsumme integral:{summe_integral}, \nkorr integral:{korrektur_integral}")
 
         # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
         # Diese Werte kommen dann in das JSON-DataLog
@@ -551,12 +563,12 @@ class DriveController(Loggable):
 
     def _calc_speed_from_steering_angle(self, lenkwinkel:float, v_min:int, v_max:int) -> int:
         #assert (45 < lenkwinkel < 135), "Lenkwinkel muss zwischen 45 und 135° sein"
-        self._log.info(f"Berechne Geschwindigkeit für Lenkwinkel: {lenkwinkel}")
+        self._log.info(f"Berechne Geschwindigkeit für Lenkwinkel: {lenkwinkel}°")
         if (45 > lenkwinkel or 135 < lenkwinkel):
             raise ValueError(f"Lenkwinkel muss zwischen 45 und 135° sein (war: {lenkwinkel})")
         
         self._speed = int(v_min + (v_max - v_min) * (1 - ((lenkwinkel-90)/45)**2))
-        self._log.info(self._speed)
+        self._log.info(f"Kalkulierte Speed: {self._speed}")
         return self._speed
 
     def __ve(self, typ:type) -> str:
