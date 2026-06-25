@@ -83,7 +83,8 @@ class RoomExplorer(Loggable):
 
         t_start = time.time()
         t_end = time.time() + explorer_max_time
-        print(datetime.fromtimestamp(t_end))
+        print("Los gehts....")
+        print(datetime.fromtimestamp(t_end).strftime("%Y-%m-%d %H:%M:%S"))
         self.__log.debug(f"Erkunde den Raum für {explorer_max_time}s")
 
         actual_speed_drive_explore = self._cfg.get_int("start_speed", 60)
