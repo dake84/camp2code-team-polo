@@ -84,6 +84,7 @@ class UltrasonicSensor(Ultrasonic):
             try:
                 v = self.sensor_values
                 self._car.distance = self._normalize(v)
+                #print(self._normalize(v))
             except Exception as e:
                 self._log.error(e)
             finally:
@@ -96,6 +97,13 @@ if __name__ == '__main__':
     us = UltrasonicSensor(sc)
     stop_event = threading.Event()
 
+    us_sensor_thread = threading.Thread(target=us.read_loop, args=(stop_event,), daemon=True)
+
+    print('Starte read loop thread')
+    us_sensor_thread.start()
+
+    print('Starte while loop event')
     while True:
-        us.read_loop(stop_event)
         print(sc.distance)
+        time.sleep(1/10)
+        
