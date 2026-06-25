@@ -1,6 +1,7 @@
 import random
 import threading
 import time
+from datetime import datetime
 from typing import Optional, Tuple
 import logging
 import numpy as np
@@ -82,7 +83,7 @@ class RoomExplorer(Loggable):
 
         t_start = time.time()
         t_end = time.time() + explorer_max_time
-        ## TODO : nette Zeitangabe ausgeben
+        print(datetime.fromtimestamp(t_end))
         self.__log.debug(f"Erkunde den Raum für {explorer_max_time}s")
 
         actual_speed_drive_explore = self._cfg.get_int("start_speed", 60)
