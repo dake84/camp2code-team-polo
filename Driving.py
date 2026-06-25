@@ -118,7 +118,8 @@ class RoomExplorer(Loggable):
                                                                                 )                
 
     def drive_explore(self, car:SonicCar, actual_speed: int, steering_angle: int, speed_dir: int, steer_dir: int, counter: int) -> Tuple[int, int, int, int, int]:
-
+        # TODO Ausgabe in log nur dann, wenn vorher keine freie Fahrt war (letzter log eintrag)
+        self.__log.info("Freie Fahrt voraus, kein Hindernis in Sicht")
         self.__log.debug(actual_speed, steering_angle, speed_dir, steer_dir, counter)
         counter += 1
 

@@ -1,47 +1,32 @@
 {
     "car": {
         "turning_offset": 0,
-        "v_min": 20,
-        "v_max": 100
-    },
-    "us_sensors": {
-        "min_distance": 0,
-        "max_distance": 300,
-        "scan_frequency": 10
-    },
-    "ir_sensors": {
-        "sensor_min_values": [
-            9.7,
-            11.9,
-            15.0,
-            34.738800079355144,
-            34.00271291064371
-        ],
-        "sensor_max_values": [
-            43.3,
-            42.7,
-            47.4,
-            56.9,
-            60.1
-        ],
-        "scan_frequency": 50,
-        "old_sensor_min_values": [
-            9.7,
-            11.9,
-            15.0,
-            34.738800079355144,
-            34.00271291064371
-        ],
-        "old_sensor_max_values": [
-            43.3,
-            42.7,
-            47.4,
-            56.9,
-            60.1
-        ]
+        "v_max": 100,
+        "v_min": 20
     },
     "drive_controller": {
+        "explorer_max_time": 5,
         "ultrasonic_max_distance_to_stop": 30,
-        "explorer_max_time": 5
+        "korrektur_proportional": 25
+    },
+    "ir_sensors": {
+        "minimum_contrast": 250,
+        "calibration_decay_rate": 0.01,
+        "calibration_log_threshold_rate": 0.1,
+        "sensor_min_values": [31, 53, 33, 62, 47],
+        "sensor_max_values": [281,273,257,283,266],
+        "scan_frequency": 50
+    },
+    "us_sensors": {
+        "max_distance": 300,
+        "min_distance": 0,
+        "scan_frequency": 10
+    },
+    "room_explorer": {
+        "explorer_max_time": 30,
+        "ultrasonic_max_distance_to_stop": 30,
+        "start_speed": 60,
+        "start_angle": 90,
+        "slow_down_window": 0.3
     }
 }
