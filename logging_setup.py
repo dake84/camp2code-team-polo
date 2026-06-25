@@ -23,7 +23,8 @@ def setup_project_logging(default_level=logging.DEBUG):
         "DriveController": "logs/drive_controller.log",
         "InfraredSensor": "logs/infrared_sensor.log",
         "UltrasonicSensor": "logs/ultrasonic_sensor.log",
-        "MockSensorCar": "logs/mocksensor_car.log"
+        "MockSensorCar": "logs/mocksensor_car.log",
+        "RoomExplorer": "logs/roomexplorer.log"
     }
 
     for logger_name, log_file in log_mapping.items():
