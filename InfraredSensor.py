@@ -141,11 +141,7 @@ class InfraredSensor(Infrared):
         #self._cfg.set_config("old_sensor_max_values", osmaxv)
         self._cfg.set_config("sensor_min_values", nsminv)
         self._cfg.set_config("sensor_max_values", nsmaxv)
-        try:
-            self._cfg._save_config()
-        except Exception as e:
-            self._log.error(e)
-            raise(e)
+        self._cfg._save_config()
 
     def read_loop(self, stop_event:threading.Event):
         try:
@@ -160,6 +156,6 @@ class InfraredSensor(Infrared):
                 self._log.debug(f"Normalized value {v} --> {self._car.ir_sensor_values}")
                 time.sleep(1/self.scan_frequency)
         except Exception as e:
-            self._log.exception(e)
+            raise e
         finally:
             self._log.debug("Exit Infrared-Sensor loop")
