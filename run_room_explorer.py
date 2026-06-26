@@ -36,7 +36,7 @@ if __name__ == '__main__':
         us_sensor_thread.start()
 
 
-        input("(1) Forward/Backware... <ENTER>")        
+        input("(1) Forward/Backward... <ENTER>")        
         mode_one.start()
         input("press <Enter> to stop")
         mode_one.stop()

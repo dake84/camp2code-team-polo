@@ -175,7 +175,6 @@ class ModeOne(DrivingMode):
         return True
     
     def _run(self) -> bool:
-        self._log.info('Starte Fahrmodus 1')
         self._sleep_with_stop(1, stop=True)  
                      
         self._car.drive(30)
@@ -190,8 +189,6 @@ class ModeOne(DrivingMode):
         self._sleep_with_stop(3, stop = False)
 
         self._car.stop()
-        self._log.info(f"Fahrmodus 1 beendet. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")            
-
         return False
 
 
@@ -320,7 +317,7 @@ class ApproachObstacle(SonicCarMode):
             return True
         elif (actual_distance <= ((1+slow_down_window)*ultrasonic_max_distance_to_stop)):
             self._free_logged = False
-            self._soniccar.speed = int(self._soniccar.speed * (self._soniccar.distance/ultrasonic_max_distance_to_stop))
+            self._soniccar.speed =  int(self._soniccar.speed * (self._soniccar.distance/ultrasonic_max_distance_to_stop))
             self._log.info(f"Fahrzeug nähert sich dem Hindernis (d={actual_distance}), verlangsame Fahrt ({old_speed} -> {self._soniccar.speed})")
             return True
         elif not self._free_logged:

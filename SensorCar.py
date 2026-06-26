@@ -129,6 +129,7 @@ class MockSensorCar(SensorCar):
     @SensorCar.speed.setter
     def speed(self, speed:int): 
         if (self._mockSpeed):
+            speed = max(-100, min(100, speed))
             self.__log.debug(f"Geschwindigkeit gesetzt: {speed}")
             if (self._speed != speed):
                 self.__log.info(f"Changed speed: {self._speed} -> {speed}")

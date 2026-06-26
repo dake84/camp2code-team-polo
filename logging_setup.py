@@ -25,7 +25,10 @@ def setup_project_logging(default_level=logging.INFO):
         "MockSensorCar": "logs/car.log",
         "RoomExplorer": "logs/controller.log",
         "ApproachObstacle": "logs/controller.log",
-        "FollowLine": "logs/controller.log"
+        "FollowLine": "logs/controller.log",
+        "ModeOne": "logs/controller.log",
+        "ModeTwo": "logs/controller.log",
+        "KeyboardMode": "logs/controller.log"
 
     }
 
