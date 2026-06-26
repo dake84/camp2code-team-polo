@@ -4,7 +4,6 @@ import threading
 import time
 from datetime import datetime
 
->>>>>>> 697cc48 (Update)
 import dash_bootstrap_components as dbc
 import pandas as pd
 
@@ -115,11 +114,7 @@ app.layout = dbc.Container(
     [
         dbc.Row(
             [
-<<<<<<< HEAD
-                html.H1("Camp2Code: Car Dashboard"),
-=======
                 html.H1('Camp2Code: Car Dashboard'),
->>>>>>> 697cc48 (Update)
             ]
         ),
         dbc.Row(
@@ -179,7 +174,6 @@ app.layout = dbc.Container(
                             n_clicks=0,
                             color='danger',
                             className='mt-4'
->>>>>>> 697cc48 (Update)
                         )
                     ],
                     width = 3,
@@ -214,11 +208,6 @@ app.layout = dbc.Container(
 # Refresh die Daten auf dem Dashboard, zieht die Daten aus __init__ von SonicCar
 @app.callback(
     Output('Time', 'children'),
-<<<<<<< HEAD
-    Output('Distance', 'children'),
-    Output('Speed', 'children'),
-    Output('Steer', 'children'),
-=======
     Output('Speed', 'children'),
     Output('Steer', 'children'),
     Output('g_distance', 'figure'),
@@ -234,23 +223,10 @@ app.layout = dbc.Container(
     Output('g_i_glied', 'style'),
     Output('g_d_glied', 'style'),
 
->>>>>>> 697cc48 (Update)
     Input('interval', 'n_intervals'),
 )
 
 def update_values(n):
-<<<<<<< HEAD
-    with car._sensor_lock:
-        time = car._latest_distance_time
-        distance = car._latest_distance
-        speed = car._latest_speed
-        steering_angle = car._latest_steering_angle
-    return f'Time {time}', f'Distance: {distance}', f'Speed: {speed}', f'Steer: {steering_angle}'
-
-
-# Button, bei n_clicks wird start_fahrmodus gestartet
-@app.callback(
-=======
     global measurement_active, measurement_start_time, measurement_max_time
     global controller_thread, show_distance_plot, show_pid_plot, active_car
 
@@ -370,7 +346,6 @@ def update_values(n):
 @app.callback(
     Output('Status', 'children'),
     Output('Distance', 'children'),
->>>>>>> 697cc48 (Update)
     Input('button_start_fahrmodi', 'n_clicks'),
     prevent_initial_call=True
 )
@@ -534,4 +509,3 @@ def stop_fahrmodus(clicks):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
->>>>>>> 697cc48 (Update)
