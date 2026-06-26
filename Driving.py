@@ -160,11 +160,11 @@ class DrivingMode(abc.ABC):
 
 class ModeOne(DrivingMode):
 
-    def __init__(self, car: Optional[BaseCar], logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
+    def __init__(self, car: Optional[BaseCar], name:str="Fahrmodus 1", logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
         car = car if car is not None else SonicCar()
         logger = logging.getLogger(self.__class__.__name__)
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("soniccar_controller")
-        super().__init__("Fahrmodus 1", car, logger, cfg)
+        super().__init__(name, car, logger, cfg)
 
     def _run_condition(self) -> bool:
         return True
@@ -191,6 +191,8 @@ class ModeOne(DrivingMode):
 
 
     def _sleep_with_stop(self, duration: float, stop:bool) -> bool:
+        if (self._stop_event is None):
+            raise RuntimeError("Stop_event not availabel")
         end_time = time.time() + duration
         step_time = 1/self._frequency 
         if (stop):
@@ -203,8 +205,8 @@ class ModeOne(DrivingMode):
 
 class ModeTwo(ModeOne):
 
-    def __init__(self, car: Optional[BaseCar], logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
-        super().__init__("Fahrmodus 2", car, logger, cfg)
+    def __init__(self, car: Optional[BaseCar], name="Fahrmodus 2", logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
+        super().__init__(name=name, car=car, logger=logger, cfg=cfg)
 
     def _run_condition(self) -> bool:
         return True
@@ -477,6 +479,8 @@ class FollowLine(SensorCarMode):
         lw = self._calc_steering_angle_from_ir_sensors()
         v = self._calc_speed_from_steering_angle(lw)
 
+        self._log.info(f"Folge Linie mit Lenkwinkel {lw} und Geschwindigkeit {v}")
+
         self._sensorcar.drive(v, lw)
 
         return True    
@@ -485,7 +489,7 @@ class FollowLine(SensorCarMode):
         return super()._post_run()    
 
     def _is_on_line(self) -> bool:
-        minimum_line_contrast = self._car.get_config().get("minimum_line_contrast", 0.5)
+        minimum_line_contrast = self._cfg.get_float("minimum_line_contrast", 0.5)
         messwerte = self._sensorcar.ir_sensor_values
         
         min_sensor = min(messwerte)
@@ -494,8 +498,8 @@ class FollowLine(SensorCarMode):
         if (max_sensor == 0):
             return True
 
-        self._log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {line_threshold}, min/max: {min_sensor/max_sensor:.2f}")
-        return (max_sensor-min_sensor < minimum_line_contrast)
+        self._log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {minimum_line_contrast}, min/max: {min_sensor/max_sensor:.2f}")
+        return (max_sensor-min_sensor > minimum_line_contrast)
     
     def _calc_steering_angle_from_ir_sensors(self) -> int:
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PID-Korrekturfaktoren.
@@ -519,7 +523,7 @@ class FollowLine(SensorCarMode):
 
         messwerte = self._sensorcar.ir_sensor_values
 
-        self._log.debug(f"Starte Lenkwinkel-Berechnung mit Eingangsdaten: messwerte:{messwerte}, sensor_gewichtung:{sensor_gewichte}, slew_rate:{slew_rate}, korrektur_proportional:{korrektur_proportional}, korrektur_integral:{korrektur_integral}, summe_integral:{self._summe_integral}, korrektur_integral_boundary:{korrektur_integral_boundary}, korrektur_differential:{korrektur_differential}, previous_error:{previous_error}, last_time:{last_time}, last_lenkwinkel:{last_lenkwinkel}")
+        self._log.debug(f"Starte Lenkwinkel-Berechnung mit Eingangsdaten: messwerte:{messwerte}, sensor_gewichtung:{sensor_gewichte}, slew_rate:{slew_rate}, korrektur_proportional:{korrektur_proportional}, korrektur_integral:{korrektur_integral}, summe_integral:{self._summe_integral}, korrektur_integral_boundary:{korrektur_integral_boundary}, korrektur_differential:{korrektur_differential}, previous_error:{self._previous_error}, last_time:{self._last_time}, last_lenkwinkel:{self._last_lenkwinkel}")
 
         current_time_stamp = time.time()
 
@@ -565,8 +569,8 @@ class FollowLine(SensorCarMode):
         lw = max(45, min(135, lw))
         self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
 
-        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-last_time}, \nsumme integral:{summe_integral}")
-        self._log.info(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{summe_integral}, \nkorr integral:{korrektur_integral}")
+        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}")
+        self._log.info(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}, \nkorr integral:{korrektur_integral}")
 
         # # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
         # # Diese Werte kommen dann in das JSON-DataLog

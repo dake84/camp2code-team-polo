@@ -9,7 +9,7 @@ import UltrasonicSensor
 import logging_setup
 
 if __name__ == '__main__':
-    logging_setup.setup_project_logging(logging.INFO)
+    logging_setup.setup_project_logging(logging.DEBUG)
     sc = SensorCar()
     sc.stop()
 
@@ -27,6 +27,12 @@ if __name__ == '__main__':
 
 
     try:
+        ir_sensor_thread.start()
+        input("Follow-Line... <ENTER>")
+        fl.start()
+        input("press <Enter> to stop")
+        fl.stop()
+
         input("Mode one... <ENTER>")        
         mode_one.start()
         input("press <Enter> to stop")
@@ -44,11 +50,6 @@ if __name__ == '__main__':
         input("press <Enter> to stop")
         dc.stop()
 
-        ir_sensor_thread.start()
-        input("Follow-Line... <ENTER>")
-        fl.start()
-        input("press <Enter> to stop")
-        fl.stop()
 
 
         input("<ENTER> zum Beenden")
