@@ -80,8 +80,8 @@ class DrivingMode(abc.ABC):
 
     def start(self):
         with self._lock:
-            if (not self.is_running):
-                self._thread.start()
+#            if (not self.is_running):
+            self._thread.start()
 
     def _drive(self, update_cfg:bool=False):
         with self._lock:

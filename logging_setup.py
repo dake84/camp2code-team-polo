@@ -24,9 +24,9 @@ def setup_project_logging(default_level=logging.INFO):
         "InfraredSensor": "logs/infrared_sensor.log",
         "UltrasonicSensor": "logs/ultrasonic_sensor.log",
         "MockSensorCar": "logs/mocksensor_car.log",
-        "RoomExplorer": "logs/soniccar_controller.log",
-        "ApproachObstacle": "logs/soniccar_controller.log",
-        "FollowLine": "logs/sensorcar_controller.log"
+        "RoomExplorer": "logs/controller.log",
+        "ApproachObstacle": "logs/controller.log",
+        "FollowLine": "logs/controller.log"
 
     }
 

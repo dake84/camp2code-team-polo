@@ -4,13 +4,13 @@ import threading
 
 import Driving
 import InfraredSensor
-from SensorCar import SensorCar
+from SensorCar import MockSensorCar, SensorCar
 import UltrasonicSensor
 import logging_setup
 
 if __name__ == '__main__':
-    logging_setup.setup_project_logging(logging.DEBUG)
-    sc = SensorCar()
+    logging_setup.setup_project_logging(logging.INFO)
+    sc = MockSensorCar(mockSpeed=True)
     sc.stop()
 
     us = UltrasonicSensor.UltrasonicSensor(sc)
@@ -23,8 +23,8 @@ if __name__ == '__main__':
     key = Driving.KeyboardMode(car=sc)
 
     stop_event = threading.Event()
-    us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
-    ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
+    us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event], daemon=True)
+    ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event], daemon=True)
 
 
     try:
