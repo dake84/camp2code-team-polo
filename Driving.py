@@ -129,6 +129,7 @@ class DrivingMode(abc.ABC):
         pass
 
     def _pre_run(self) -> bool:
+        self._car.drive(0,90)
         return True
 
     @abc.abstractmethod
@@ -136,6 +137,7 @@ class DrivingMode(abc.ABC):
         pass
 
     def _post_run(self) -> bool:
+        self._car.drive(0,90)
         return True
 
     def is_running(self) -> bool:
