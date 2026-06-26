@@ -34,11 +34,11 @@ Die eigentliche Intelligenz ist in separate Klassen ausgelagert (z.B. `RoomExplo
 ### Installation
 
 1. **Repository klonen:**
-   ```bash
+```bash
    git clone [https://github.com/dake84/camp2code-team-polo.git](https://github.com/dake84/camp2code-team-polo.git)
    cd camp2code-team-polo
-
 ```
+
 
 2. **Virtuelle Umgebung erstellen (empfohlen):**
 ```bash
@@ -56,7 +56,7 @@ pip install -r requirements.txt
 
 
 4. **Hardware-Setup abschließen:**
-Stelle sicher, dass die herstellerspezifische Datei `basisklassen.py` im Hauptverzeichnis des Projekts liegt (aufgrund von Lizenzgründen nicht im Repo enthalten).
+Stelle sicher, dass die herstellerspezifische Datei `basisklassen.py` im Hauptverzeichnis des Projekts liegt.
 
 ---
 
