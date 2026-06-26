@@ -20,16 +20,21 @@ if __name__ == '__main__':
     dc = Driving.RoomExplorer(car=sc)
     ao = Driving.ApproachObstacle(car=sc)
     fl = Driving.FollowLine(car=sc)
-    
+    key = Driving.KeyboardMode(car=sc)
+
     stop_event = threading.Event()
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
 
 
     try:
+        
+        key.start()
+
         ir_sensor_thread.start()
         us_sensor_thread.start()
-        
+
+
         input("Follow-Line... <ENTER>")
         fl.start()
         input("press <Enter> to stop")
@@ -56,6 +61,8 @@ if __name__ == '__main__':
         input("<ENTER> zum Beenden")
     except KeyboardInterrupt:
         print("Beende Programm")
+    except Exception as e:
+        print(e)
     finally:
         stop_event.set()
 

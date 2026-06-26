@@ -654,6 +654,9 @@ class KeyboardMode(DrivingMode):
         last_angle = self.ANGLE_STRAIGHT
         step_time = 1 / self._frequency
 
+        if (self._stop_event is None):
+            raise RuntimeError("Stop_event not available")
+        
         while not self._stop_event.is_set():
             try:
                 key = stdscr.getch()
