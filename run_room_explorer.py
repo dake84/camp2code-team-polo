@@ -17,6 +17,7 @@ if __name__ == '__main__':
     ir = InfraredSensor.InfraredSensor(sc)
     
     mode_one = Driving.ModeOne(car=sc)
+    mode_two = Driving.ModeTwo(car=sc)
     dc = Driving.RoomExplorer(car=sc)
     ao = Driving.ApproachObstacle(car=sc)
     fl = Driving.FollowLine(car=sc)
@@ -35,27 +36,32 @@ if __name__ == '__main__':
         us_sensor_thread.start()
 
 
-        input("Follow-Line... <ENTER>")
-        fl.start()
-        input("press <Enter> to stop")
-        fl.stop()
-
-        input("Mode one... <ENTER>")        
+        input("(1) Forward/Backware... <ENTER>")        
         mode_one.start()
         input("press <Enter> to stop")
         mode_one.stop()
         print("finished mode one")
 
-        input("Approach obstacle... <ENTER>")
+        input("(2) Circles... <ENTER>")        
+        mode_two.start()
+        input("press <Enter> to stop")
+        mode_two.stop()
+        print("finished mode one")
+
+        input("(3) Approach obstacle... <ENTER>")
         ao.start()
         input("press <Enter> to stop")
         ao.stop()        
 
-        input("Room-Explorer... <ENTER>")
+        input("(4) Room-Explorer... <ENTER>")
         dc.start()
         input("press <Enter> to stop")
         dc.stop()
 
+        input("(5) Follow-Line... <ENTER>")
+        fl.start()
+        input("press <Enter> to stop")
+        fl.stop()
 
 
         input("<ENTER> zum Beenden")
