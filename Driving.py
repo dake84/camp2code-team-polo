@@ -157,6 +157,96 @@ class DrivingMode(abc.ABC):
         self._log.info(f"Car stopped for {reason}")
         self._car.stop()    
 
+
+class ModeOne(DrivingMode):
+
+    def __init__(self, car: Optional[BaseCar], logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
+        car = car if car is not None else SonicCar()
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("soniccar_controller")
+        super().__init__("Fahrmodus 1", car, logger, cfg)
+
+    def _run_condition(self) -> bool:
+        return True
+    
+    def _run(self) -> bool:
+        self._log.info('Starte Fahrmodus 1')
+        self._sleep_with_stop(1, stop=True)  
+                     
+        self._car.drive(30)
+        self._log.debug(f"3 Sekunden vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        self._sleep_with_stop(3, stop=False)
+
+        self._log.debug(f"1 Sekunde Stopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        self._sleep_with_stop(1, stop=True)
+            
+        self._car.drive(-30)
+        self._log.debug(f"3 Sekunden rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        self._sleep_with_stop(3, stop = False)
+
+        self._car.stop()
+        self._log.info(f"Fahrmodus 1 beendet. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")            
+
+        return False
+
+
+    def _sleep_with_stop(self, duration: float, stop:bool) -> bool:
+        end_time = time.time() + duration
+        step_time = 1/self._frequency 
+        if (stop):
+            self._car.stop()
+
+        while time.time() < end_time and not self._stop_event.is_set():
+            time.sleep(step_time)
+
+        return False
+
+class ModeTwo(ModeOne):
+
+    def __init__(self, car: Optional[BaseCar], logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
+        super().__init__("Fahrmodus 2", car, logger, cfg)
+
+    def _run_condition(self) -> bool:
+        return True
+    
+    def _run(self) -> bool:
+        self._circle((135, "rechts/Uhrzeigersinn"))
+        self._circle((45, "links/gegen Uhrzeigersinn"))
+        return False
+    
+    def _circle(self, direction:Tuple[int, str]):
+        self._log.info('Starte Fahrmodus 2 ({direction[1]})')
+        # self._sleep_with_stop(1, stop=True)
+
+        # self._car.drive(30)
+        # self._log.debug(f"1 Sekunde vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        # time.sleep(1)
+
+        # self._car.drive(30, direction[0])
+        # self._log.debug(f"8 Sekunden {direction[1]} vorwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        # if self._sleep_with_stop(stop_event, 8):
+        #         return
+
+        # self._car.stop()
+        # self._log.debug(f"Kurzer Zwischenstopp. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        # if self._sleep_with_stop(stop_event, 2):
+        #         return
+
+        # self._car.drive(-30, direction[0])
+        # self._log.debug(f"8 Sekunden {direction[1]} rückwärts. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        # if self._sleep_with_stop(stop_event, 8):
+        #         return
+
+        # self._car.drive(-30, 90)
+        # print(f"1 Sekunde rückwärts zum Startpunkt. Geschwindigkeit: {self._car.speed}, Lenkwinkel: {self._car.steering_angle}")
+        # if self._sleep_with_stop(stop_event, 1):
+        #         return
+
+        # self._car.stop()
+        self._log.info(f"Fahrmodus 2 {direction[1]} beendet.") 
+
+        return False
+
 class SonicCarMode(DrivingMode):
 
     def __init__(self, name:str, car:Optional[SonicCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
@@ -167,6 +257,7 @@ class SonicCarMode(DrivingMode):
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("soniccar_controller")
         super().__init__(name, car, logger, cfg)
 
+# Mode 3
 class ApproachObstacle(SonicCarMode):
         
     def __init__(self, name="Fahrmodus 3 (ApproachObstacle)", car:Optional[SonicCar]=None):
@@ -236,7 +327,7 @@ class ApproachObstacle(SonicCarMode):
         
         return False
 
-
+# Mode 4
 class RoomExplorer(ApproachObstacle):
     def __init__(self, name="Fahrmodus 4 (RoomExplorer)", car:Optional[SonicCar]=None):
         super().__init__(name=name, car=car)
@@ -352,3 +443,154 @@ class RoomExplorer(ApproachObstacle):
             #if (log_level == logging.DEBUG):
                 #payload["lenkwinkel_calculus"] = self._lw_debug_values
             return payload
+
+class SensorCarMode(SonicCarMode):
+    def __init__(self, name:str, car:Optional[SensorCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
+        car = car if car is not None else SensorCar()
+        # just a pointer to remove linter-errors
+        self._sensorcar = car
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("sensorcar_controller")
+        super().__init__(name, car, cfg)
+
+# Mode 5
+class FollowLine(SensorCarMode):
+    def __init__(self, name="Fahrmodus 5", car:Optional[SensorCar]=None):
+        super().__init__(name=name, car=car)
+
+        self._summe_integral = 0
+        self._previous_error = 0
+        self._last_direction = 0
+        self._last_lenkwinkel = 90
+        self._last_time = time.time()
+    
+    def _run_condition(self) -> bool:
+        return self._is_on_line()
+    
+    def _pre_run(self) -> bool:
+        self._last_time = time.time()      
+        return super()._pre_run()
+
+    def _run(self) -> bool:
+
+        # Lenkwinkel berechnen und zeitpersistente Werte merken
+        lw = self._calc_steering_angle_from_ir_sensors()
+        v = self._calc_speed_from_steering_angle(lw)
+
+        self._sensorcar.drive(v, lw)
+
+        return True    
+    
+    def _post_run(self) -> bool:
+        return super()._post_run()    
+
+    def _is_on_line(self) -> bool:
+        minimum_line_contrast = self._car.get_config().get("minimum_line_contrast", 0.5)
+        messwerte = self._sensorcar.ir_sensor_values
+        
+        min_sensor = min(messwerte)
+        max_sensor = max(messwerte)
+
+        if (max_sensor == 0):
+            return True
+
+        self._log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {line_threshold}, min/max: {min_sensor/max_sensor:.2f}")
+        return (max_sensor-min_sensor < minimum_line_contrast)
+    
+    def _calc_steering_angle_from_ir_sensors(self) -> int:
+        """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PID-Korrekturfaktoren.
+
+        Die Funktion nutzt gewichtete Infrarotmesswerte, um einen Fehlerwert zu bestimmen
+        und daraus mittels proportionaler und differenzieller Steuerung den Lenkwinkel
+        zu berechnen. Der resultierende Winkel wird auf den Bereich von 45 bis 135 Grad
+        begrenzt.
+
+        Returns:
+            float: Der berechnete Lenkwinkel im Bereich von 45 bis 135 Grad.
+        """
+
+        korrektur_proportional = self._cfg.get_float("korrektur_proportional", 5)
+        korrektur_integral = self._cfg.get_float("korrektur_integral", 0)
+        korrektur_integral_boundary = self._cfg.get_float("korrektur_integral_boundary", 30)
+        korrektur_differential = self._cfg.get_float("korrektur_differential", 0)
+
+        sensor_gewichte = self._cfg.get_list("ir_sensor_weights", [2,1,0,-1,-2])
+        slew_rate = self._cfg.get_int("slew_rate", 3)
+
+        messwerte = self._sensorcar.ir_sensor_values
+
+        self._log.debug(f"Starte Lenkwinkel-Berechnung mit Eingangsdaten: messwerte:{messwerte}, sensor_gewichtung:{sensor_gewichte}, slew_rate:{slew_rate}, korrektur_proportional:{korrektur_proportional}, korrektur_integral:{korrektur_integral}, summe_integral:{self._summe_integral}, korrektur_integral_boundary:{korrektur_integral_boundary}, korrektur_differential:{korrektur_differential}, previous_error:{previous_error}, last_time:{last_time}, last_lenkwinkel:{last_lenkwinkel}")
+
+        current_time_stamp = time.time()
+
+        sum_messwerte = sum(messwerte)
+        
+        # Div/0 -> Lenkwinkel geradeaus
+        if (sum_messwerte == 0):
+            self._last_time = time.time()
+            return 90
+        
+        error = sum(np.multiply(messwerte, sensor_gewichte))/sum_messwerte
+        self._log.debug(f"Aktueller Messwerte-Fehler: {error}")
+
+        # P
+        dKP = (korrektur_proportional * error)
+        self._sensorcar.p_wert = dKP
+        
+
+        # I
+        self._summe_integral += error * (current_time_stamp-self._last_time)
+        self._summe_integral = max(min(self._summe_integral, korrektur_integral_boundary), -korrektur_integral_boundary)   # Anti-Windup
+        dKI = korrektur_integral * self._summe_integral
+        self._sensorcar.i_wert = dKI
+
+        # D
+        dKD = 0
+        if (current_time_stamp> self._last_time):
+            dKD = (korrektur_differential * ((error - self._previous_error))/(current_time_stamp - self._last_time))
+        self._sensorcar.d_wert = dKD
+
+        u = dKP + dKI + dKD
+
+        # 1. Normierung
+        lw = int(max(45, min(135, 90 + u)))
+        self._log.debug
+        (f"Errechneter Lenkwinkel (u): {u} --> normiert: {lw}")
+        # 2. Anti-Slew
+        delta = lw - self._last_lenkwinkel
+        delta = max(-slew_rate, min(delta, slew_rate))
+        lw = self._last_lenkwinkel + delta
+
+        # 3. Finales Clamping
+        lw = max(45, min(135, lw))
+        self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
+
+        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-last_time}, \nsumme integral:{summe_integral}")
+        self._log.info(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{summe_integral}, \nkorr integral:{korrektur_integral}")
+
+        # # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
+        # # Diese Werte kommen dann in das JSON-DataLog
+        # with self._lock:
+        #     self._lw_debug_values["integral"] = 0
+        #     self._lw_debug_values["sum_messwerte"] = 0
+        #     self._lw_debug_values["previous_error"] = previous_error
+
+
+        # last_time, summe_integral, last_error, lw
+        return lw
+
+    def _calc_speed_from_steering_angle(self, lenkwinkel:float) -> int:
+        v_min = self._sensorcar.v_min
+        v_max = self._sensorcar.v_max
+        self._log.info(f"Berechne Geschwindigkeit für Lenkwinkel: {lenkwinkel}°")
+        if (45 > lenkwinkel or 135 < lenkwinkel):
+            raise ValueError(f"Lenkwinkel muss zwischen 45 und 135° sein (war: {lenkwinkel})")
+        
+        self._speed = int(v_min + (v_max - v_min) * (1 - ((lenkwinkel-90)/45)**2))
+        self._log.info(f"Kalkulierte Speed: {self._speed}")
+        return self._speed
+
+
+
+
+

@@ -26,6 +26,9 @@ class SensorCar(SonicCar):
         self._ir_sensor_min_values = [0.,0.,0.,0.,0.]
         self._ir_sensor_max_values = [1.,1.,1.,1.,1.]
         self.__log = logging.getLogger(SensorCar.__name__)
+        self._p_wert = 0
+        self._i_wert = 0
+        self._d_wert = 0
         
 
     def ir_sensor_value_history(self, length:int=0, clear_history:bool=True):
@@ -75,6 +78,36 @@ class SensorCar(SonicCar):
         payload["ir_sensor_values"] = self.ir_sensor_value_history()
         return payload
     
+    @property
+    def p_wert(self) -> float:
+        with self._lock:
+            return self._p_wert
+
+    @p_wert.setter
+    def p_wert(self, p:float):
+        with self._lock:
+            self._p_wert = p
+
+    @property
+    def i_wert(self) -> float:
+        with self._lock:
+            return self._i_wert
+
+    @p_wert.setter
+    def i_wert(self, i:float):
+        with self._lock:
+            self._p_wert = i
+
+    @property
+    def d_wert(self) -> float:
+        with self._lock:
+            return self._d_wert
+
+    @p_wert.setter
+    def d_wert(self, d:float):
+        with self._lock:
+            self._p_wert = d
+
 
 class MockSensorCar(SensorCar):
 
