@@ -1,10 +1,11 @@
 import threading
 import time
 from datetime import datetime
+from collections import deque
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
+from dash import Dash, Input, Output, State, dcc, html, no_update
 
 import InfraredSensor
 import UltrasonicSensor
@@ -12,7 +13,8 @@ import BaseCar
 import SensorCar
 from Driving import DriveController, DrivingMode
 
-app = Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 bc = BaseCar.BaseCar()
 sc = SensorCar.SensorCar()
@@ -23,11 +25,16 @@ us = UltrasonicSensor.UltrasonicSensor(sc)
 sensor_stop_event = threading.Event()
 drive_stop_event = threading.Event()
 
+data_lock = threading.Lock()
+
+max_plot_points = 300
+
 us_sensor_thread = threading.Thread(
     target=us.read_loop,
     args=(sensor_stop_event,),
     daemon=True
 )
+
 ir_sensor_thread = threading.Thread(
     target=ir.read_loop,
     args=(sensor_stop_event,),
@@ -37,18 +44,19 @@ ir_sensor_thread = threading.Thread(
 us_sensor_thread.start()
 ir_sensor_thread.start()
 
-# Listen für Liveplot
-plot_time = []
-plot_distance = []
-plot_speed = []
-plot_steering_angle = []
-plot_p_glied = []
-plot_i_glied = []
-plot_d_glied = []
+
+plot_time = deque(maxlen=max_plot_points)
+plot_distance = deque(maxlen=max_plot_points)
+plot_speed = deque(maxlen=max_plot_points)
+plot_steering_angle = deque(maxlen=max_plot_points)
+plot_p_glied = deque(maxlen=max_plot_points)
+plot_i_glied = deque(maxlen=max_plot_points)
+plot_d_glied = deque(maxlen=max_plot_points)
 
 measurement_active = False
 measurement_start_time = None
 measurement_max_time = 0
+
 controller_thread = None
 show_distance_plot = False
 show_pid_plot = False
@@ -56,6 +64,15 @@ active_car = sc
 
 
 def add_min_max_annotations(figure, values, unit=''):
+    """Fügt Min- und Max-Werte als Annotation in den Plot ein.
+
+    Args:
+        figure: Plotly-Figure, die erweitert werden soll.
+        values: Liste oder Deque mit y-Werten.
+        unit: Einheit als Text.
+    """
+    values = list(values)
+
     if len(values) > 0:
         max_value = max(values)
         min_value = min(values)
@@ -89,21 +106,86 @@ def add_min_max_annotations(figure, values, unit=''):
 
 
 def create_figure(x_data, y_data, title, y_title, unit=''):
+    """Erstellt einen schnellen Liveplot.
+
+    Args:
+        x_data: Werte für die x-Achse.
+        y_data: Werte für die y-Achse.
+        title: Titel des Plots.
+        y_title: Beschriftung der y-Achse.
+        unit: Einheit für Min-/Max-Anzeige.
+
+    Returns:
+        Plotly-Figure.
+    """
     figure = go.Figure()
+
     figure.add_trace(
-        go.Scatter(
-            x=x_data,
-            y=y_data,
-            mode='lines+markers'
+        go.Scattergl(
+            x=list(x_data),
+            y=list(y_data),
+            mode='lines'
         )
     )
+
     figure.update_layout(
         title=title,
         xaxis_title='Zeit [s]',
         yaxis_title=y_title,
+        margin=dict(l=40, r=20, t=45, b=35),
+        height=260,
+        uirevision='live'
     )
+
     add_min_max_annotations(figure, y_data, unit)
+
     return figure
+
+
+def create_empty_figure(title):
+    """Erstellt einen leeren Plot.
+
+    Args:
+        title: Titel des leeren Plots.
+
+    Returns:
+        Leere Plotly-Figure.
+    """
+    figure = go.Figure()
+
+    figure.update_layout(
+        title=title,
+        margin=dict(l=40, r=20, t=45, b=35),
+        height=260
+    )
+
+    return figure
+
+
+def reset_plot_data():
+    """Löscht alle Plotdaten."""
+    with data_lock:
+        plot_time.clear()
+        plot_distance.clear()
+        plot_speed.clear()
+        plot_steering_angle.clear()
+        plot_p_glied.clear()
+        plot_i_glied.clear()
+        plot_d_glied.clear()
+
+
+def stop_current_drive():
+    """Stoppt die aktive Fahrt möglichst zuverlässig."""
+    global measurement_active
+
+    drive_stop_event.set()
+    measurement_active = False
+
+    if controller_thread is not None and controller_thread.is_alive():
+        controller_thread.join(timeout=0.5)
+
+    bc.stop()
+    sc.stop()
 
 
 app.layout = dbc.Container(
@@ -119,16 +201,24 @@ app.layout = dbc.Container(
                     [
                         html.H1('Live-Werte'),
                         html.P(id='Time'),
-                        html.P(id='Distance'),
                         html.P(id='Speed'),
                         html.P(id='Steer'),
                         html.P(id='Status'),
+
                         dcc.Interval(
-                            id='interval',
+                            id='interval_values',
                             interval=200,
                             n_intervals=0,
                         ),
+
+                        dcc.Interval(
+                            id='interval_graphs',
+                            interval=1000,
+                            n_intervals=0,
+                        ),
+
                         html.Label('Fahrmodus wählen'),
+
                         dcc.Dropdown(
                             id='dropdown_fahrmodus',
                             options=[
@@ -144,41 +234,46 @@ app.layout = dbc.Container(
                             clearable=False,
                             placeholder='Bitte Fahrmodus wählen',
                         ),
+
                         dbc.Button(
                             'Start Fahrmodi',
                             id='button_start_fahrmodi',
                             n_clicks=0,
                             className='mt-4'
                         ),
+
                         dbc.Button(
                             'Stop',
                             id='button_stop_fahrmodi',
                             n_clicks=0,
                             color='danger',
-                            className='mt-4'
+                            className='mt-4 ms-2'
                         )
                     ],
                     width=3,
                 ),
+
                 dbc.Col(
                     [
-                        dcc.Graph(id='g_speed'),
-                        dcc.Graph(id='g_angle'),
-                        dcc.Graph(id='g_distance'),
+                        dcc.Graph(id='g_speed', figure=create_empty_figure('Geschwindigkeit über Zeit')),
+                        dcc.Graph(id='g_angle', figure=create_empty_figure('Lenkwinkel über Zeit')),
+                        dcc.Graph(id='g_distance', figure=create_empty_figure('Distanz über Zeit')),
                     ],
                     width=5,
                 ),
+
                 dbc.Col(
                     [
-                        dcc.Graph(id='g_p_glied'),
-                        dcc.Graph(id='g_i_glied'),
-                        dcc.Graph(id='g_d_glied'),
+                        dcc.Graph(id='g_p_glied', figure=create_empty_figure('P-Glied über Zeit')),
+                        dcc.Graph(id='g_i_glied', figure=create_empty_figure('I-Glied über Zeit')),
+                        dcc.Graph(id='g_d_glied', figure=create_empty_figure('D-Glied über Zeit')),
                     ],
                     width=4,
                 )
             ]
         )
-    ]
+    ],
+    fluid=True
 )
 
 
@@ -186,113 +281,60 @@ app.layout = dbc.Container(
     Output('Time', 'children'),
     Output('Speed', 'children'),
     Output('Steer', 'children'),
-    Output('g_distance', 'figure'),
-    Output('g_speed', 'figure'),
-    Output('g_angle', 'figure'),
-    Output('g_p_glied', 'figure'),
-    Output('g_i_glied', 'figure'),
-    Output('g_d_glied', 'figure'),
-
-
-    Output('g_distance', 'style'),
-    Output('g_p_glied', 'style'),
-    Output('g_i_glied', 'style'),
-    Output('g_d_glied', 'style'),
-
-    Input('interval', 'n_intervals'),
+    Input('interval_values', 'n_intervals'),
 )
-
 def update_values(n):
     global measurement_active, measurement_start_time, measurement_max_time
-    global controller_thread, show_distance_plot, show_pid_plot, active_car
+    global controller_thread, active_car
 
     current_time = datetime.now().strftime('%H:%M:%S')
 
     speed = active_car.speed * active_car.direction
     steering_angle = active_car.steering_angle
 
-    if show_pid_plot:
-        p_glied = sc.p_wert
-        i_glied = sc.i_wert
-        d_glied = sc.d_wert
-    else:
-        p_glied = '-'
-        i_glied = '-'
-        d_glied = '-'
-
-    # Fülle Liste während des Durchlaufs
     if measurement_active and measurement_start_time is not None:
         elapsed = time.time() - measurement_start_time
 
-        plot_time.append(elapsed)
-        plot_speed.append(speed)
-        plot_steering_angle.append(steering_angle)
+        with data_lock:
+            plot_time.append(elapsed)
+            plot_speed.append(speed)
+            plot_steering_angle.append(steering_angle)
 
-        if show_distance_plot:
-            plot_distance.append(sc.distance)
+            if show_distance_plot:
+                plot_distance.append(sc.distance)
 
-        if show_pid_plot:
-            plot_p_glied.append(sc.p_wert)
-            plot_i_glied.append(sc.i_wert)
-            plot_d_glied.append(sc.d_wert)
+            if show_pid_plot:
+                plot_p_glied.append(sc.p_wert)
+                plot_i_glied.append(sc.i_wert)
+                plot_d_glied.append(sc.d_wert)
 
-        # Stoppe wenn Zeit überschritten
         if elapsed >= measurement_max_time:
-            drive_stop_event.set()
-            measurement_active = False
-            active_car.stop()
+            stop_current_drive()
 
-    # Wenn vorbei, ändere Status
     if controller_thread is not None and not controller_thread.is_alive():
         measurement_active = False
 
-    figure_speed = create_figure(
-        plot_time,
-        plot_speed,
-        'Geschwindigkeit über Zeit',
-        'Geschwindigkeit'
+    return (
+        f'Time: {current_time}',
+        f'Speed: {speed}',
+        f'Steer: {steering_angle}'
     )
 
-    figure_angle = create_figure(
-        plot_time,
-        plot_steering_angle,
-        'Lenkwinkel über Zeit',
-        'Lenkwinkel [°]',
-        ' °'
-    )
 
-    figure_distance = create_figure(
-        plot_time[:len(plot_distance)],
-        plot_distance,
-        'Distanz über Zeit',
-        'Distanz [cm]',
-        ' cm'
-    )
-    ### PID Plots
-    figure_p_glied = create_figure(
-        plot_time[:len(plot_p_glied)],
-        plot_p_glied,
-        'P-Glied über Zeit',
-        'P-Glied [ ]',
-        '-'
-    )
-
-    figure_i_glied = create_figure(
-        plot_time[:len(plot_i_glied)],
-        plot_i_glied,
-        'I-Glied über Zeit',
-        'I-Glied [ ]',
-        '-'
-    )
-
-    figure_d_glied = create_figure(
-        plot_time[:len(plot_d_glied)],
-        plot_d_glied,
-        'D-Glied über Zeit',
-        'D-Glied []',
-        '-'
-    )
-
+@app.callback(
+    Output('g_distance', 'figure'),
+    Output('g_speed', 'figure'),
+    Output('g_angle', 'figure'),
+    Output('g_p_glied', 'figure'),
+    Output('g_i_glied', 'figure'),
+    Output('g_d_glied', 'figure'),
+    Output('g_distance', 'style'),
+    Output('g_p_glied', 'style'),
+    Output('g_i_glied', 'style'),
+    Output('g_d_glied', 'style'),
+    Input('interval_graphs', 'n_intervals'),
+)
+def update_graphs(n):
     if show_distance_plot:
         distance_style = {'display': 'block'}
     else:
@@ -303,10 +345,68 @@ def update_values(n):
     else:
         pid_style = {'display': 'none'}
 
+    with data_lock:
+        time_data = list(plot_time)
+        speed_data = list(plot_speed)
+        steering_angle_data = list(plot_steering_angle)
+        distance_data = list(plot_distance)
+        p_data = list(plot_p_glied)
+        i_data = list(plot_i_glied)
+        d_data = list(plot_d_glied)
+
+    figure_speed = create_figure(
+        time_data,
+        speed_data,
+        'Geschwindigkeit über Zeit',
+        'Geschwindigkeit'
+    )
+
+    figure_angle = create_figure(
+        time_data,
+        steering_angle_data,
+        'Lenkwinkel über Zeit',
+        'Lenkwinkel [°]',
+        ' °'
+    )
+
+    if show_distance_plot:
+        figure_distance = create_figure(
+            time_data[-len(distance_data):],
+            distance_data,
+            'Distanz über Zeit',
+            'Distanz [cm]',
+            ' cm'
+        )
+    else:
+        figure_distance = no_update
+
+    if show_pid_plot:
+        figure_p_glied = create_figure(
+            time_data[-len(p_data):],
+            p_data,
+            'P-Glied über Zeit',
+            'P-Glied'
+        )
+
+        figure_i_glied = create_figure(
+            time_data[-len(i_data):],
+            i_data,
+            'I-Glied über Zeit',
+            'I-Glied'
+        )
+
+        figure_d_glied = create_figure(
+            time_data[-len(d_data):],
+            d_data,
+            'D-Glied über Zeit',
+            'D-Glied'
+        )
+    else:
+        figure_p_glied = no_update
+        figure_i_glied = no_update
+        figure_d_glied = no_update
+
     return (
-        f'Time: {current_time}',
-        f'Speed: {speed}',
-        f'Steer: {steering_angle}',
         figure_distance,
         figure_speed,
         figure_angle,
@@ -319,9 +419,9 @@ def update_values(n):
         pid_style
     )
 
+
 @app.callback(
     Output('Status', 'children'),
-    Output('Distance', 'children'),
     Input('button_start_fahrmodi', 'n_clicks'),
     State('dropdown_fahrmodus', 'value'),
     prevent_initial_call=True
@@ -330,12 +430,15 @@ def start_fahrmodus(clicks, fahrmodus):
     global measurement_active, measurement_start_time, measurement_max_time
     global controller_thread, show_distance_plot, show_pid_plot, active_car
 
-    plot_time.clear()
-    plot_distance.clear()
-    plot_speed.clear()
-    plot_steering_angle.clear()
+    stop_current_drive()
+    reset_plot_data()
 
     drive_stop_event.clear()
+
+    measurement_start_time = time.time()
+    measurement_active = True
+    show_distance_plot = False
+    show_pid_plot = False
 
     if fahrmodus == 'fahrmodus_1':
         print('Starte Fahrmodus 1')
@@ -343,20 +446,17 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = bc
         drive_con = DriveController(bc, driving_mode=DrivingMode.FORWARD_BACKWARD)
 
+        measurement_max_time = drive_con._cfg.get_int('forward_backward_max_time', 10)
+
         controller_thread = threading.Thread(
             target=drive_con.drive_car,
             args=(drive_stop_event,),
             daemon=True
         )
 
-        measurement_start_time = time.time()
-        measurement_max_time = drive_con._cfg.get_int('forward_backward_max_time', 10)
-        measurement_active = True
-        show_distance_plot = False
-        show_pid_plot = False
-
         controller_thread.start()
-        return 'Fahrmodus 1 gestartet', f'Distanz: {11111}'
+
+        return 'Fahrmodus 1 gestartet'
 
     elif fahrmodus == 'fahrmodus_2':
         print('Starte Fahrmodus 2')
@@ -364,19 +464,17 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = bc
         drive_con = DriveController(bc, driving_mode=DrivingMode.CIRCULAR)
 
+        measurement_max_time = drive_con._cfg.get_int('circular_max_time', 30)
+
         controller_thread = threading.Thread(
             target=drive_con.drive_car,
             args=(drive_stop_event,),
             daemon=True
         )
 
-        measurement_max_time = drive_con._cfg.get_int('circular_max_time', 30)
-        measurement_active = True
-        show_distance_plot = False
-        show_pid_plot = False
-
         controller_thread.start()
-        return 'Fahrmodus 2 gestartet', f'Distanz: {11111}'
+
+        return 'Fahrmodus 2 gestartet'
 
     elif fahrmodus == 'fahrmodus_3':
         print('Starte Fahrmodus 3')
@@ -384,19 +482,18 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = sc
         drive_con = DriveController(sc, driving_mode=DrivingMode.APPROACH_OBSTACLE)
 
+        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
+        show_distance_plot = True
+
         controller_thread = threading.Thread(
             target=drive_con.drive_car,
             args=(drive_stop_event,),
             daemon=True
         )
 
-        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
-        measurement_active = True
-        show_distance_plot = True
-        show_pid_plot = False
-
         controller_thread.start()
-        return 'Fahrmodus 3 gestartet', f'Distanz: {11111}'
+
+        return 'Fahrmodus 3 gestartet'
 
     elif fahrmodus == 'fahrmodus_4':
         print('Starte Fahrmodus 4')
@@ -404,19 +501,18 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = sc
         drive_con = DriveController(sc, driving_mode=DrivingMode.EXPLORE)
 
+        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
+        show_distance_plot = True
+
         controller_thread = threading.Thread(
             target=drive_con.drive_car,
             args=(drive_stop_event,),
             daemon=True
         )
 
-        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
-        measurement_active = True
-        show_distance_plot = True
-        show_pid_plot = False
-
         controller_thread.start()
-        return 'Fahrmodus 4 gestartet', f'Distanz: {11111}'
+
+        return 'Fahrmodus 4 gestartet'
 
     elif fahrmodus == 'fahrmodus_5':
         print('Starte Fahrmodus 5')
@@ -424,39 +520,40 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = sc
         drive_con = DriveController(sc, driving_mode=DrivingMode.FOLLOW_LINE)
 
+        measurement_max_time = drive_con._cfg.get_int('line_following_max_time', 30)
+        show_pid_plot = True
+
         controller_thread = threading.Thread(
             target=drive_con.drive_car,
             args=(drive_stop_event,),
             daemon=True
         )
 
-        measurement_active = True
-        show_distance_plot = False
-        show_pid_plot = True
-
         controller_thread.start()
 
-        return 'Fahrmodus 5 noch nicht umgesetzt', f'Distanz: {11111}'
+        return 'Fahrmodus 5 gestartet'
 
     elif fahrmodus == 'fahrmodus_6':
         print('Starte Fahrmodus 6')
 
-        measurement_active = True
-        show_distance_plot = False
+        active_car = sc
+        measurement_max_time = 30
         show_pid_plot = True
 
-        return 'Fahrmodus 6 noch nicht umgesetzt', f'Distanz: {11111}'
+        return 'Fahrmodus 6 noch nicht umgesetzt'
 
     elif fahrmodus == 'fahrmodus_7':
         print('Starte Fahrmodus 7')
 
-        measurement_active = True
-        show_distance_plot = False
+        active_car = sc
+        measurement_max_time = 30
         show_pid_plot = True
 
-        return 'Fahrmodus 7 noch nicht umgesetzt', f'Distanz: {11111}'
+        return 'Fahrmodus 7 noch nicht umgesetzt'
 
-    return 'Nix passiert', f'Distanz: {0}'
+    measurement_active = False
+
+    return 'Nix passiert'
 
 
 @app.callback(
@@ -465,17 +562,10 @@ def start_fahrmodus(clicks, fahrmodus):
     prevent_initial_call=True
 )
 def stop_fahrmodus(clicks):
-    global measurement_active, active_car
-
-    drive_stop_event.set()
-    measurement_active = False
-    active_car.stop()
+    stop_current_drive()
 
     return 'Stop'
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
-
-
-    
+    app.run(host='0.0.0.0', debug=False)
