@@ -180,6 +180,7 @@ app.layout = dbc.Container(
     Output('g_distance', 'style'),
     Input('interval', 'n_intervals'),
 )
+
 def update_values(n):
     global measurement_active, measurement_start_time, measurement_max_time
     global controller_thread, show_distance_plot, active_car
