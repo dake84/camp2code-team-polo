@@ -224,4 +224,4 @@ test.py
 car_log.json
 driving_controller_log.json
 new_config.json
-logs/
+*.log.*

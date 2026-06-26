@@ -22,7 +22,7 @@ class BaseCar(Loggable):
         self._config = config if config is not None else ConfigReader("car")
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
-        self._log = logging.getLogger(self.__class__.__name__)
+        self.__log = logging.getLogger(BaseCar.__name__)
 
         self._lock = RLock()
 
@@ -98,7 +98,8 @@ class BaseCar(Loggable):
         angle = min(135, max(45, angle))
         self._fw.turn(angle)
         with self._lock:
-            self._steering_angle
+            self.__log.debug(f"Set steering angle: {angle}")
+            self._steering_angle = angle
     
     # Live value (with lock)
     @property
@@ -108,7 +109,7 @@ class BaseCar(Loggable):
 
     # Live value (with lock)
     @speed.setter
-    def speed(self, speed): 
+    def speed(self, speed:int): 
         speed = max(-100, min(100, speed))
         self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
         if (speed >= 0):
@@ -120,6 +121,7 @@ class BaseCar(Loggable):
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
         with self._lock:
+            self.__log.debug(f"Set steering angle: {speed}")           
             self._speed = speed
 
     # Direction (equals mode)

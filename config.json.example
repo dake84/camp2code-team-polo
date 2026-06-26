@@ -1,22 +1,52 @@
 {
     "car": {
         "turning_offset": 0,
-        "v_min": 20,
-        "v_max": 100
-    },
-    "us_sensors": {
-        "min_distance": 0,
-        "max_distance": 300,
-        "scan_frequency": 10
-    },
-    "ir_sensors": {
-        "sensor_min_values": [0,0,0,0,0],
-        "sensor_max_values": [800,800,800,800,800],
-        "scan_frequency": 50
+        "v_max": 100,
+        "v_min": 20
     },
     "drive_controller": {
-        "ultrasonic_max_distance_to_stop": 30,
-        "explorer_max_time": 5
-        
+        "explorer_max_time": 5,
+        "korrektur_differential": 10,
+        "korrektur_integral": 0.2,
+        "korrektur_integral_boundary": 30,
+        "korrektur_proportional": 150,
+        "slew_rate": 5,
+        "ultrasonic_max_distance_to_stop": 30
+    },
+    "ir_sensors": {
+        "old_sensor_max_values": [
+            43.3,
+            42.7,
+            47.4,
+            56.9,
+            60.1
+        ],
+        "old_sensor_min_values": [
+            9.2,
+            10.7,
+            10.4,
+            12.0,
+            11.0
+        ],
+        "scan_frequency": 50,
+        "sensor_max_values": [
+            43.3,
+            42.7,
+            47.4,
+            56.9,
+            60.1
+        ],
+        "sensor_min_values": [
+            7.747394085681494,
+            7.32705780541806,
+            6.232629270471607,
+            7.4853311440421395,
+            7.47727710720198
+        ]
+    },
+    "us_sensors": {
+        "max_distance": 300,
+        "min_distance": 0,
+        "scan_frequency": 10
     }
 }

@@ -1,16 +1,25 @@
 
 import logging
+import signal
 import threading
 
 import CarLogger
+import ConfigReader
 import Driving
 import InfraredSensor
 import UltrasonicSensor
 import SensorCar
+import SonicCar
 import os
+from logging import handlers
+import logging_setup
 
 import sys
 import traceback
+
+
+car_select = SensorCar.SensorCar() # SonicCar.SonicCar()
+driving_mode_select = Driving.DrivingMode.APPROACH_OBSTACLE # FORWARD_BACKWARD = 10, CIRCULAR = 20, CIRCULAR_LEFT = CIRCULAR, CIRCULAR_RIGHT = 25, APPROACH_OBSTACLE = 30, EXPLORE = 40FOLLOW_LINE = 50ADVANCED_FOLLOW_LINE = 60ADVANCED_FOLLOW_LINE_WITH_OBSTACLE_DETECTION = 70STADIA_CONTROLLER = 100,KALIBRIERUNGSFAHRT = 500
 
 # Wenn du das Programm mit Strg+C abbrichst, siehst du alle Threads:
 def dump_threads(signum, frame):
@@ -20,49 +29,14 @@ def dump_threads(signum, frame):
         traceback.print_stack(stack)
     sys.exit(1)
 
-import signal
+
 signal.signal(signal.SIGINT, dump_threads)
 
-def setup_project_logging(default_level=logging.DEBUG):
-    """
-    Konfiguriert das Logging zentral. Erstellt für die Hauptkomponenten
-    eigene Log-Dateien und setzt das initiale Log-Level.
-    """
-    # Verzeichnis für Logs erstellen, falls nicht vorhanden
-    os.makedirs("logs", exist_ok=True)
-    
-    # Gemeinsames Format für alle Logs
-    log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-    # Definition der Module und ihrer Log-Dateien
-    log_mapping = {
-        "BaseCar": "logs/base_car.log",
-        "SonicCar": "logs/sonic_car.log",
-        "SensorCar": "logs/sensor_car.log",
-        "DriveController": "logs/drive_controller.log",
-        "InfraredSensor": "logs/infrared_sensor.log",
-        "UltrasonicSensor": "logs/ultrasonic_sensor.log"
-    }
-
-    for logger_name, log_file in log_mapping.items():
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(default_level)
-        
-        # Handler hinzufügen, falls noch keiner existiert (verhindert doppelte Logs)
-        if not logger.handlers:
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
-            file_handler.setFormatter(log_format)
-            logger.addHandler(file_handler)
-            
-    # Optional: Ein globaler Konsolen-Logger für wichtige Ausgaben
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(log_format)
-    console_handler.setLevel(logging.WARNING) # Nur Warnungen/Fehler auf die Konsole
-    logging.getLogger().addHandler(console_handler)    
-
 if __name__ == '__main__':
-    setup_project_logging()
-    sc = SensorCar.SensorCar()
+    logging_setup.setup_project_logging()
+    sc = car_select
+    sc.speed
+    
     
     # Liest IR-Sensor und schreibt Werte ins Auto
     ir = InfraredSensor.InfraredSensor(sc)
@@ -71,7 +45,7 @@ if __name__ == '__main__':
     # Liest Werte aus dem Auto und schreibt sie in ein Log-File
     cl = CarLogger.CarLogger(sc)
     # Liest Werte aus dem Auto und steuert das Auto
-    dc = Driving.DriveController(sc, Driving.DrivingMode.APPROACH_OBSTACLE)
+    dc = Driving.DriveController(sc)
     # Liest Werte aus dem Controller und schreibt sie in ein Log-File
     # dl = CarLogger.CarLogger(log_object=dc, logfile="driving_controller_log.json", log_name="driving_controller_log")
 
@@ -80,41 +54,76 @@ if __name__ == '__main__':
 
     us_sensor_thread = threading.Thread(target=us.read_loop, args=[stop_event])
     ir_sensor_thread = threading.Thread(target=ir.read_loop, args=[stop_event])
-    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, Driving.DrivingMode.EXPLORE])
+    controller_thread = threading.Thread(target=dc.drive_car, args=[stop_event, driving_mode_select])
     #dl_thread=threading.Thread(target=dl.run, args=[stop_event])
     cl_thread=threading.Thread(target=cl.run, args=[stop_event])
 
 
-    print("Starting sensor thread...", end="")
-    us_sensor_thread.start()
-    ir_sensor_thread.start()
-    print("...started!")
-    print("Starting logging thread...", end="")
-    #dl_thread.start()
-    cl_thread.start()
-    print("...started!")
-    print("Starting controller thread...", end="")
-    controller_thread.start()
-    print("...started!")
+    try:
 
-    input("Stop?")
 
-    stop_event.set()
-
-    print("Ending sensor thread...", end="")
-    ir_sensor_thread.join()
-    us_sensor_thread.join()
-    print("...ended!")
-    print("Ending logging thread...", end="")
-    #dl_thread.join()
-    cl_thread.join()
-    print("...ended!")
-    print("Ending controller thread...", end="")
-    controller_thread.join()
-    print("...ended!")
+        sc.stop()
     
-    if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
-        ir.save_calibration()
+        print("Starting sensor thread...", end="")
+        us_sensor_thread.start()
+        ir_sensor_thread.start()
+        print("...started!")
 
-    # Just to be surrrrre
-    sc.stop()
+        while True:
+            user_input = input("Kalibrierungsfahrt (1) oder reguläres Fahrprogramm(2) ?")
+            if (user_input == "1"):
+
+                kf = Driving.Kalibrierungsfahrt(dc)
+                kf.fahre_kalibrierungsfahrt(threading.Event())
+                if ("j" == input("Soll das Ergebnis vom Fahrzeug in die Sensor-Konfig geschrieben werden? (j/n)")):
+                    ir.save_calibration()
+                    stop_event.set()
+                    break
+                stop_event.set()
+                break
+
+            elif (user_input == "2"):
+     
+                print("Starting logging thread...", end="")
+                #dl_thread.start()
+                cl_thread.start()
+                print("...started!")
+                print(f"cl_thread alive? {cl_thread.is_alive()}")
+                print("Starting controller thread...", end="")
+                controller_thread.start()
+                print(f"controller_thread alive? {controller_thread.is_alive()}")
+                print("...started!")
+                input("Drücke Enter zum Stoppen…")
+                stop_event.set()
+                break
+
+            else:
+                print("Nur 1 oder 2 zulässig")
+                continue
+                
+
+
+
+    except KeyboardInterrupt:
+        stop_event.set()
+
+    finally:
+        # Just to be surrrrre
+        sc.stop()
+
+        print("Ending sensor thread...", end="")
+        ir_sensor_thread.join()
+        us_sensor_thread.join()
+        print("...ended!")
+        print("Ending logging thread...", end="")
+        # dl_thread.join()
+        if cl_thread.is_alive():
+            cl_thread.join()
+        print("...ended!")
+        print("Ending controller thread...", end="")
+        if controller_thread.is_alive():
+            controller_thread.join()
+        print("...ended!")
+        
+        # if ("j" == input("Sollen die geänderten Kalibrierungswerte des IR-Sensors gespeichert werden (j)?")):
+        #     ir.save_calibration()
