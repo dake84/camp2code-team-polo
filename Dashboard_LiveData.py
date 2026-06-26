@@ -44,7 +44,7 @@ ir_sensor_thread = threading.Thread(
 us_sensor_thread.start()
 ir_sensor_thread.start()
 
-
+# Listen für Liveplot
 plot_time = deque(maxlen=max_plot_points)
 plot_distance = deque(maxlen=max_plot_points)
 plot_speed = deque(maxlen=max_plot_points)
@@ -56,20 +56,22 @@ plot_d_glied = deque(maxlen=max_plot_points)
 measurement_active = False
 measurement_start_time = None
 measurement_max_time = 0
-
 controller_thread = None
 show_distance_plot = False
 show_pid_plot = False
 active_car = sc
 
+total_distance = 0
+last_time = None
+
 
 def add_min_max_annotations(figure, values, unit=''):
-    """Fügt Min- und Max-Werte als Annotation in den Plot ein.
+    """Fügt Min- und Max-Werte in einen Plot ein.
 
     Args:
-        figure: Plotly-Figure, die erweitert werden soll.
-        values: Liste oder Deque mit y-Werten.
-        unit: Einheit als Text.
+        figure: Plotly-Figure.
+        values: Werte für die Berechnung von Min und Max.
+        unit: Einheit für die Anzeige.
     """
     values = list(values)
 
@@ -111,7 +113,7 @@ def create_figure(x_data, y_data, title, y_title, unit=''):
     Args:
         x_data: Werte für die x-Achse.
         y_data: Werte für die y-Achse.
-        title: Titel des Plots.
+        title: Plot-Titel.
         y_title: Beschriftung der y-Achse.
         unit: Einheit für Min-/Max-Anzeige.
 
@@ -146,7 +148,7 @@ def create_empty_figure(title):
     """Erstellt einen leeren Plot.
 
     Args:
-        title: Titel des leeren Plots.
+        title: Plot-Titel.
 
     Returns:
         Leere Plotly-Figure.
@@ -162,8 +164,26 @@ def create_empty_figure(title):
     return figure
 
 
+def get_matching_time_data(time_data, value_data):
+    """Erzeugt passend lange Zeitdaten für einen Messwert.
+
+    Args:
+        time_data: Komplette Zeitdaten.
+        value_data: Messwertdaten.
+
+    Returns:
+        Passend gekürzte Zeitdaten.
+    """
+    if len(value_data) == 0:
+        return []
+
+    return time_data[-len(value_data):]
+
+
 def reset_plot_data():
     """Löscht alle Plotdaten."""
+    global total_distance, last_time
+
     with data_lock:
         plot_time.clear()
         plot_distance.clear()
@@ -173,9 +193,12 @@ def reset_plot_data():
         plot_i_glied.clear()
         plot_d_glied.clear()
 
+    total_distance = 0
+    last_time = None
+
 
 def stop_current_drive():
-    """Stoppt die aktive Fahrt möglichst zuverlässig."""
+    """Stoppt die aktive Fahrt."""
     global measurement_active
 
     drive_stop_event.set()
@@ -201,6 +224,7 @@ app.layout = dbc.Container(
                     [
                         html.H1('Live-Werte'),
                         html.P(id='Time'),
+                        html.P(id='Distance'),
                         html.P(id='Speed'),
                         html.P(id='Steer'),
                         html.P(id='Status'),
@@ -247,7 +271,7 @@ app.layout = dbc.Container(
                             id='button_stop_fahrmodi',
                             n_clicks=0,
                             color='danger',
-                            className='mt-4 ms-2'
+                            className='mt-4'
                         )
                     ],
                     width=3,
@@ -279,6 +303,7 @@ app.layout = dbc.Container(
 
 @app.callback(
     Output('Time', 'children'),
+    Output('Distance', 'children'),
     Output('Speed', 'children'),
     Output('Steer', 'children'),
     Input('interval_values', 'n_intervals'),
@@ -286,6 +311,7 @@ app.layout = dbc.Container(
 def update_values(n):
     global measurement_active, measurement_start_time, measurement_max_time
     global controller_thread, active_car
+    global total_distance, last_time
 
     current_time = datetime.now().strftime('%H:%M:%S')
 
@@ -294,6 +320,12 @@ def update_values(n):
 
     if measurement_active and measurement_start_time is not None:
         elapsed = time.time() - measurement_start_time
+
+        if last_time is not None:
+            dt = elapsed - last_time
+            total_distance += speed * dt
+
+        last_time = elapsed
 
         with data_lock:
             plot_time.append(elapsed)
@@ -316,6 +348,7 @@ def update_values(n):
 
     return (
         f'Time: {current_time}',
+        f'Distance: {total_distance:.1f}',
         f'Speed: {speed}',
         f'Steer: {steering_angle}'
     )
@@ -328,10 +361,12 @@ def update_values(n):
     Output('g_p_glied', 'figure'),
     Output('g_i_glied', 'figure'),
     Output('g_d_glied', 'figure'),
+
     Output('g_distance', 'style'),
     Output('g_p_glied', 'style'),
     Output('g_i_glied', 'style'),
     Output('g_d_glied', 'style'),
+
     Input('interval_graphs', 'n_intervals'),
 )
 def update_graphs(n):
@@ -347,9 +382,9 @@ def update_graphs(n):
 
     with data_lock:
         time_data = list(plot_time)
+        distance_data = list(plot_distance)
         speed_data = list(plot_speed)
         steering_angle_data = list(plot_steering_angle)
-        distance_data = list(plot_distance)
         p_data = list(plot_p_glied)
         i_data = list(plot_i_glied)
         d_data = list(plot_d_glied)
@@ -371,7 +406,7 @@ def update_graphs(n):
 
     if show_distance_plot:
         figure_distance = create_figure(
-            time_data[-len(distance_data):],
+            get_matching_time_data(time_data, distance_data),
             distance_data,
             'Distanz über Zeit',
             'Distanz [cm]',
@@ -382,24 +417,27 @@ def update_graphs(n):
 
     if show_pid_plot:
         figure_p_glied = create_figure(
-            time_data[-len(p_data):],
+            get_matching_time_data(time_data, p_data),
             p_data,
             'P-Glied über Zeit',
-            'P-Glied'
+            'P-Glied [ ]',
+            '-'
         )
 
         figure_i_glied = create_figure(
-            time_data[-len(i_data):],
+            get_matching_time_data(time_data, i_data),
             i_data,
             'I-Glied über Zeit',
-            'I-Glied'
+            'I-Glied [ ]',
+            '-'
         )
 
         figure_d_glied = create_figure(
-            time_data[-len(d_data):],
+            get_matching_time_data(time_data, d_data),
             d_data,
             'D-Glied über Zeit',
-            'D-Glied'
+            'D-Glied []',
+            '-'
         )
     else:
         figure_p_glied = no_update
@@ -520,7 +558,7 @@ def start_fahrmodus(clicks, fahrmodus):
         active_car = sc
         drive_con = DriveController(sc, driving_mode=DrivingMode.FOLLOW_LINE)
 
-        measurement_max_time = drive_con._cfg.get_int('line_following_max_time', 30)
+        measurement_max_time = drive_con._cfg.get_int('line_follower_max_time', 30)
         show_pid_plot = True
 
         controller_thread = threading.Thread(
