@@ -75,7 +75,7 @@ class InfraredSensor(Infrared):
 
     # Gibt Werte zwischen 0.0 und 1.0 zurück
     def _normalize(self, sensors) -> list[float]:
-        return list(
+        normiert = list(
             map(
                 lambda s,mav,miv: 0 if (mav==miv) else max(0.0, min(1.0, (s-miv) / (mav-miv))), 
                 sensors, 
@@ -83,6 +83,8 @@ class InfraredSensor(Infrared):
                 self.sensor_max_values
             )
         )
+        self._log.debug(f"Normiere Sensorwerte. Messwerte: {sensors}, Kalibrierwerte: (min:{self._sensor_min_values}, max:{self._sensor_max_values}) -> Normiert: {normiert}")
+        return normiert
 
     def _dynamic_calibration(self, sensors:list[float]):
         learning_rate = self._cfg.get_float("learning_rate", 0.1)

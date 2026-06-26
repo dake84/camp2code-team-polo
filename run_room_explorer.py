@@ -28,6 +28,8 @@ if __name__ == '__main__':
 
     try:
         ir_sensor_thread.start()
+        us_sensor_thread.start()
+        
         input("Follow-Line... <ENTER>")
         fl.start()
         input("press <Enter> to stop")
@@ -39,7 +41,6 @@ if __name__ == '__main__':
         mode_one.stop()
         print("finished mode one")
 
-        us_sensor_thread.start()
         input("Approach obstacle... <ENTER>")
         ao.start()
         input("press <Enter> to stop")
