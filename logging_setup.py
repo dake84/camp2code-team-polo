@@ -36,7 +36,7 @@ def setup_project_logging(default_level=logging.INFO):
         
         # Handler hinzufügen, falls noch keiner existiert (verhindert doppelte Logs)
         if not logger.handlers:
-            file_handler = handlers.RotatingFileHandler(log_file, encoding="utf-8", maxBytes=1024, backupCount=3)
+            file_handler = handlers.RotatingFileHandler(log_file, encoding="utf-8", backupCount=3)
             file_handler.setFormatter(log_format)
             logger.addHandler(file_handler)
             

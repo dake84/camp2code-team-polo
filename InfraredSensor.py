@@ -77,7 +77,7 @@ class InfraredSensor(Infrared):
     def _normalize(self, sensors) -> list[float]:
         normiert = list(
             map(
-                lambda s,mav,miv: 0 if (mav==miv) else max(0.0, min(1.0, (s-miv) / (mav-miv))), 
+                lambda s,miv,mav: 0 if (mav==miv) else max(0.0, min(1.0, (s-miv) / (mav-miv))), 
                 sensors, 
                 self.sensor_min_values, 
                 self.sensor_max_values
