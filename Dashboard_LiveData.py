@@ -6,11 +6,11 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 
+import Driving
 import InfraredSensor
 import UltrasonicSensor
 import BaseCar
 import SensorCar
-from Driving import DriveController, DrivingMode
 
 app = Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
 
@@ -22,6 +22,13 @@ us = UltrasonicSensor.UltrasonicSensor(sc)
 
 sensor_stop_event = threading.Event()
 drive_stop_event = threading.Event()
+
+mode_one = Driving.ModeOne(car=sc)
+currentMode = mode_one
+mode_two = Driving.ModeTwo(car=sc)
+re = Driving.RoomExplorer(car=sc)
+ao = Driving.ApproachObstacle(car=sc)
+fl = Driving.FollowLine(car=sc)
 
 us_sensor_thread = threading.Thread(
     target=us.read_loop,
@@ -328,7 +335,7 @@ def update_values(n):
 )
 def start_fahrmodus(clicks, fahrmodus):
     global measurement_active, measurement_start_time, measurement_max_time
-    global controller_thread, show_distance_plot, show_pid_plot, active_car
+    global controller_thread, show_distance_plot, show_pid_plot, active_car, currentMode
 
     plot_time.clear()
     plot_distance.clear()
@@ -339,102 +346,91 @@ def start_fahrmodus(clicks, fahrmodus):
 
     if fahrmodus == 'fahrmodus_1':
         print('Starte Fahrmodus 1')
+        if (currentMode is not None):
+            currentMode.stop()
+            time.sleep(0.25)
+        currentMode = mode_one
 
         active_car = bc
-        drive_con = DriveController(bc, driving_mode=DrivingMode.FORWARD_BACKWARD)
-
-        controller_thread = threading.Thread(
-            target=drive_con.drive_car,
-            args=(drive_stop_event,),
-            daemon=True
-        )
 
         measurement_start_time = time.time()
-        measurement_max_time = drive_con._cfg.get_int('forward_backward_max_time', 10)
+        measurement_max_time = currentMode._cfg.get_int('forward_backward_max_time', 10)
         measurement_active = True
         show_distance_plot = False
         show_pid_plot = False
 
-        controller_thread.start()
+        currentMode.start()
         return 'Fahrmodus 1 gestartet', f'Distanz: {11111}'
 
     elif fahrmodus == 'fahrmodus_2':
         print('Starte Fahrmodus 2')
-
+        if (currentMode is not None):
+            currentMode.stop()
+            time.sleep(0.25)
+        currentMode = mode_two
         active_car = bc
-        drive_con = DriveController(bc, driving_mode=DrivingMode.CIRCULAR)
 
-        controller_thread = threading.Thread(
-            target=drive_con.drive_car,
-            args=(drive_stop_event,),
-            daemon=True
-        )
-
-        measurement_max_time = drive_con._cfg.get_int('circular_max_time', 30)
+        measurement_max_time = currentMode._cfg.get_int('forward_backward_max_time', 10)
         measurement_active = True
         show_distance_plot = False
         show_pid_plot = False
 
-        controller_thread.start()
+        currentMode.start()
         return 'Fahrmodus 2 gestartet', f'Distanz: {11111}'
 
     elif fahrmodus == 'fahrmodus_3':
         print('Starte Fahrmodus 3')
+        if (currentMode is not None):
+            currentMode.stop()
+            time.sleep(0.25)
+        
+        currentMode = ao
 
         active_car = sc
-        drive_con = DriveController(sc, driving_mode=DrivingMode.APPROACH_OBSTACLE)
 
-        controller_thread = threading.Thread(
-            target=drive_con.drive_car,
-            args=(drive_stop_event,),
-            daemon=True
-        )
-
-        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
+        measurement_max_time = currentMode._cfg.get_int('explorer_max_time', 30)
         measurement_active = True
         show_distance_plot = True
         show_pid_plot = False
 
-        controller_thread.start()
+        ao.start()
+
         return 'Fahrmodus 3 gestartet', f'Distanz: {11111}'
 
     elif fahrmodus == 'fahrmodus_4':
         print('Starte Fahrmodus 4')
+        if (currentMode is not None):
+            currentMode.stop()
+            time.sleep(0.25)
+
+        currentMode = re
 
         active_car = sc
-        drive_con = DriveController(sc, driving_mode=DrivingMode.EXPLORE)
 
-        controller_thread = threading.Thread(
-            target=drive_con.drive_car,
-            args=(drive_stop_event,),
-            daemon=True
-        )
-
-        measurement_max_time = drive_con._cfg.get_int('explorer_max_time', 30)
+        measurement_max_time = currentMode._cfg.get_int('explorer_max_time', 30)
         measurement_active = True
         show_distance_plot = True
         show_pid_plot = False
 
-        controller_thread.start()
+        re.start()
         return 'Fahrmodus 4 gestartet', f'Distanz: {11111}'
 
     elif fahrmodus == 'fahrmodus_5':
         print('Starte Fahrmodus 5')
+        if (currentMode is not None):
+            currentMode.stop()
+            time.sleep(0.25)
+
+
+        currentMode = fl
 
         active_car = sc
-        drive_con = DriveController(sc, driving_mode=DrivingMode.FOLLOW_LINE)
-
-        controller_thread = threading.Thread(
-            target=drive_con.drive_car,
-            args=(drive_stop_event,),
-            daemon=True
-        )
 
         measurement_active = True
         show_distance_plot = False
         show_pid_plot = True
 
-        controller_thread.start()
+        currentMode.start()
 
         return 'Fahrmodus 5 noch nicht umgesetzt', f'Distanz: {11111}'
 
@@ -470,6 +466,9 @@ def stop_fahrmodus(clicks):
     drive_stop_event.set()
     measurement_active = False
     active_car.stop()
+
+    if (currentMode is not None):
+        currentMode.stop()
 
     return 'Stop'
 

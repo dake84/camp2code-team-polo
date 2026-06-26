@@ -78,7 +78,9 @@ class DrivingMode(abc.ABC):
         self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
 
     def start(self):
-        self._thread.start()
+        with self._lock:
+            if (not self.is_running):
+                self._thread.start()
 
     def _drive(self, update_cfg:bool=False):
         with self._lock:

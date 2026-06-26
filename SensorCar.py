@@ -93,7 +93,7 @@ class SensorCar(SonicCar):
         with self._lock:
             return self._i_wert
 
-    @p_wert.setter
+    @i_wert.setter
     def i_wert(self, i:float):
         with self._lock:
             self._p_wert = i
@@ -103,7 +103,7 @@ class SensorCar(SonicCar):
         with self._lock:
             return self._d_wert
 
-    @p_wert.setter
+    @d_wert.setter
     def d_wert(self, d:float):
         with self._lock:
             self._p_wert = d
