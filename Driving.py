@@ -119,7 +119,7 @@ class DrivingMode(abc.ABC):
         except Exception as e:
             self._log.exception(e)
         finally:
-            self._car.stop()
+            self.stop()
             if (self._post_run()):
                 self._log.debug("Post-Run actions absolved")
             else:
@@ -148,6 +148,7 @@ class DrivingMode(abc.ABC):
 
     def stop(self, reason:StopReason|int=0) -> bool:
         if (self._stop_event is not None):
+            self._log.info(f"{self._name} beendet")
             self._stop_event.set()
             self._stop_car(reason)
             return True

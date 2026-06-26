@@ -29,7 +29,6 @@ def setup_project_logging(default_level=logging.INFO):
         "ModeOne": "logs/controller.log",
         "ModeTwo": "logs/controller.log",
         "KeyboardMode": "logs/controller.log"
-
     }
 
     for logger_name, log_file in log_mapping.items():
