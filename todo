@@ -1,3 +1,16 @@
+Für heute:
+- Cherry-Picks: 7ec0d740cca54015b44b57fdeb87d03cdb9b42f2 (Dashboard + Lenkwinkel)
+- Doku / Readme
+- BaseCar Lenkwinkel setter
+- Fahrmodus 1,2,5,6 migrieren
+- Fahrmodus 7 implementieren
+- Roomexplorer -> Main
+- Dashboad: PID -Anzeige (inkl. getter/setter in SensorCar) --> Jan & Heinrich (ggf. Mock-Daten ausgeben)
+
+
+
+
+
 
 Driving.py:
 - Lenkwinkel-Berechung in DriveController implementieren und Log-Values bereitstellen -> @Peter

@@ -225,3 +225,4 @@ car_log.json
 driving_controller_log.json
 new_config.json
 *.log.*
+Driving copy.py
