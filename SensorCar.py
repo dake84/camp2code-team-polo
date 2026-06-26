@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 from typing import Optional
 
@@ -106,4 +107,15 @@ class MockSensorCar(SensorCar):
             time.sleep(5)
 
             return value
-        
+    
+    @property
+    def p_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
+
+    @property
+    def i_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
+
+    @property
+    def d_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
