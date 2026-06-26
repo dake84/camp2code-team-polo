@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from datetime import datetime
@@ -11,8 +12,10 @@ import InfraredSensor
 import UltrasonicSensor
 import BaseCar
 import SensorCar
-
+import logging_setup
 app = Dash(external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+logging_setup.setup_project_logging(logging.WARN)
 
 bc = BaseCar.BaseCar()
 sc = SensorCar.SensorCar()
