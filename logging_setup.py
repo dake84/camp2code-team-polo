@@ -17,13 +17,12 @@ def setup_project_logging(default_level=logging.INFO):
 
     # Definition der Module und ihrer Log-Dateien
     log_mapping = {
-        "BaseCar": "logs/base_car.log",
-        "SonicCar": "logs/sonic_car.log",
-        "SensorCar": "logs/sensor_car.log",
-        "DriveController": "logs/drive_controller.log",
-        "InfraredSensor": "logs/infrared_sensor.log",
-        "UltrasonicSensor": "logs/ultrasonic_sensor.log",
-        "MockSensorCar": "logs/mocksensor_car.log",
+        "BaseCar": "logs/car.log",
+        "SonicCar": "logs/car.log",
+        "SensorCar": "logs/car.log",
+        "InfraredSensor": "logs/sensors.log",
+        "UltrasonicSensor": "logs/sensors.log",
+        "MockSensorCar": "logs/car.log",
         "RoomExplorer": "logs/controller.log",
         "ApproachObstacle": "logs/controller.log",
         "FollowLine": "logs/controller.log"
@@ -36,7 +35,7 @@ def setup_project_logging(default_level=logging.INFO):
         
         # Handler hinzufügen, falls noch keiner existiert (verhindert doppelte Logs)
         if not logger.handlers:
-            file_handler = handlers.RotatingFileHandler(log_file, encoding="utf-8", backupCount=3)
+            file_handler = handlers.RotatingFileHandler(log_file, encoding="utf-8", maxBytes=1024*1024, backupCount=3)
             file_handler.setFormatter(log_format)
             logger.addHandler(file_handler)
             

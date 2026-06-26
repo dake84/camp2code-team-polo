@@ -37,7 +37,7 @@ class ConfigReader:
         Raises:
             AttributeError: Wenn die Datei nicht existiert oder nicht lesbar ist.
         """
-        self._log.info(f"Lese Config-File {self._config_file}")
+        self._log.debug(f"Lese Config-File {self._config_file}")
         try:
             with open(self._config_file, "r") as f:
                 self._json_config = json.load(f)

@@ -98,8 +98,10 @@ class BaseCar(Loggable):
         angle = min(135, max(45, angle))
         self._fw.turn(angle)
         with self._lock:
+            if (self._steering_angle != angle):
+                self.__log.info(f"Changed steering_angle: {self._steering_angle} -> {angle}")
             self.__log.debug(f"Set steering angle: {angle}")
-            self._steering_angle
+            self._steering_angle = angle
     
     # Live value (with lock)
     @property
@@ -110,6 +112,7 @@ class BaseCar(Loggable):
     # Live value (with lock)
     @speed.setter
     def speed(self, speed:int): 
+          
         vmin = self._cfg.get_int("v_min", 20)
         vmax = self._cfg.get_int("v_max", 100)
         speed = max(-100, min(100, speed))
@@ -129,6 +132,9 @@ class BaseCar(Loggable):
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
         with self._lock:
+            if (self._speed != speed):
+                self.__log.info(f"Changed speed: {self._speed} -> {speed}")
+
             self.__log.debug(f"Set steering angle: {speed}")           
             self._speed = speed
 

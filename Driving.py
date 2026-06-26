@@ -557,6 +557,8 @@ class FollowLine(SensorCarMode):
 
         u = dKP + dKI + dKD
 
+        self._log.info(f"Lenkwinkel berechnet u:{dKP:.2f}, P:{dKP:.2f}, I:{dKI:.2f}, D:{dKD:.2f}")
+
         # 1. Normierung
         lw = int(max(45, min(135, 90 + u)))
         self._log.debug
@@ -570,8 +572,8 @@ class FollowLine(SensorCarMode):
         lw = max(45, min(135, lw))
         self._log.debug(f"Lenkwinkel nach anti-slew (lw): {lw}")
 
-        self._log.info(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}")
-        self._log.info(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}, \nkorr integral:{korrektur_integral}")
+        self._log.debug(f"Ergebnis der Lenkwinkel-Berechung: \ndKP: {dKP}, \ndKI: {dKI}, \ndKD: {dKD}, \nu: {u}, \nlw: {lw}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}")
+        self._log.debug(f"Ergebnis der dKI-Berechung: \nerror: {error}, \ndelta t:{current_time_stamp-self._last_time}, \nsumme integral:{self._summe_integral}, \nkorr integral:{korrektur_integral}")
 
         # # Hier Werte berechnen und für Logging in Methode get_logging_payload in Klasse speichern
         # # Diese Werte kommen dann in das JSON-DataLog

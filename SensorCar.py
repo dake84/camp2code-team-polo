@@ -130,9 +130,11 @@ class MockSensorCar(SensorCar):
     def speed(self, speed:int): 
         if (self._mockSpeed):
             self.__log.debug(f"Geschwindigkeit gesetzt: {speed}")
+            if (self._speed != speed):
+                self.__log.info(f"Changed speed: {self._speed} -> {speed}")
             self._speed = speed
         else:
-            super(MockSensorCar, type(self)).speed.__set__(self, speed)
+            super(MockSensorCar, type(self)).speed.__set__(self, speed) # pyright: ignore[reportAttributeAccessIssue]
 
     @SensorCar.ir_sensor_values.getter
     def ir_sensor_values(self) -> list[float]:
@@ -145,5 +147,5 @@ class MockSensorCar(SensorCar):
                 time.sleep(5)
 
                 return value
-        return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self)
+        return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self) # pyright: ignore[reportAttributeAccessIssue]
         
