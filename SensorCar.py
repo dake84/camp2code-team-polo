@@ -75,6 +75,18 @@ class SensorCar(SonicCar):
         payload = super().get_logging_payload()
         payload["ir_sensor_values"] = self.ir_sensor_value_history()
         return payload
+
+    @property
+    def p_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
+
+    @property
+    def i_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
+
+    @property
+    def d_wert(self) -> float:
+        return random.uniform(5.0, 100.0)
     
 
 class MockSensorCar(SensorCar):
@@ -108,14 +120,3 @@ class MockSensorCar(SensorCar):
 
             return value
     
-    @property
-    def p_wert(self) -> float:
-        return random.uniform(5.0, 100.0)
-
-    @property
-    def i_wert(self) -> float:
-        return random.uniform(5.0, 100.0)
-
-    @property
-    def d_wert(self) -> float:
-        return random.uniform(5.0, 100.0)
