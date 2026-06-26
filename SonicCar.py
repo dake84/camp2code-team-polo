@@ -16,7 +16,7 @@ class SonicCar(BaseCar):
         """        
 
         # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
-        super().__init__(config)
+        super().__init__(config=config)
         self._distance = 300
         self.__log = logging.getLogger(SonicCar.__name__)
 

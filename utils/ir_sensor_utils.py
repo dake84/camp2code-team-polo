@@ -28,15 +28,20 @@ def starte_poti_tuning(ir_sensors:InfraredSensor) -> Tuple[list[float], list[flo
     print("="*60 + "\n")
 
     values = ir_sensors.sensor_values
-    min_values = values
-    max_values = values
+    normalized_values =ir_sensors._normalize(values)
+    min_values = values.copy()
+    max_values = values.copy()
+    min_normalized_values = normalized_values.copy()
+    max_normalized_values = normalized_values.copy()
+            
     all_values = [values]
 
     try:
         while True:
-
+            ir_sensors._cfg._load_config_file()
             # 1. Aktuelle Werte holen (Passe den Methoden-Namen an euren Code an)
             values = ir_sensors.sensor_values
+            normalized_values =ir_sensors._normalize(values)
             all_values.append(values)
 
             assign_smaller = lambda x,y: x if x < y else y
@@ -44,21 +49,26 @@ def starte_poti_tuning(ir_sensors:InfraredSensor) -> Tuple[list[float], list[flo
             for i in range(len(values)):
                 min_values[i] = assign_smaller(values[i], min_values[i])
                 max_values[i] = assign_larger(values[i], max_values[i])
-            
+                min_normalized_values[i] = assign_smaller(normalized_values[i], min_normalized_values[i])
+                max_normalized_values[i] = assign_larger(normalized_values[i], max_normalized_values[i])
+
             # 2. Das Delta berechnen (Höchster Wert minus niedrigster Wert in diesem Moment)
             min_val = min(values)
             max_val = max(values)
+            min_normalized_val = min(normalized_values)
+            max_normalized_val = max(normalized_values)
             delta = max_val - min_val
+            delta_normalized = min_normalized_val - max_normalized_val
             
             # 3. Den String schön formatieren (Feste Breite mit :4d sorgt dafür, 
             #    dass die Zahlen nicht wackeln)
             ausgabe = (
-                f" Live: "
+                f"  Live: "
                 f"S1:[{values[0]:4d}]  S2:[{values[1]:4d}]  S3:[{values[2]:4d}]  "
                 f"S4:[{values[3]:4d}]  S5:[{values[4]:4d}] "
                 f" |  DELTA: {delta:4d} "
             )
-            
+
             # 4. Visuelles Ampel-Feedback für das Team hinzufügen
             if delta < 50:
                 ausgabe += "🔴 (Zu schwach - weiter drehen!)"
@@ -69,15 +79,27 @@ def starte_poti_tuning(ir_sensors:InfraredSensor) -> Tuple[list[float], list[flo
                 
             # \r springt an den Zeilenanfang, \033[K löscht den Rest der Zeile
             print(f"\r{ausgabe}", end="\033[K", flush=True)
-            
+
+            ausgabe2 = (
+                f"  Norm: "
+                f"S1:[{normalized_values[0]:4.2f}]  S2:[{normalized_values[1]:4.2f}]  S3:[{normalized_values[2]:4.2f}]  "
+                f"S4:[{normalized_values[3]:4.2f}]  S5:[{normalized_values[4]:4.2f}] "
+                f" |  DELTA: {delta_normalized:4.2f} "
+            )
+            # \033[F springt eine Zeile hoch. Da wir 2 Zeilen ausgeben, springen wir 
+            # am Anfang JEDES Durchlaufs erst mal eine Zeile hoch, um die alten Daten sauber zu überschreiben.
+            print(f"\033[F\r{ausgabe}\033[K\n\r{ausgabe2}\033[K", end="", flush=True)            
             # Kurze Pause, damit man die Zahlen noch lesen kann
             time.sleep(0.1)
             
     except KeyboardInterrupt:
         # Fängt STRG+C ab, damit das Skript nicht mit einem roten Fehler abstürzt
         print("\n\n ✅ Tuning beendet. Ihr könnt jetzt die Kalibrierung starten!")    
-    finally:
-        return min_values, max_values, all_values
+    except Exception as e:
+        print("\n\n")
+        raise e
+    
+    return min_values, max_values, all_values
 
 def do_funny_stats(min_values:list[float], max_values:list[float], all_values:list[list[float]]):
         print(f"\nAusgelesene min values {min_values}")

@@ -74,7 +74,7 @@ class DrivingMode(abc.ABC):
         self._car = car
         self._log = logger
         self._cfg = config
-        self._frequency = frequency
+        self._frequency = self._cfg.get_int("scan_frequency", frequency)
         self._lock = threading.RLock()
         self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
 
@@ -486,19 +486,13 @@ class FollowLine(SensorCarMode):
     
     def _post_run(self) -> bool:
         return super()._post_run()    
+    
 
     def _is_on_line(self) -> bool:
-        minimum_line_contrast = self._cfg.get_float("minimum_line_contrast", 0.5)
-        messwerte = self._sensorcar.ir_sensor_values
-        
-        min_sensor = min(messwerte)
-        max_sensor = max(messwerte)
-
-        if (max_sensor == 0):
-            return True
-
-        self._log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {minimum_line_contrast}, min/max: {min_sensor/max_sensor:.2f}")
-        return (max_sensor-min_sensor > minimum_line_contrast)
+        if (not self._sensorcar.is_on_line()):
+            self._log.info("Lost line")
+            return False
+        return True
     
     def _calc_steering_angle_from_ir_sensors(self) -> int:
         """Berechnet den Lenkwinkel basierend auf IR-Messwerten und PID-Korrekturfaktoren.
@@ -517,7 +511,7 @@ class FollowLine(SensorCarMode):
         korrektur_integral_boundary = self._cfg.get_float("korrektur_integral_boundary", 30)
         korrektur_differential = self._cfg.get_float("korrektur_differential", 0)
 
-        sensor_gewichte = self._cfg.get_list("ir_sensor_weights", [2,1,0,-1,-2])
+        sensor_gewichte = self._cfg.get_list("ir_sensor_weights", [-2,-1,0,1,2])
         slew_rate = self._cfg.get_int("slew_rate", 3)
 
         messwerte = self._sensorcar.ir_sensor_values

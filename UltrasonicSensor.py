@@ -53,19 +53,19 @@ class UltrasonicSensor(Ultrasonic):
         self._log.debug(f"Normalisiere Sensor-Werte. Eingangsdaten: {my_distance}")
         if my_distance == -1:
             distance_clamped = self._last_distance
-            self._log.info(f"Messwert-Fehler {my_distance}")
+            self._log.debug(f"Messwert-Fehler {my_distance}")
             self._last_error = -1
         elif my_distance == -2:
             distance_clamped = self._last_distance
-            self._log.info(f"Messwert-Fehler {my_distance}")
+            self._log.debug(f"Messwert-Fehler {my_distance}")
             self._last_error = -2
         elif my_distance == -3:
             distance_clamped = self._last_distance
-            self._log.info(f"Messwert-Fehler {my_distance}")
+            self._log.debug(f"Messwert-Fehler {my_distance}")
             self._last_error = -3
         elif my_distance == -4:
             distance_clamped = self._last_distance
-            self._log.info(f"Messwert-Fehler {my_distance}")
+            self._log.debug(f"Messwert-Fehler {my_distance}")
             self._last_error = -4
         # not(0 <= -4 <= 300) --> true
         #   return max_d

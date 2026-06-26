@@ -29,6 +29,8 @@ class SensorCar(SonicCar):
         self._p_wert = 0
         self._i_wert = 0
         self._d_wert = 0
+
+        self._logged_lost_line = False
         
 
     def ir_sensor_value_history(self, length:int=0, clear_history:bool=True):
@@ -85,6 +87,7 @@ class SensorCar(SonicCar):
 
     @p_wert.setter
     def p_wert(self, p:float):
+        self.__log.info(f"P-Wert: {p}")
         with self._lock:
             self._p_wert = p
 
@@ -95,6 +98,7 @@ class SensorCar(SonicCar):
 
     @i_wert.setter
     def i_wert(self, i:float):
+        self.__log.info(f"I-Wert: {i}")
         with self._lock:
             self._p_wert = i
 
@@ -105,9 +109,33 @@ class SensorCar(SonicCar):
 
     @d_wert.setter
     def d_wert(self, d:float):
+        self.__log.info(f"D-Wert: {d}")
         with self._lock:
             self._p_wert = d
 
+    # Methode macht hier mehr Sinn (direkte Interpretation von Messdaten. Im Mode nur Reaktion auf Messdaten, keine Interpretation)
+    def is_on_line(self) -> bool:
+        minimum_line_contrast = self._cfg.get_float("minimum_line_contrast", 0.5)
+        messwerte = self.ir_sensor_values
+        
+        min_sensor = min(messwerte)
+        max_sensor = max(messwerte)
+
+        if (max_sensor == 0):
+            return True
+
+        self.__log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {minimum_line_contrast}, min/max: {min_sensor/max_sensor:.2f}")
+        if (not (max_sensor-min_sensor > minimum_line_contrast)):
+            if (not self._logged_lost_line):
+                # Erzeugt eine Ausgabe wie: [0.12, 1.00,  0.05] (feste Abstände)
+                formatiert = ", ".join(f"{v:4.2f}" for v in messwerte)                
+                self.__log.info(f"Lost line with parameters: [{formatiert}] (max: {max_sensor:.3f}, min: {min_sensor:.3f}, delta: {max_sensor-min_sensor:.3f})")                
+                self._logged_lost_line = True
+            return False
+        
+        self._logged_lost_line = False
+        return True
+            
 
 class MockSensorCar(SensorCar):
 
@@ -149,4 +177,4 @@ class MockSensorCar(SensorCar):
 
                 return value
         return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self) # pyright: ignore[reportAttributeAccessIssue]
-        
+    
