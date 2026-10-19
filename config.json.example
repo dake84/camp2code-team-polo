@@ -30,5 +30,8 @@
         "korrektur_integral_boundary": 30,
         "korrektur_differential": 10,
         "slew_rate": 90
-    }
+    },
+    "cam_sensor":{
+        "scan_frequency": 25,
+    },
 }

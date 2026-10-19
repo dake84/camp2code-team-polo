@@ -9,6 +9,7 @@ import logging
 import numpy as np
 
 from BaseCar import BaseCar
+from CameraCar import CameraCar
 from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
@@ -162,7 +163,6 @@ class DrivingMode(abc.ABC):
         """
         self._log.info(f"Car stopped for {reason}")
         self._car.stop()    
-
 
 class ModeOne(DrivingMode):
 
@@ -725,5 +725,17 @@ class KeyboardMode(DrivingMode):
                 self._stop_event.set()
                 break
 
+# Mode: Image Processing - CameraMode
+class CameraMode(DrivingMode):
 
+    def __init__(self, name='CameraModus', car:Optional[CameraCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
+        car = car if car is not None else CameraCar()
+        # just a pointer to remove linter-errors
+        self._cameracar = car
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
+        super().__init__(name, car, logger, cfg)
 
+    # def: Bild abrufen, Bild bearbeiten, Linienwerte weitergeben
+
+    # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten

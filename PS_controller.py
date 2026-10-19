@@ -7,6 +7,7 @@ from basisklassen import *
 # Controller direkt auswählen
 # ========================================
 
+# mit sudo evtest schauen, was der richtige Controller ist xD
 controller = InputDevice('/dev/input/event4')
 
 print(f'Using device: {controller.path} - {controller.name}')
