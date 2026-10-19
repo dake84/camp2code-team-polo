@@ -191,7 +191,6 @@ app.layout = dbc.Container(
     ]
 )
 
-
 @app.callback(
     Output('Time', 'children'),
     Output('Speed', 'children'),

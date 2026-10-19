@@ -33,5 +33,7 @@
     },
     "cam_sensor":{
         "scan_frequency": 25,
-    },
+        "horizontal_y_cutline": 1, 
+        "save_image": 0
+    }
 }

@@ -25,6 +25,10 @@ class CameraSensor(Camera):
     def scan_frequency(self) -> int:
         return self._cfg.get_int("scan_frequency", 25)
     
+    @property
+    def save_image(self) -> bool: # Mit Zeitstempel. -- In Dateiname: Zeitstempel; Lenkwinkel, Speed
+        return self._cfg.get_int("save_image", 0) == 1
+    
     def read_loop(self, stop_event:threading.Event):
         try:
             self._log.debug("Entering Camera-Sensor loop")
@@ -34,14 +38,23 @@ class CameraSensor(Camera):
                 #v = self.sensor_values
                 self._log.debug(f"Read from cemera-sensor")
                 
-                self._car.image = self.get_frame()
-                #self._log.debug(f"Normalized value {v} --> {self._car.ir_sensor_values}")
+                image = self.get_frame()
+                # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
+                
+                # Bild zuschneiden (cfg -> horizontal_y_cutline)
+
+                # Bild bearbeitung -> Linienwerte
+                # Linienwerte an Auto (CameraCar.py) übergeben
+
                 time.sleep(1/self.scan_frequency)
         except Exception as e:
             raise e
         finally:
             self._log.debug("Exit Camera loop") 
 
+    # def: Bild zuschneiden (Horizont weghauen)
+
+    # def: Bearbeitetes Bild einlsesen, Bild bearbeiten, Linienwerte weitergeben
 
 if __name__ == "__main__":
 

@@ -25,29 +25,5 @@ class CameraCar(BaseCar):
         self.__log = logging.getLogger(CameraCar.__name__)
 
     @property
-    def save_data(self) -> bool:
+    def save_data(self) -> bool: # Lenkwinkel, Speed für AI imt Zeitstempel
         return self._cfg.get_int("save_data", 0)
-
-    @property
-    def image(self) -> np.ndarray:
-        self.__log.debug(f"Image lesen")
-        with self._lock:
-            im = self._image
-            # Bild speichern
-            self.__log.debug(f"Image gelesen")
-            return im
-
-    @image.setter
-    def image(self, image:np.ndarray):
-        self.__log.debug(f"Schreibe Image")
-        with self._lock:
-            self._image = image
-
-            print('For cv2 write')
-            if self.save_data == 1:
-                # evtl. Checken: Unterordner existiert, danach dynamische FileName (Datum, Uhrzeit?)
-                cv2.imwrite("fig/file_namet.jpg", image)
-            print('Speichert datei')
-
-            self.__log.debug(f"Image geschrieben.")
-        

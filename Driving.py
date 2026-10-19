@@ -736,6 +736,4 @@ class CameraMode(DrivingMode):
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         super().__init__(name, car, logger, cfg)
 
-    # def: Bild abrufen, Bild bearbeiten, Linienwerte weitergeben
-
     # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
