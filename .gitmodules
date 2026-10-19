@@ -1,0 +1,4 @@
+[submodule "camp2code"]
+	path = camp2code
+	url = https://gitlab.com/u4i/camp2code.git
+	branch = project_phase_2
