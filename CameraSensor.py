@@ -27,6 +27,7 @@ class CameraSensor(Camera):
     
     @property
     def save_image(self) -> bool: # Mit Zeitstempel. -- In Dateiname: Zeitstempel; Lenkwinkel, Speed
+        # Hier einstellen (Auflösung, Pixel etc.)
         return self._cfg.get_int("save_image", 0) == 1
     
     def read_loop(self, stop_event:threading.Event):
