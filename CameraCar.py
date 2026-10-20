@@ -45,7 +45,7 @@ class CameraCar(BaseCar):
 
     @property
     def save_data(self) -> bool: # Lenkwinkel, Speed für AI imt Zeitstempel
-        return self._cfg.get_int("save_data", 0)
+        return self._cfg.get_bool("save_data", False)
 
     @property
     def camera_data(self) -> CameraData :
