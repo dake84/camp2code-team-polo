@@ -63,8 +63,9 @@ class CameraSensor(Camera):
 
                 # Bild bearbeitung -> Linienwerte
                 # Linienwerte an Auto (CameraCar.py) übergeben
+                timestamp = time.time_ns()
                 cameradata = CameraData(raw_image=image, 
-                                            timestamp = time.time_ns(),
+                                            timestamp = timestamp,
                                             process_image = image)
 
                 self._car.camera_data = cameradata

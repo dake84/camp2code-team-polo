@@ -14,18 +14,18 @@ import cv2
 
 @dataclass
 class CameraData:
-    #frame_id: int
-    timestamp: float
-    process_image: np.ndarray  # OpenCV BGR / RGB Frame
+    process_image: np.ndarray
     raw_image: np.ndarray
+    #frame_id: int
+    timestamp: float = 0
 
 @dataclass
 class CameraDataProcessed:
-    timestamp: float
-    process_image: np.ndarray  # OpenCV BGR / RGB Frame
+    process_image: np.ndarray
     raw_image: np.ndarray
-    steering_angle: int
-    speed: int
+    timestamp: float = 0
+    steering_angle: int = 90
+    speed: int = 0
 
 
 class CameraCar(BaseCar):
@@ -41,6 +41,8 @@ class CameraCar(BaseCar):
         # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
         super().__init__(config=config)
         #self._distance = 300
+        self._camera_data = CameraData(process_image=np.empty(0), raw_image=np.empty(0))
+
         self.__log = logging.getLogger(CameraCar.__name__)
 
     @property
