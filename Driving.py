@@ -9,12 +9,12 @@ import logging
 import numpy as np
 
 from BaseCar import BaseCar
-from CameraCar import CameraCar
+from CameraCar import CameraCar, CameraDataProcessed, CameraData
 from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
-from CameraCar import CameraData
+
 
 class StopReason(int):
 
@@ -739,13 +739,22 @@ class CameraMode(DrivingMode):
 
     def _run(self) -> bool:
         camera_data_transfer = self._cameracar.camera_data
+        driving_parameter = self.driving_parameter(self.detect_line(camera_data_transfer))
+        steering_angle = driving_parameter[0]
+        speed = driving_parameter[1]
+        camera_data_processed = CameraDataProcessed(raw_image=camera_data_transfer.raw_image,
+                                            timestamp = camera_data_transfer.timestamp,
+                                            process_image = camera_data_transfer.process_image,
+                                            steering_angle = steering_angle,
+                                            speed = speed)
+        self._cameracar.camera_data_processed = camera_data_processed
         return True    
 
     def _run_condition(self) -> bool:
         return True    
     # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
 
-    def detectline(self, camera_data:CameraData) -> np.ndarray: 
+    def detect_line(self, camera_data:CameraData) -> np.ndarray: 
         """Detects the line in the given camera data and returns the steering angle and speed.
 
         Args:
@@ -754,7 +763,7 @@ class CameraMode(DrivingMode):
         # For demonstration purposes, we'll return a dummy steering angle and speed
         return np.array([0, 0])  # Replace with actual detected line coordinates
 
-    def drivingparameter (self, detectedlines: np.ndarray ) -> Tuple[int, int]:
+    def driving_parameter (self, detectedlines: np.ndarray ) -> Tuple[int, int]:
         steering_angle = 90  # Replace with actual calculation
         speed = 50           # Replace with actual calculation
 

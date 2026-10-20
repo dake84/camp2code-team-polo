@@ -54,4 +54,15 @@ class CameraCar(BaseCar):
     @camera_data.setter
     def camera_data(self, camera_data:CameraData):
         self._camera_data = camera_data
-        print(self._camera_data)
+        #print(self._camera_data)
+
+    @property
+    def camera_data_processed(self) -> CameraDataProcessed :
+        return self._camera_data_processed
+
+    @camera_data_processed.setter
+    def camera_data_processed(self, camera_data_processed:CameraDataProcessed):
+        self._camera_data_processed = camera_data_processed
+        print(self._camera_data_processed)
+
+    
