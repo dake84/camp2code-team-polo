@@ -127,6 +127,32 @@ class ConfigReader:
         """
         return int(self.get_config().get(attribut, dv))
 
+    def get_str(self, attribut: str, dv: str) -> str:
+            """
+            Gibt einen String-Wert aus der Konfiguration zurück.
+    
+            Args:
+                attribut (str): Name des Parameters.
+                dv (str): Default-Wert, falls der Parameter nicht existiert.
+    
+            Returns:
+                str: Der gelesene String-Wert.
+            """
+            return str(self.get_config().get(attribut, dv))
+
+    def get_bool(self, attribut: str, dv: bool) -> bool:
+                """
+                Gibt einen Bool-Wert aus der Konfiguration zurück.
+        
+                Args:
+                    attribut (str): Name des Parameters.
+                    dv (bool): Default-Wert, falls der Parameter nicht existiert.
+        
+                Returns:
+                    bool: Der gelesene Bool-Wert.
+                """
+                return bool(self.get_config().get(attribut, dv))
+
     def get_float(self, attribut: str, dv: float) -> float:
         """
         Gibt einen Float-Wert aus der Konfiguration zurück.
