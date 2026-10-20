@@ -5,12 +5,17 @@ import time
 from typing import Optional
 import cv2
 
+import time
+
+from CameraCar import CameraData
+
 import numpy as np
 
 import ConfigReader
 from CameraCar import CameraCar
 
 from basisklassen_cam import Camera
+
 
 class CameraSensor(Camera):
 
@@ -50,12 +55,19 @@ class CameraSensor(Camera):
                 
                 image = self.get_frame()
                 # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
+                #FIXME
                 if self.save_image:
                     cv2.imwrite("camera_test.jpg", image)
+
                 # Bild zuschneiden (cfg -> horizontal_y_cutline)
 
                 # Bild bearbeitung -> Linienwerte
                 # Linienwerte an Auto (CameraCar.py) übergeben
+                cameradata = CameraData(raw_image=image, 
+                                            timestamp = time.time_ns(),
+                                            process_image = image)
+
+                self._car.camera_data = cameradata
 
                 time.sleep(1/self.scan_frequency)
         except Exception as e:

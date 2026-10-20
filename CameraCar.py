@@ -4,10 +4,23 @@ from typing import Optional
 from BaseCar import BaseCar
 from ConfigReader import ConfigReader
 
+from dataclasses import dataclass
+
 import numpy as np
 import os
 
 import cv2
+
+
+@dataclass
+class CameraData:
+    #frame_id: int
+    timestamp: float
+    process_image: np.ndarray  # OpenCV BGR / RGB Frame
+    raw_image: np.ndarray
+
+
+
 
 class CameraCar(BaseCar):
     """Lässt das Auto mittels des Ultraschallsensor (Abstandmessung) fahren
@@ -27,3 +40,12 @@ class CameraCar(BaseCar):
     @property
     def save_data(self) -> bool: # Lenkwinkel, Speed für AI imt Zeitstempel
         return self._cfg.get_int("save_data", 0)
+
+    @property
+    def camera_data(self) -> CameraData :
+        return self._camera_data
+
+    @camera_data.setter
+    def camera_data(self, camera_data:CameraData):
+        self._camera_data = camera_data
+        print(self._camera_data)
