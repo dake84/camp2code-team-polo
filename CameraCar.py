@@ -19,7 +19,13 @@ class CameraData:
     process_image: np.ndarray  # OpenCV BGR / RGB Frame
     raw_image: np.ndarray
 
-
+@dataclass
+class CameraDataProcessed:
+    timestamp: float
+    process_image: np.ndarray  # OpenCV BGR / RGB Frame
+    raw_image: np.ndarray
+    steering_angle: int
+    speed: int
 
 
 class CameraCar(BaseCar):

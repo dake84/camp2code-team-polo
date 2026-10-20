@@ -14,6 +14,8 @@ from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
+from CameraCar import CameraData
+from DataClasses import Dataclass
 
 class StopReason(int):
 
@@ -736,4 +738,25 @@ class CameraMode(DrivingMode):
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         super().__init__(name, car, logger, cfg)
 
+    def _run(self) -> bool:
+        camera_data_transfer = self._cameracar.camera_data
+        return True    
+
+    def _run_condition(self) -> bool:
+        return True    
     # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
+
+    def detectline(self, camera_data:CameraData) -> np.ndarray: 
+        """Detects the line in the given camera data and returns the steering angle and speed.
+
+        Args:
+            camera_data (CameraData): The camera data containing the image to process."""
+        # Implement your line detection algorithm here
+        # For demonstration purposes, we'll return a dummy steering angle and speed
+        return np.array([0, 0])  # Replace with actual detected line coordinates
+
+    def drivingparameter (self, detectedlines: np.ndarray ) -> Tuple[int, int]:
+        steering_angle = 90  # Replace with actual calculation
+        speed = 50           # Replace with actual calculation
+
+        return steering_angle, speed
