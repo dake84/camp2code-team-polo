@@ -15,7 +15,6 @@ import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
 from CameraCar import CameraData
-from DataClasses import Dataclass
 
 class StopReason(int):
 

@@ -34,7 +34,7 @@
     "cam_sensor":{
         "scan_frequency": 25,
         "horizontal_y_cutline": 1, 
-        "save_image": True,
+        "save_image": true,
         "height": 240,
         "width": 320,
         "colormode": "gray"
