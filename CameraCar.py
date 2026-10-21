@@ -15,17 +15,18 @@ import cv2
 @dataclass
 class CameraData:
     process_image: np.ndarray
-    raw_image: np.ndarray
+    raw_image: np.ndarray # Auf Dashboard zeigen
     #frame_id: int
     timestamp: float = 0
 
 @dataclass
 class CameraDataProcessed:
-    process_image: np.ndarray
+    process_image: np.ndarray # Auf Dashboard zeigen
     raw_image: np.ndarray
     timestamp: float = 0
-    steering_angle: int = 90
-    speed: int = 0
+    line_data: np.ndarray # Auf Dashboard
+    steering_angle: int = 90 # AufDashboard
+    speed: int = 0 # Auf Dashboard
 
 
 class CameraCar(BaseCar):
