@@ -23,8 +23,8 @@ class CameraData:
 class CameraDataProcessed:
     process_image: np.ndarray # Auf Dashboard zeigen
     raw_image: np.ndarray
-    timestamp: float = 0
     line_data: np.ndarray # Auf Dashboard
+    timestamp: float = 0
     steering_angle: int = 90 # AufDashboard
     speed: int = 0 # Auf Dashboard
 
