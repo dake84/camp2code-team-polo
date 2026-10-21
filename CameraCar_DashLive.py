@@ -182,3 +182,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+    # 1: Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen
+    # 2: Sensor an App übergeben ("update_filter") zur Übergabe der Filterwerte
+    # 3: inkl. Switch RGBBHRGREYHSV...
+    # 4: Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
+    # 5: inkl. Linienerkennung einmalen in img_processed
