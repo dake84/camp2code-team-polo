@@ -25,7 +25,8 @@ class CameraSensor(Camera):
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("cam_sensor", logger=self._log)
         self._lock = threading.Lock()
         self._debug_mode = False
-        self._car = car 
+        self._car = car
+        self._pack_processing_parameters = ((0,179),(0,255),(0,255),(0.1,0.9)) #hue/saturation/value/crop
         print(self._cfg.get("colormode"))
         super().__init__ (colorspace=str(self._cfg.get_str("colormode","gray")),
                           height=self._cfg.get_int("height",480),
@@ -41,7 +42,17 @@ class CameraSensor(Camera):
         # Hier einstellen (Auflösung, Pixel etc.)
         with self._lock:
             return self._cfg.get_bool("save_image", False)
-    
+
+    @property
+    def processing_parameters(self):
+        with self._lock:
+            return self._pack_processing_parameters
+
+    @processing_parameters.setter
+    def processing_parameters(self,pack_processing_parameters):
+        with self._lock:
+            self._pack_processing_parameters = pack_processing_parameters
+
     def read_loop(self, stop_event:threading.Event):
         try:
             self._log.debug("Entering Camera-Sensor loop")
@@ -57,14 +68,26 @@ class CameraSensor(Camera):
                 if self.save_image:
                     cv2.imwrite("camera_test.jpg", image)
 
-                # Bild zuschneiden (cfg -> horizontal_y_cutline)
+                processed_image = image
+                h = processed_image.shape[0]
+                cropped = processed_image[int(h*(1-self.processing_parameters[3][1])):int(h*(1-self.processing_parameters[3][0])),:]
+                hsv = cv2.cvtColor(cropped, cv2.COLOR_BGR2HSV)
+                lower_boundary = np.array([self.processing_parameters[0][0],self.processing_parameters[1][0],self.processing_parameters[2][0]])
+                upper_boundary = np.array([self.processing_parameters[0][1],self.processing_parameters[1][1],self.processing_parameters[2][1]])
+                mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
 
+                
+                # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
+                #FIXME
+                if self.save_image:
+                    cv2.imwrite("camera_test_processed.jpg", mask)
+                    
                 # Bild bearbeitung -> Linienwerte
                 # Linienwerte an Auto (CameraCar.py) übergeben
                 timestamp = time.time_ns()
                 cameradata = CameraData(raw_image=image, 
                                             timestamp = timestamp,
-                                            process_image = image)
+                                            process_image = mask)
 
                 self._car.camera_data = cameradata
 

@@ -17,7 +17,7 @@ from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
 # --- Konfiguration ----------------------------------------------------------
-DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255)}
+DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255), "crop": (0.1,0.9)}
 SCALE = 0.5
 TARGET_FPS = 15
 JPEG_QUALITY = 70
@@ -26,7 +26,7 @@ JPEG_QUALITY = 70
 class ImageStream:
     """Importiert Kamerabilder in einem eigenen Thread und hält das letzte Ergebnis bereit."""
 
-    def __init__(self, car, use_raw_data:bool=True):
+    def __init__(self, car, sensor, use_raw_data:bool=True):
         self.car = car
         self._hsv_lock = threading.Lock()
         self._lower = np.array([DEFAULT_HSV[k][0] for k in "hsv"], dtype=np.uint8)
@@ -35,12 +35,13 @@ class ImageStream:
         self.use_raw_data = use_raw_data
         self._jpeg = None
         self.lines = None  # Koordinaten im skalierten Bild (Faktor SCALE)!
+        self.sensor = sensor
 
-    def set_hsv(self, h, s, v):
-        lower = np.array([h[0], s[0], v[0]], dtype=np.uint8)
-        upper = np.array([h[1], s[1], v[1]], dtype=np.uint8)
-        with self._hsv_lock:  # beide Grenzen zusammen tauschen
-            self._lower, self._upper = lower, upper
+
+
+    def set_hsv(self, hue, saturation, value, crop):
+        pack_processing_parameters = (hue, saturation, value, crop)
+        self.sensor.processing_parameters = pack_processing_parameters
 
     def run(self, stop_event):
         period = 1.0 / TARGET_FPS
@@ -107,13 +108,22 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
         return Response(stream_post_processing.mjpeg_stream(),
                         mimetype="multipart/x-mixed-replace; boundary=frame")
 
-    def slider(channel, max_value):
+    def slider(channel, max_value, increment=1.0):
         return html.Div([
             html.Label(channel.upper()),
-            dcc.RangeSlider(0, max_value, value=list(DEFAULT_HSV[channel]),
+            dcc.RangeSlider(0, max_value, value=list(DEFAULT_HSV[channel]),step=increment,
                             id=f"{channel}-slider",
                             tooltip={"placement": "bottom"}),
         ])
+
+    # def crop_slider():
+    #     return html.Div([
+    #         html.Label("bla"),
+    #         dcc.RangeSlider(0, 1, value=list(np.linspace(0,1,101)),
+    #                                     id="crop-slider",
+    #                                     tooltip={"placement": "bottom"}),
+    #     ])
+
 
     app.layout = dbc.Container([
         dbc.Row(html.H1("Projektphase 2")),
@@ -124,6 +134,7 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                 slider("h", 179),
                 slider("s", 255),
                 slider("v", 255),
+                slider("crop", 1, 0.05),
                 html.Div(id="hsv-info", className="mt-3"),
             ], md=4),
         ]),
@@ -141,10 +152,13 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
         Input("h-slider", "value"),
         Input("s-slider", "value"),
         Input("v-slider", "value"),
+        Input("crop-slider", "value")
     )
-    def update_filter(h, s, v):
-        #stream.set_hsv(h, s, v)
-        return f"H: {h}, S: {s}, V: {v}"
+    def update_filter(h, s, v, crop):
+        stream_pre_processing.set_hsv(h, s, v, crop)
+        stream_post_processing.set_hsv(h, s, v, crop)
+        
+        return f"H: {h}, S: {s}, V: {v}, crop: {crop}"
 
     return app
 
@@ -156,8 +170,8 @@ def main():
     car = CameraCar()
     sensor = CameraSensor(car)
     mode = Driving.CameraMode(car=car)
-    stream_pre_processing = ImageStream(car, use_raw_data=True)
-    stream_post_processing = ImageStream(car, use_raw_data=False)
+    stream_pre_processing = ImageStream(car, sensor, use_raw_data=True)
+    stream_post_processing = ImageStream(car, sensor, use_raw_data=False)
 
     stop_event = threading.Event()
     threads = [
