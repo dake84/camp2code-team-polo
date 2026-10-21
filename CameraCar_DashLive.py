@@ -16,8 +16,6 @@ import Driving
 from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
-
-
 # --- Konfiguration ----------------------------------------------------------
 DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255)}
 SCALE = 0.5
@@ -120,8 +118,8 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
     app.layout = dbc.Container([
         dbc.Row(html.H1("Projektphase 2")),
         dbc.Row([
-            dbc.Col(html.Img(src="/stream", style={"width": "100%"}), md=8),
-            dbc.Col(html.Img(src="/stream2", style={"width": "100%"}), md=8),
+            dbc.Col(html.Img(src="/stream", style={"width": "100%"}), md=4),
+            dbc.Col(html.Img(src="/stream2", style={"width": "100%"}), md=4),
             dbc.Col([
                 slider("h", 179),
                 slider("s", 255),
@@ -129,6 +127,13 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                 html.Div(id="hsv-info", className="mt-3"),
             ], md=4),
         ]),
+        dbc.Row([
+            dbc.Col([
+                dbc.Button('Close App', id='stop-button', color='danger',
+                            className='mt-4', n_clicks=0),
+                html.Div(id='stop-info', className='mt-3')
+            ], md=1),
+        ])
     ], fluid=True)
 
     @app.callback(
@@ -152,7 +157,7 @@ def main():
     sensor = CameraSensor(car)
     mode = Driving.CameraMode(car=car)
     stream_pre_processing = ImageStream(car, use_raw_data=True)
-    stream_post_processing = ImageStream(car)
+    stream_post_processing = ImageStream(car, use_raw_data=False)
 
     stop_event = threading.Event()
     threads = [
@@ -171,6 +176,7 @@ def main():
         app = create_app(stream_pre_processing, stream_post_processing, sensor)
         # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host="0.0.0.0", debug=False, use_reloader=False)
+
     finally:
         stop_event.set()
         if hasattr(mode, "stop"):  # an eure Driving-API anpassen
@@ -190,3 +196,6 @@ if __name__ == "__main__":
     # 3: inkl. Switch RGBBHRGREYHSV...
     # 4: Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
     # 5: inkl. Linienerkennung einmalen in img_processed
+
+    # Fragen: 
+    # 1: Hat CameraSensor, Driving und CameraCar ein Stop event, dass wir für einen Stop Button nutzen können um alles sauber zu schließen?

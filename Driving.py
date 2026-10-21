@@ -746,6 +746,7 @@ class CameraMode(DrivingMode):
                                             timestamp = camera_data_transfer.timestamp,
                                             process_image = camera_data_transfer.process_image,
                                             steering_angle = steering_angle,
+                                            line_data=np.empty(0),
                                             speed = speed)
         self._cameracar.camera_data_processed = camera_data_processed
         return True    

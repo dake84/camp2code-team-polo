@@ -43,6 +43,7 @@ class CameraCar(BaseCar):
         super().__init__(config=config)
         #self._distance = 300
         self._camera_data = CameraData(process_image=np.empty(0), raw_image=np.empty(0))
+        self._camera_data_processed = CameraDataProcessed(process_image=np.empty(0), raw_image=np.empty(0), line_data=np.empty(0))
 
         self.__log = logging.getLogger(CameraCar.__name__)
 

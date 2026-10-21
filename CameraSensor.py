@@ -31,18 +31,16 @@ class CameraSensor(Camera):
                           height=self._cfg.get_int("height",480),
                           width=self._cfg.get_int("width",640))
         
-
-
     @property
     def scan_frequency(self) -> int:
-        return self._cfg.get_int("scan_frequency", 25)
-    
-    
+        with self._lock:
+            return self._cfg.get_int("scan_frequency", 25)
     
     @property
     def save_image(self) -> bool: # Mit Zeitstempel. -- In Dateiname: Zeitstempel; Lenkwinkel, Speed
         # Hier einstellen (Auflösung, Pixel etc.)
-        return self._cfg.get_bool("save_image", False)
+        with self._lock:
+            return self._cfg.get_bool("save_image", False)
     
     def read_loop(self, stop_event:threading.Event):
         try:
