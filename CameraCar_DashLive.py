@@ -16,29 +16,7 @@ import Driving
 from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
-# Objekt: CaemraCar -> cc
-cc = CameraCar()
 
-# Opjekt: CameraMode erbt von cc
-cs = CameraSensor(cc)
-
-# Stop events für driving und fü rcs
-# Hier getrennt, da zB Sensor laufen lassen aber Car soll stehen bleiben
-sensor_stop_event = threading.Event()
-drive_stop_event = threading.Event()
-
-driving = Driving.CameraMode(car = cc)
-
-camera_sensor_thread = threading.Thread(
-    target=cs.read_loop,
-    args=(sensor_stop_event,),
-    daemon=True
-)
-
-camera_sensor_thread.start()
-
-
-log = logging.getLogger(__name__)
 
 # --- Konfiguration ----------------------------------------------------------
 DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255)}
@@ -50,13 +28,13 @@ JPEG_QUALITY = 70
 class ImageStream:
     """Importiert Kamerabilder in einem eigenen Thread und hält das letzte Ergebnis bereit."""
 
-    def __init__(self, car):
+    def __init__(self, car, use_raw_data:bool=True):
         self.car = car
         self._hsv_lock = threading.Lock()
         self._lower = np.array([DEFAULT_HSV[k][0] for k in "hsv"], dtype=np.uint8)
         self._upper = np.array([DEFAULT_HSV[k][1] for k in "hsv"], dtype=np.uint8)
         self._frame_cond = threading.Condition()
-        self.use_raw_data = True
+        self.use_raw_data = use_raw_data
         self._jpeg = None
         self.lines = None  # Koordinaten im skalierten Bild (Faktor SCALE)!
 
@@ -113,7 +91,7 @@ class ImageStream:
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
 
 
-def create_app(stream: ImageStream, sensor: CameraSensor) -> Dash:
+def create_app(stream_pre_processing: ImageStream, stream_post_processing: ImageStream, sensor: CameraSensor) -> Dash:
     server = Flask(__name__)
     app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.CERULEAN])
 
@@ -123,7 +101,12 @@ def create_app(stream: ImageStream, sensor: CameraSensor) -> Dash:
 
     @server.route("/stream")
     def stream():
-        return Response(stream.mjpeg_stream(),
+        return Response(stream_pre_processing.mjpeg_stream(),
+                        mimetype="multipart/x-mixed-replace; boundary=frame")
+
+    @server.route("/stream2")
+    def stream2():
+        return Response(stream_post_processing.mjpeg_stream(),
                         mimetype="multipart/x-mixed-replace; boundary=frame")
 
     def slider(channel, max_value):
@@ -138,6 +121,7 @@ def create_app(stream: ImageStream, sensor: CameraSensor) -> Dash:
         dbc.Row(html.H1("Projektphase 2")),
         dbc.Row([
             dbc.Col(html.Img(src="/stream", style={"width": "100%"}), md=8),
+            dbc.Col(html.Img(src="/stream2", style={"width": "100%"}), md=8),
             dbc.Col([
                 slider("h", 179),
                 slider("s", 255),
@@ -154,31 +138,37 @@ def create_app(stream: ImageStream, sensor: CameraSensor) -> Dash:
         Input("v-slider", "value"),
     )
     def update_filter(h, s, v):
-        stream.set_hsv(h, s, v)
+        #stream.set_hsv(h, s, v)
         return f"H: {h}, S: {s}, V: {v}"
 
     return app
 
 
 def main():
+
+    log = logging.getLogger(__name__)
+
     car = CameraCar()
     sensor = CameraSensor(car)
     mode = Driving.CameraMode(car=car)
-    processor = ImageStream(car)
+    stream_pre_processing = ImageStream(car, use_raw_data=True)
+    stream_post_processing = ImageStream(car)
 
     stop_event = threading.Event()
     threads = [
         threading.Thread(target=sensor.read_loop, args=(stop_event,),
                          daemon=True, name="sensor"),
-        threading.Thread(target=processor.run, args=(stop_event,),
-                         daemon=True, name="processor"),
+        threading.Thread(target=stream_pre_processing.run, args=(stop_event,),
+                         daemon=True, name="pre_processes_stream"),
+        threading.Thread(target=stream_post_processing.run, args=(stop_event,),
+                         daemon=True, name="post_processed_stream"),
     ]
     for t in threads:
         t.start()
     mode.start()
 
     try:
-        app = create_app(processor)
+        app = create_app(stream_pre_processing, stream_post_processing, sensor)
         # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host="0.0.0.0", debug=False, use_reloader=False)
     finally:
