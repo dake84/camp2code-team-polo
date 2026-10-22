@@ -20,7 +20,7 @@ from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
 # --- Konfiguration ----------------------------------------------------------
-DEFAULT_HSV = {"h": (100, 130), "s": (80, 255), "v": (50, 255), "crop": (0.2,0.8)}
+DEFAULT_HSV = {"h": (100, 130), "s": (80, 255), "v": (50, 255), "crop": (0.2,0.8), "hough_threshold": 35}
 SCALE = 0.5
 TARGET_FPS = 15
 JPEG_QUALITY = 70
@@ -45,8 +45,8 @@ class ImageStream:
 
 
 
-    def set_hsv(self, hue, saturation, value, crop):
-        pack_processing_parameters = (hue, saturation, value, crop)
+    def set_hsv(self, hue, saturation, value, crop, hough_threshold):
+        pack_processing_parameters = (hue, saturation, value, crop, hough_threshold)
         self.sensor.processing_parameters = pack_processing_parameters
 
     def run(self, stop_event):
@@ -130,11 +130,18 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                         mimetype="multipart/x-mixed-replace; boundary=frame")
 
     def slider(channel, max_value, increment=1.0):
+        default = DEFAULT_HSV[channel]
+        if isinstance(default, (tuple, list)):
+            component = dcc.RangeSlider(0, max_value, value=list(default), step=increment,
+                                        id=f'{channel}-slider',
+                                        tooltip={'placement': 'bottom'})
+        else:
+            component = dcc.Slider(0, max_value, value=default, step=increment,
+                                   id=f'{channel}-slider',
+                                   tooltip={'placement': 'bottom'})
         return html.Div([
             html.Label(channel.upper()),
-            dcc.RangeSlider(0, max_value, value=list(DEFAULT_HSV[channel]),step=increment,
-                            id=f"{channel}-slider",
-                            tooltip={"placement": "bottom"}),
+            component,
         ])
 
     app.layout = dbc.Container([
@@ -147,7 +154,8 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                 slider("s", 255),
                 slider("v", 255),
                 slider("crop", 1, 0.05),
-                html.Div(id="hsv-info", className="mt-3"),
+                slider("hough_threshold", 100, 1),
+                html.Div(id="hsv-info", className="mt-3")
             ], md=4),
         ]),
         dbc.Row([
@@ -160,17 +168,18 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
     ], fluid=True)
 
     @app.callback(
-        Output("hsv-info", "children"),
-        Input("h-slider", "value"),
-        Input("s-slider", "value"),
-        Input("v-slider", "value"),
-        Input("crop-slider", "value")
+        Output('hsv-info', 'children'),
+        Input('h-slider', 'value'),
+        Input('s-slider', 'value'),
+        Input('v-slider', 'value'),
+        Input('crop-slider', 'value'),
+        Input('hough_threshold-slider', 'value')
     )
-    def update_filter(h, s, v, crop):
-        stream_pre_processing.set_hsv(h, s, v, crop)
-        stream_post_processing.set_hsv(h, s, v, crop)
-        
-        return f"H: {h}, S: {s}, V: {v}, crop: {crop}"
+    def update_filter(h, s, v, crop, hough_threshold):
+        stream_pre_processing.set_hsv(h, s, v, crop, hough_threshold)
+        stream_post_processing.set_hsv(h, s, v, crop, hough_threshold)
+
+        return f'H: {h}, S: {s}, V: {v}, crop: {crop}, hough-thresh: {hough_threshold}'
 
     @app.callback(
         Output("stop-info", "children"),

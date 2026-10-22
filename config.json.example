@@ -37,6 +37,7 @@
         "save_image": true,
         "height": 240,
         "width": 320,
-        "colormode": "bgr"
+        "colormode": "bgr",
+        "hough_threshold": 30
     }
 }

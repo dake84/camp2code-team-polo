@@ -174,20 +174,20 @@ def put_steering_lines_into_image(img, lanes = None):
 
     return img_with_lines
 
-def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=1, plot_bool=True):
-    ## Berechnet aus den Hough-Parametern die Steigung m = -cos(theta)/sin(theta), plottet die Häufigkeit
-    ## und gibt für die zwei Maxima die Geradengleichung y = m*x + b zurück.
+def detect_lanes(hough_parameter, img_h, step_num=50, m_max=10, min_dist=1, delta_px=20, plot_bool=True):
     if hough_parameter is None or len(hough_parameter) == 0:
         return None, None, []
+
     rho, theta = hough_parameter.reshape(-1, 2).T
     sin_t = np.maximum(np.sin(theta), 1e-6)
     m_lines = np.clip(-np.cos(theta) / sin_t, -0.999 * m_max, 0.999 * m_max)
     b_lines = rho / sin_t
     m = np.append(m_lines, [-m_max, m_max])   # feste Bin-Grenzen, Dummy-Punkte fallen in Count_I_D auf die Kante und werden nicht gezählt
 
+    # Anzahl der Steigungen -> Häufigkeit über steigung
     Counts, m_interval, _ = Count_I_D(np.arange(len(m)), m, step_num=step_num, plot_bool=False)
 
-    # Zwei Maxima mit Mindestabstand von min_dist Bins -> Geradengleichung (m, b)
+    # Zwei Maxima mit Mindestabstand -> Geradengleichung (m, b)
     Counts_tmp = Counts.copy()
     m_step = m_interval[1] - m_interval[0]
     lanes = []
@@ -196,9 +196,23 @@ def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=1, plot_bool=T
         if Counts_tmp[idx] == 0:
             break
         sel = np.abs(m_lines - m_interval[idx]) <= 1.5 * m_step   # Peak-Bin ±1 Nachbar-Bin
-        lanes.append((float(np.mean(m_lines[sel])), float(np.mean(b_lines[sel]))))
         Counts_tmp[max(0, idx - min_dist):idx + min_dist + 1] = 0
+        if not sel.any():
+            continue
+        lanes.append((float(np.mean(m_lines[sel])), float(np.mean(b_lines[sel]))))
     lanes.sort()   # links (m < 0) zuerst
+
+    # Delta-Schlauch: Wenn überlappen -> Nimm beide Kurgen und mach mittelwert
+    if len(lanes) == 2:
+        m_arr, b_arr = np.array(lanes).T
+        m_safe = np.where(np.abs(m_arr) > 1e-6, m_arr, 1e-6)
+        y = np.arange(img_h)                                    # jede Bildzeile
+        x = (y[None, :] - b_arr[:, None]) / m_safe[:, None]     # x-Positionen beider Linien, shape (2, img_h)
+        if np.any(np.abs(x[0] - x[1]) <= delta_px):             # Schläuche haben gemeinsame Koordinaten
+            xb, xt = x[:, -1].mean(), x[:, 0].mean()            # Mittellinie über x unten/oben
+            dx = xb - xt if abs(xb - xt) > 1e-6 else 1e-6
+            m_mean = float(np.clip((img_h - 1) / dx, -m_max, m_max))
+            lanes = [(m_mean, float(-m_mean * xt))]             # nur eine gemittelte Linie
 
     if plot_bool:
         data = [m_interval, Counts, 'Steigungen', 'blue', 'y1', '-']
@@ -212,6 +226,7 @@ def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=1, plot_bool=T
         plot.plotting()
 
     return Counts, m_interval, lanes
+
 
 def cals_drive_parameter_from_lanes(img, lanes):
 
@@ -258,7 +273,7 @@ class CameraSensor(Camera):
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
-        self._pack_processing_parameters = ((0,179),(0,255),(0,255),(0.1,0.9)) #hue/saturation/value/crop
+        self._pack_processing_parameters = ((0,179),(0,255),(0,255),(0.1,0.9), 35) #hue/saturation/value/crop
         print(self._cfg.get('colormode'))
         super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
                           height=self._cfg.get_int('height',480),
@@ -315,13 +330,13 @@ class CameraSensor(Camera):
                 img_kanten = kanten_erkennung(img_blur, minmaxVal = (50,100))
 
                 # Hough-Transformation
-                hough_parameter = hough_transformation(img_kanten, rho = 1, angle = np.pi/180, min_threshold = 35)
+                hough_parameter = hough_transformation(img_kanten, rho = 1, angle = np.pi/180, min_threshold = int(self.processing_parameters[4]))
 
                 # Plotte Lines in Image
                 img_with_lines, _ = put_lines_into_image(img_kanten, hough_parameter)
 
                 # Steigungsverteilung der Hough-Linien
-                counts, m_interval, lanes = detect_lanes(hough_parameter)
+                counts, m_interval, lanes = detect_lanes(hough_parameter, img_kanten.shape[0], delta_px=20, plot_bool=False)
 
                 # Plotte die Maxima Linien ins Bild
                 img_with_lines = put_steering_lines_into_image(img_with_lines, lanes)
