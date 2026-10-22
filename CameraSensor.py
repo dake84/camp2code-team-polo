@@ -110,17 +110,17 @@ def blur_img(img, blur_value = (10,10)):
 def kanten_erkennung(img, minmaxVal = (20,250)):
     return cv2.Canny(img,minmaxVal[0],minmaxVal[1])
 
-def hough_transformation(img, rho = 1, angle = np.pi/180, min_threshold = 70, minLineLength = 800, maxLineGap = 4):
+def hough_transformation(img, rho = 1, angle = np.pi/180, min_threshold = 70):
     # rho = 1  # distance precision in pixel, i.e. 1 pixel
     # angle = np.pi / 180  # angular precision in radian, i.e. 1 degree
     # min_threshold = 10  # minimal of votes, Je geringer Min_threshold, dest mehr Geraden werden erkannt.
     #img_hough_trans = cv2.HoughLinesP(img, rho, angle, min_threshold, np.array([]), minLineLength=minLineLength, maxLineGap=maxLineGap)
     img_hough_trans = cv2.HoughLines(img, rho, angle, min_threshold)
 
-    if img_hough_trans is None:
-        print('Keine Linien gefunden')
-    else:
-        print(img_hough_trans.shape)
+    # if img_hough_trans is None:
+    #     print('Keine Linien gefunden')
+    # else:
+    #     print(img_hough_trans.shape)
 
     return img_hough_trans
 
@@ -174,7 +174,7 @@ def put_steering_lines_into_image(img, lanes = None):
 
     return img_with_lines
 
-def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=0, plot_bool=False):
+def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=1, plot_bool=True):
     ## Berechnet aus den Hough-Parametern die Steigung m = -cos(theta)/sin(theta), plottet die Häufigkeit
     ## und gibt für die zwei Maxima die Geradengleichung y = m*x + b zurück.
     if hough_parameter is None or len(hough_parameter) == 0:
@@ -212,6 +212,42 @@ def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=0, plot_bool=F
         plot.plotting()
 
     return Counts, m_interval, lanes
+
+def cals_drive_parameter_from_lanes(img, lanes):
+
+    img_with_steering_lane = img.copy()
+    if img_with_steering_lane.ndim == 2:
+        img_with_steering_lane = cv2.cvtColor(img_with_steering_lane, cv2.COLOR_GRAY2RGB)
+
+    h, w = img_with_steering_lane.shape[:2]
+    if lanes is not None and len(lanes) == 2 and all(lane is not None for lane in lanes):
+        y_bottom = h - 1
+        y_top = 0
+        x_bottom_arr = np.zeros(2)
+        x_top_arr = np.zeros(2)
+        for i, lane in enumerate(lanes):
+            m, b = lane
+
+            x1 = 0
+            x2 = w - 1
+            y1 = int(np.clip(m * x1 + b, -1e6, 1e6))
+            y2 = int(np.clip(m * x2 + b, -1e6, 1e6))
+
+            cv2.line(img_with_steering_lane, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            m_safe = m if abs(m) > 1e-6 else 1e-6
+            x_bottom_arr[i] = (y_bottom - b) / m_safe
+            x_top_arr[i] = (y_top - b) / m_safe
+
+        x_steer_start = int(np.clip(np.mean(x_bottom_arr), -1e6, 1e6))
+        x_steer_end = int(np.clip(np.mean(x_top_arr), -1e6, 1e6))
+
+        cv2.line(img_with_steering_lane, (x_steer_start, y_bottom), (x_steer_end, y_top), (0, 0, 255), 2)
+
+    speed = 0
+    steering_angle = 90
+
+    return speed, steering_angle, img_with_steering_lane
 
 class CameraSensor(Camera):
 
@@ -279,7 +315,7 @@ class CameraSensor(Camera):
                 img_kanten = kanten_erkennung(img_blur, minmaxVal = (50,100))
 
                 # Hough-Transformation
-                hough_parameter = hough_transformation(img_kanten, rho = 1, angle = np.pi/180, min_threshold = 50)
+                hough_parameter = hough_transformation(img_kanten, rho = 1, angle = np.pi/180, min_threshold = 35)
 
                 # Plotte Lines in Image
                 img_with_lines, _ = put_lines_into_image(img_kanten, hough_parameter)
@@ -290,8 +326,8 @@ class CameraSensor(Camera):
                 # Plotte die Maxima Linien ins Bild
                 img_with_lines = put_steering_lines_into_image(img_with_lines, lanes)
                 
-                # Merge die Gebiete
-                #print(merge_regions(hough_parameter))
+                # Berechne Fahrparameter aus lanes
+                speed, steering_angle, img_with_steering_lane = cals_drive_parameter_from_lanes(img_with_lines, lanes)
 
                 # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
                 #FIXME
@@ -303,7 +339,7 @@ class CameraSensor(Camera):
                 timestamp = time.time_ns()
                 cameradata = CameraData(raw_image=image,
                                             timestamp = timestamp,
-                                            process_image = img_with_lines)
+                                            process_image = img_with_steering_lane)
 
                 self._car.camera_data = cameradata
 

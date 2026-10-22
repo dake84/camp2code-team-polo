@@ -37,6 +37,6 @@
         "save_image": true,
         "height": 240,
         "width": 320,
-        "colormode": "gray"
+        "colormode": "bgr"
     }
 }
