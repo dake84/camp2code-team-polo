@@ -195,6 +195,9 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
 
 def shutdown(mode, car, sensor, threads, stop_event):
     # Reihenfolge: Driving -> CameraCar -> CameraSensor -> eigene Threads.
+
+    # Speichere Sliderdaten in config.json
+
     if not _shutdown_lock.acquire(blocking=False):
         return  # Shutdown läuft bereits
     for name, obj in (('Driving', mode), ('CameraCar', car), ('CameraSensor', sensor)):
@@ -244,13 +247,17 @@ if __name__ == "__main__":
 
 
 
-    # 1: Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen
-    # 2: Sensor an App übergeben ("update_filter") zur Übergabe der Filterwerte
-    # 3: inkl. Switch RGBBHRGREYHSV...
-    # 4: Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
+    # 1: [X] Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen 
+    # 2: [X] Sensor an App übergeben ("update_filter") zur Übergabe der Filterwerte
+    # 3: [HOLD] inkl. Switch RGBBHRGREYHSV...
+    # 4: [X] Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
     # 5: inkl. Linienerkennung einmalen in img_processed
     #    --- Wenn nur eine Linie zu sehen ist - Linie rechts im Bild -> Lenke rechts und fahre langsam bis wieder zwei linien zu sehen sind - Analog ander seite
     # 6: Start Drive/Stop Drive Button (Analog Dashboard_Live_Data.py) Zeile: 460 - 475, 331ff
+    # 7: Start Button: Fange an Bilder zu speichern
+    #    --- Unterordner (fig) erstellen, dann Timestamp (Ordnername), in einem eigenen Thread laufen lassen, Speicherfrequenz, time.sleep(frequenz - Delta t) Delta t ist speicherdauer
+    #    --- Bild braucht eindeutigen Namen - Parameter in Tabelle (Spalte 1 dann Bildname (eindeutig), Parameter)
+    # 8: Button: Manuel Fahren, Driving Mode umschalten
 
     # Fragen: 
     # 1: Hat CameraSensor, Driving und CameraCar ein Stop event, dass wir für einen Stop Button nutzen können um alles sauber zu schließen?
