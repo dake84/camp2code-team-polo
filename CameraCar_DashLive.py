@@ -2,6 +2,9 @@ import logging
 import threading
 import time
 
+import os
+import signal
+
 import cv2 #Bildverarbeitung
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -21,6 +24,9 @@ DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255), "crop": (0.1,0.9)
 SCALE = 0.5
 TARGET_FPS = 15
 JPEG_QUALITY = 70
+
+log = logging.getLogger(__name__)
+_shutdown_lock = threading.Lock()
 
 
 class ImageStream:
@@ -89,8 +95,23 @@ class ImageStream:
                 continue
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
 
+    # def shutdown(mode, car, sensor, threads, stop_event):
+    #  # Reihenfolge: Driving -> CameraCar -> CameraSensor -> eigene Threads.'''
+    #  if not _shutdown_lock.acquire(blocking=False):
+    #      return  # Shutdown läuft bereits
+    #  for name, obj in (('Driving', mode), ('CameraCar', car), ('CameraSensor', sensor)):
+    #      try:
+    #          if hasattr(obj, 'stop'): obj.stop()
+    #      except Exception:
+    #          log.exception('Fehler beim Stoppen von %s', name)
+    #  stop_event.set()
+    #  for t in threads:
+    #      t.join(timeout=2)
+    #      if t.is_alive(): log.warning('Thread %s läuft noch', t.name)
+    #  log.info('Sauber beendet')
 
-def create_app(stream_pre_processing: ImageStream, stream_post_processing: ImageStream, sensor: CameraSensor) -> Dash:
+
+def create_app(stream_pre_processing: ImageStream, stream_post_processing: ImageStream, sensor: CameraSensor, on_stop) -> Dash:
     server = Flask(__name__)
     app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.CERULEAN])
 
@@ -115,14 +136,6 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                             id=f"{channel}-slider",
                             tooltip={"placement": "bottom"}),
         ])
-
-    # def crop_slider():
-    #     return html.Div([
-    #         html.Label("bla"),
-    #         dcc.RangeSlider(0, 1, value=list(np.linspace(0,1,101)),
-    #                                     id="crop-slider",
-    #                                     tooltip={"placement": "bottom"}),
-    #     ])
 
 
     app.layout = dbc.Container([
@@ -160,12 +173,42 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
         
         return f"H: {h}, S: {s}, V: {v}, crop: {crop}"
 
+    @app.callback(
+        Output("stop-info", "children"),
+        Input("stop-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def stop_app(n_clicks):
+        on_stop()  # Driving -> CameraCar -> CameraSensor -> Threads
+        threading.Timer(0.5, os.kill, args=(os.getpid(), signal.SIGINT)).start()  # danach App beenden
+        return 'App beendet'
+
     return app
 
+    @app.callback(
+        Output("stop-info", "children"),
+        Input("stop-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def stop_app(n_clicks):
+        os._exit(0)
+
+def shutdown(mode, car, sensor, threads, stop_event):
+    # Reihenfolge: Driving -> CameraCar -> CameraSensor -> eigene Threads.
+    if not _shutdown_lock.acquire(blocking=False):
+        return  # Shutdown läuft bereits
+    for name, obj in (('Driving', mode), ('CameraCar', car), ('CameraSensor', sensor)):
+        try:
+            if hasattr(obj, 'stop'): obj.stop()
+        except Exception:
+            log.exception('Fehler beim Stoppen von %s', name)
+    stop_event.set()
+    for t in threads:
+        t.join(timeout=2)
+        if t.is_alive(): log.warning('Thread %s läuft noch', t.name)
+    log.info('Sauber beendet')
 
 def main():
-
-    log = logging.getLogger(__name__)
 
     car = CameraCar()
     sensor = CameraSensor(car)
@@ -187,17 +230,13 @@ def main():
     mode.start()
 
     try:
-        app = create_app(stream_pre_processing, stream_post_processing, sensor)
+        app = create_app(stream_pre_processing, stream_post_processing, sensor,
+                         on_stop=lambda: shutdown(mode, car, sensor, threads, stop_event))
         # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host="0.0.0.0", debug=False, use_reloader=False)
 
     finally:
-        stop_event.set()
-        if hasattr(mode, "stop"):  # an eure Driving-API anpassen
-            mode.stop()
-        for t in threads:
-            t.join(timeout=2)
-        log.info("Sauber beendet")
+        shutdown(mode, car, sensor, threads, stop_event)
 
 
 if __name__ == "__main__":
@@ -210,6 +249,8 @@ if __name__ == "__main__":
     # 3: inkl. Switch RGBBHRGREYHSV...
     # 4: Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
     # 5: inkl. Linienerkennung einmalen in img_processed
+    #    --- Wenn nur eine Linie zu sehen ist - Linie rechts im Bild -> Lenke rechts und fahre langsam bis wieder zwei linien zu sehen sind - Analog ander seite
+    # 6: Start Drive/Stop Drive Button (Analog Dashboard_Live_Data.py) Zeile: 460 - 475, 331ff
 
     # Fragen: 
     # 1: Hat CameraSensor, Driving und CameraCar ein Stop event, dass wir für einen Stop Button nutzen können um alles sauber zu schließen?
