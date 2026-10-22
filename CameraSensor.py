@@ -152,34 +152,66 @@ def put_lines_into_image(img, hough_parameter):
 
     return img_with_lines, data
 
-def merge_regions(img_hough_trans):
+def put_steering_lines_into_image(img, lanes = None):
 
-    kernel = np.ones((25,25), np.uint8)
-    region_mask = cv2.dilate(img_hough_trans, kernel, iterations=1)
+    img_with_lines = img.copy()
+    if img_with_lines.ndim == 2:
+        img_with_lines = cv2.cvtColor(img_with_lines, cv2.COLOR_GRAY2RGB)
 
-    return region_mask
+    w = img_with_lines.shape[1]
+    if lanes is not None and len(lanes) > 0:
+        for lane in lanes:
+            if lane is None:
+                continue
+            m, b = lane
 
-def detect_lanes(hough_parameter, step_num=50, m_max=10, plot_bool=True):
-    '''Berechnet aus den Hough-Parametern die Steigung m = -cos(theta)/sin(theta)
-    und plottet die Häufigkeit (x: Steigung, y: Häufigkeit).'''
+            x1 = 0
+            x2 = w - 1
+            y1 = int(np.clip(m * x1 + b, -1e6, 1e6))
+            y2 = int(np.clip(m * x2 + b, -1e6, 1e6))
+
+            cv2.line(img_with_lines, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+    return img_with_lines
+
+def detect_lanes(hough_parameter, step_num=50, m_max=10, min_dist=0, plot_bool=False):
+    ## Berechnet aus den Hough-Parametern die Steigung m = -cos(theta)/sin(theta), plottet die Häufigkeit
+    ## und gibt für die zwei Maxima die Geradengleichung y = m*x + b zurück.
     if hough_parameter is None or len(hough_parameter) == 0:
-        return None, None
-    theta = hough_parameter.reshape(-1, 2)[:, 1]
-    m = np.clip(-np.cos(theta) / np.maximum(np.sin(theta), 1e-6), -0.999 * m_max, 0.999 * m_max)
-    m = np.append(m, [-m_max, m_max])   # feste Bin-Grenzen, Dummy-Punkte fallen in Count_I_D auf die Kante und werden nicht gezählt
+        return None, None, []
+    rho, theta = hough_parameter.reshape(-1, 2).T
+    sin_t = np.maximum(np.sin(theta), 1e-6)
+    m_lines = np.clip(-np.cos(theta) / sin_t, -0.999 * m_max, 0.999 * m_max)
+    b_lines = rho / sin_t
+    m = np.append(m_lines, [-m_max, m_max])   # feste Bin-Grenzen, Dummy-Punkte fallen in Count_I_D auf die Kante und werden nicht gezählt
+
     Counts, m_interval, _ = Count_I_D(np.arange(len(m)), m, step_num=step_num, plot_bool=False)
 
+    # Zwei Maxima mit Mindestabstand von min_dist Bins -> Geradengleichung (m, b)
+    Counts_tmp = Counts.copy()
+    m_step = m_interval[1] - m_interval[0]
+    lanes = []
+    for _ in range(2):
+        idx = int(np.argmax(Counts_tmp))
+        if Counts_tmp[idx] == 0:
+            break
+        sel = np.abs(m_lines - m_interval[idx]) <= 1.5 * m_step   # Peak-Bin ±1 Nachbar-Bin
+        lanes.append((float(np.mean(m_lines[sel])), float(np.mean(b_lines[sel]))))
+        Counts_tmp[max(0, idx - min_dist):idx + min_dist + 1] = 0
+    lanes.sort()   # links (m < 0) zuerst
+
     if plot_bool:
-        data = [ m_interval, Counts, 'Steigungen', 'blue', 'y1', '-']
+        data = [m_interval, Counts, 'Steigungen', 'blue', 'y1', '-']
         plot = myplt.Plot()
         plot.fig_num = 1
         plot.x_axe_name = 'Steigung $m$'
         plot.y_axe_name = 'Häufigkeit'
         plot.log_x = False
         plot.use_meta_data(data)
+        plot.save_plotting = True
         plot.plotting()
 
-    return Counts, m_interval
+    return Counts, m_interval, lanes
 
 class CameraSensor(Camera):
 
@@ -253,8 +285,11 @@ class CameraSensor(Camera):
                 img_with_lines, _ = put_lines_into_image(img_kanten, hough_parameter)
 
                 # Steigungsverteilung der Hough-Linien
-                #counts, m_interval = detect_lanes(hough_parameter, plot_bool=False)
+                counts, m_interval, lanes = detect_lanes(hough_parameter)
 
+                # Plotte die Maxima Linien ins Bild
+                img_with_lines = put_steering_lines_into_image(img_with_lines, lanes)
+                
                 # Merge die Gebiete
                 #print(merge_regions(hough_parameter))
 
