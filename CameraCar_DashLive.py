@@ -20,7 +20,7 @@ from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
 # --- Konfiguration ----------------------------------------------------------
-DEFAULT_HSV = {"h": (90, 120), "s": (20, 255), "v": (50, 255), "crop": (0.1,0.9)}
+DEFAULT_HSV = {"h": (100, 130), "s": (80, 255), "v": (50, 255), "crop": (0.2,0.8)}
 SCALE = 0.5
 TARGET_FPS = 15
 JPEG_QUALITY = 70
@@ -137,7 +137,6 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                             tooltip={"placement": "bottom"}),
         ])
 
-
     app.layout = dbc.Container([
         dbc.Row(html.H1("Projektphase 2")),
         dbc.Row([
@@ -241,7 +240,6 @@ def main():
     finally:
         shutdown(mode, car, sensor, threads, stop_event)
 
-
 if __name__ == "__main__":
     main()
 
@@ -257,6 +255,7 @@ if __name__ == "__main__":
     # 7: Start Button: Fange an Bilder zu speichern
     #    --- Unterordner (fig) erstellen, dann Timestamp (Ordnername), in einem eigenen Thread laufen lassen, Speicherfrequenz, time.sleep(frequenz - Delta t) Delta t ist speicherdauer
     #    --- Bild braucht eindeutigen Namen - Parameter in Tabelle (Spalte 1 dann Bildname (eindeutig), Parameter)
+    #    --- Bild nur speicher, wenn bedingung erfüllt ist zB 2 Fahrbahnlinien sind da
     # 8: Button: Manuel Fahren, Driving Mode umschalten
 
     # Fragen: 
