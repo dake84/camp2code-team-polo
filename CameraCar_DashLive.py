@@ -69,7 +69,7 @@ class ImageStream:
         if self.use_raw_data:
             frame = self.car.camera_data.raw_image
         else:
-            frame = self.car.camera_data_processed.process_image
+            frame = self.car.camera_data_processed.process_image_lines
             line_data = self.car.camera_data_processed.line_data
             steering_angle = self.car.camera_data_processed.steering_angle
             speed = self.car.camera_data_processed.speed

@@ -743,8 +743,9 @@ class CameraMode(DrivingMode):
         camera_data_transfer = self._cameracar.camera_data
         try:
             steering_angle_raw, processed_img_areas = lenkwinkel_from_image(camera_data_transfer.process_image)
-            cv2.imwrite("processed_image_areas.jpg", processed_img_areas)
-            cv2.imwrite("camera_data_transfer.process_image.jpg", camera_data_transfer.process_image)
+            if processed_img_areas is not None and processed_img_areas.size > 0:
+                cv2.imwrite("processed_image_areas.jpg", processed_img_areas)
+                cv2.imwrite("camera_data_transfer.process_image.jpg", camera_data_transfer.process_image)
             driving_parameter = self.driving_parameter(steering_angle_raw)
             steering_angle = driving_parameter[0]
             speed = driving_parameter[1]
