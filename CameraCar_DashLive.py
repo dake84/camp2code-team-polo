@@ -111,7 +111,7 @@ class ImageStream:
     #  log.info('Sauber beendet')
 
 
-def create_app(stream_pre_processing: ImageStream, stream_post_processing: ImageStream, sensor: CameraSensor, on_stop) -> Dash:
+def create_app(mode, car, stream_pre_processing: ImageStream, stream_post_processing: ImageStream, sensor: CameraSensor, on_stop) -> Dash:
     server = Flask(__name__)
     app = Dash(__name__, server=server, external_stylesheets=[dbc.themes.CERULEAN])
 
@@ -164,8 +164,38 @@ def create_app(stream_pre_processing: ImageStream, stream_post_processing: Image
                             className='mt-4', n_clicks=0),
                 html.Div(id='stop-info', className='mt-3')
             ], md=1),
+        ]),
+        dbc.Row([
+            dbc.Col([             
+                html.Label('Fahrmodus wählen'),
+                dcc.Dropdown(
+                    id='dropdown_fahrmodus',
+                    options=[
+                        {'label': 'Fahrmodus 1 - Bilderkennung', 'value': 'fahrmodus_1'},
+                        {'label': 'Fahrmodus 2 - AI', 'value': 'fahrmodus_2'}
+                    ],
+                    value='fahrmodus_1',
+                    clearable=False,
+                    placeholder='Bitte Fahrmodus wählen',
+                ),
+                dbc.Button(
+                    'Start Fahrmodi',
+                    id='button_start_fahrmodi',
+                    n_clicks=0,
+                    className='mt-4'
+                ),
+                dbc.Button(
+                    'Stop',
+                    id='button_stop_fahrmodi',
+                    n_clicks=0,
+                    color='danger',
+                    className='mt-4'
+                )
+            ])
         ])
     ], fluid=True)
+    
+    
 
     @app.callback(
         Output('hsv-info', 'children'),
@@ -241,7 +271,7 @@ def main():
     mode.start()
 
     try:
-        app = create_app(stream_pre_processing, stream_post_processing, sensor,
+        app = create_app(mode, car, stream_pre_processing, stream_post_processing, sensor,
                          on_stop=lambda: shutdown(mode, car, sensor, threads, stop_event))
         # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host="0.0.0.0", debug=False, use_reloader=False)
@@ -269,3 +299,6 @@ if __name__ == "__main__":
 
     # Fragen: 
     # 1: Hat CameraSensor, Driving und CameraCar ein Stop event, dass wir für einen Stop Button nutzen können um alles sauber zu schließen?
+    """
+    slider für blur, morph kernel
+    """

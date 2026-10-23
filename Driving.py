@@ -757,6 +757,9 @@ class CameraMode(DrivingMode):
                                                 line_data=np.empty(0),
                                                 speed = speed)
             self._cameracar.camera_data_processed = camera_data_processed
+            
+            self._cameracar.drive(speed, steering_angle)
+
         except ValueError as e:
             print(e)
 

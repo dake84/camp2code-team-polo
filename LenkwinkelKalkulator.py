@@ -240,14 +240,14 @@ def cals_drive_parameter_from_lanes(
         2
     )
 
-    steering_angle = float(slope_degree)
+    steering_angle = int(slope_degree)
 
     return steering_angle, img_with_steering_lane
 
 
 def lenkwinkel_from_image(
         img
-) -> tuple[float, np.ndarray]:
+) -> tuple[int, np.ndarray]:
 
     steering_angle = 90.0
 
