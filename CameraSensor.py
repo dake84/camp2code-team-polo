@@ -29,7 +29,7 @@ class CameraSensor(Camera):
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
-        self._pack_processing_parameters = ((0,179),(0,255),(0,255),(0.1,0.9), 35) #hue/saturation/value/crop
+        self._pack_processing_parameters = ((110,179),(0,255),(0,255),(0.1,0.9), 35) #hue/saturation/value/crop
         print(self._cfg.get('colormode'))
         super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
                           height=self._cfg.get_int('height',480),

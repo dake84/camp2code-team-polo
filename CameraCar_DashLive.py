@@ -8,7 +8,7 @@ import signal
 import cv2 #Bildverarbeitung
 import dash_bootstrap_components as dbc
 import numpy as np
-from dash import Dash, Input, Output, dcc, html
+from dash import Dash, Input, Output, dcc, html, State
 from flask import Flask, Response
 
 import logging_setup  # noqa: F401  – konfiguriert Logging beim Import
@@ -27,6 +27,7 @@ JPEG_QUALITY = 70
 
 log = logging.getLogger(__name__)
 _shutdown_lock = threading.Lock()
+
 
 
 class ImageStream:
@@ -159,13 +160,6 @@ def create_app(mode, car, stream_pre_processing: ImageStream, stream_post_proces
             ], md=4),
         ]),
         dbc.Row([
-            dbc.Col([
-                dbc.Button('Close App', id='stop-button', color='danger',
-                            className='mt-4', n_clicks=0),
-                html.Div(id='stop-info', className='mt-3')
-            ], md=1),
-        ]),
-        dbc.Row([
             dbc.Col([             
                 html.Label('Fahrmodus wählen'),
                 dcc.Dropdown(
@@ -179,20 +173,25 @@ def create_app(mode, car, stream_pre_processing: ImageStream, stream_post_proces
                     placeholder='Bitte Fahrmodus wählen',
                 ),
                 dbc.Button(
-                    'Start Fahrmodi',
-                    id='button_start_fahrmodi',
+                    'Fahrmodus starten',
+                    id='button_fahrmodi',
                     n_clicks=0,
+                    color='success',
                     className='mt-4'
                 ),
-                dbc.Button(
-                    'Stop',
-                    id='button_stop_fahrmodi',
-                    n_clicks=0,
-                    color='danger',
-                    className='mt-4'
+                dcc.Store(
+                    id='fahrmodus_state',
+                    data=False
                 )
             ])
-        ])
+        ]),
+        dbc.Row([
+        dbc.Col([
+            dbc.Button('Close App', id='stop-button', color='danger',
+                        className='mt-4', n_clicks=0),
+            html.Div(id='stop-info', className='mt-3')
+        ], md=1),
+        ]),
     ], fluid=True)
     
     
@@ -220,6 +219,22 @@ def create_app(mode, car, stream_pre_processing: ImageStream, stream_post_proces
         on_stop()  # Driving -> CameraCar -> CameraSensor -> Threads
         threading.Timer(0.5, os.kill, args=(os.getpid(), signal.SIGINT)).start()  # danach App beenden
         return 'App beendet'
+
+    @app.callback(
+        Output('fahrmodus_state', 'data'),
+        Output('button_fahrmodi', 'children'),
+        Output('button_fahrmodi', 'color'),
+        Input('button_fahrmodi', 'n_clicks'),
+        State('fahrmodus_state', 'data'),
+        prevent_initial_call=True
+    )
+    def toggle_fahrmodus(n_clicks, running):
+        if running:
+            mode.stop()
+            return False, 'Fahrmodus starten', 'success'
+        mode.start()
+        return True, 'Fahrmodus stoppen', 'danger'
+
 
     return app
 
@@ -268,7 +283,8 @@ def main():
     ]
     for t in threads:
         t.start()
-    mode.start()
+    
+    #mode.start()
 
     try:
         app = create_app(mode, car, stream_pre_processing, stream_post_processing, sensor,
@@ -279,9 +295,59 @@ def main():
     finally:
         shutdown(mode, car, sensor, threads, stop_event)
 
+
+
+
+
+
+
+
+
+
+
+def register_callbacks(app, driving):
+
+    @app.callback(
+        Output('fahrmodus_state', 'data'),
+        Output('button_fahrmodi', 'children'),
+        Output('button_fahrmodi', 'color'),
+        Input('button_fahrmodi', 'n_clicks'),
+        State('fahrmodus_state', 'data'),
+        prevent_initial_call=True
+    )
+    def toggle_fahrmodus(n_clicks, running):
+
+        if running:
+            driving.stop()
+
+            return (
+                False,
+                'Fahrmodus starten',
+                'success'
+            )
+
+        else:
+            threading.Thread(
+                target=driving.start,
+                daemon=True
+            ).start()
+
+            return (
+                True,
+                'Fahrmodus stoppen',
+                'danger'
+            )
+
+
+
+
+
+
+
+
+
 if __name__ == "__main__":
     main()
-
 
 
     # 1: [X] Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen 

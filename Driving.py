@@ -80,11 +80,14 @@ class DrivingMode(abc.ABC):
         self._cfg = config
         self._frequency = self._cfg.get_int("scan_frequency", frequency)
         self._lock = threading.RLock()
+        self._update_cfg = update_cfg
         self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
 
     def start(self):
         with self._lock:
-#            if (not self.is_running):
+            if self.is_running(): return
+            if self._thread.is_alive(): self._thread.join(timeout=2)  # alten Lauf sauber auslaufen lassen
+            self._thread = threading.Thread(target=self._drive, daemon=True, args=[self._update_cfg], name=self._name)
             self._thread.start()
 
     def _drive(self, update_cfg:bool=False):
@@ -765,18 +768,11 @@ class CameraMode(DrivingMode):
 
         return True    
 
+
     def _run_condition(self) -> bool:
         return True    
     # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
 
-    def detect_line(self, camera_data:CameraData) -> np.ndarray: 
-        """Detects the line in the given camera data and returns the steering angle and speed.
-
-        Args:
-            camera_data (CameraData): The camera data containing the image to process."""
-        # Implement your line detection algorithm here
-        # For demonstration purposes, we'll return a dummy steering angle and speed
-        return np.array([0, 0])  # Replace with actual detected line coordinates
 
     def driving_parameter (self, steering_angle_raw: int ) -> tuple[int, int]:
         steering_angle = steering_angle_raw  # Replace with actual calculation
