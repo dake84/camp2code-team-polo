@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from typing import Optional, Tuple
 import logging
+import cv2
 import numpy as np
 
 from BaseCar import BaseCar
@@ -14,6 +15,7 @@ from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
+from LenkwinkelKalkulator import lenkwinkel_from_image
 
 
 class StopReason(int):
@@ -739,16 +741,24 @@ class CameraMode(DrivingMode):
 
     def _run(self) -> bool:
         camera_data_transfer = self._cameracar.camera_data
-        driving_parameter = self.driving_parameter(self.detect_line(camera_data_transfer))
-        steering_angle = driving_parameter[0]
-        speed = driving_parameter[1]
-        camera_data_processed = CameraDataProcessed(raw_image=camera_data_transfer.raw_image,
-                                            timestamp = camera_data_transfer.timestamp,
-                                            process_image = camera_data_transfer.process_image,
-                                            steering_angle = steering_angle,
-                                            line_data=np.empty(0),
-                                            speed = speed)
-        self._cameracar.camera_data_processed = camera_data_processed
+        try:
+            steering_angle_raw, processed_img_areas = lenkwinkel_from_image(camera_data_transfer.process_image)
+            cv2.imwrite("processed_image_areas.jpg", processed_img_areas)
+            cv2.imwrite("camera_data_transfer.process_image.jpg", camera_data_transfer.process_image)
+            driving_parameter = self.driving_parameter(steering_angle_raw)
+            steering_angle = driving_parameter[0]
+            speed = driving_parameter[1]
+            camera_data_processed = CameraDataProcessed(raw_image=camera_data_transfer.raw_image,
+                                                timestamp = camera_data_transfer.timestamp,
+                                                process_image = camera_data_transfer.process_image,
+                                                process_image_lines = processed_img_areas,
+                                                steering_angle = steering_angle,
+                                                line_data=np.empty(0),
+                                                speed = speed)
+            self._cameracar.camera_data_processed = camera_data_processed
+        except ValueError as e:
+            print(e)
+
         return True    
 
     def _run_condition(self) -> bool:
@@ -764,8 +774,8 @@ class CameraMode(DrivingMode):
         # For demonstration purposes, we'll return a dummy steering angle and speed
         return np.array([0, 0])  # Replace with actual detected line coordinates
 
-    def driving_parameter (self, detectedlines: np.ndarray ) -> Tuple[int, int]:
-        steering_angle = 90  # Replace with actual calculation
+    def driving_parameter (self, steering_angle_raw: int ) -> tuple[int, int]:
+        steering_angle = steering_angle_raw  # Replace with actual calculation
         speed = 50           # Replace with actual calculation
 
         return steering_angle, speed

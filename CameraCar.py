@@ -22,11 +22,13 @@ class CameraData:
 @dataclass
 class CameraDataProcessed:
     process_image: np.ndarray # Auf Dashboard zeigen
+    process_image_lines: np.ndarray # Auf Dashboard zeigen
     raw_image: np.ndarray
     line_data: np.ndarray # Auf Dashboard
     timestamp: float = 0
     steering_angle: int = 90 # AufDashboard
     speed: int = 0 # Auf Dashboard
+
  
  
 class CameraCar(BaseCar):
@@ -43,8 +45,7 @@ class CameraCar(BaseCar):
         super().__init__(config=config)
         #self._distance = 300
         self._camera_data = CameraData(process_image=np.empty(0), raw_image=np.empty(0))
-        self._camera_data_processed = CameraDataProcessed(process_image=np.empty(0), raw_image=np.empty(0), line_data=np.empty(0))
- 
+        self._camera_data_processed = CameraDataProcessed(process_image=np.empty(0), raw_image=np.empty(0), process_image_lines=np.empty(0), line_data=np.empty(0))
         self.__log = logging.getLogger(CameraCar.__name__)
  
     @property
