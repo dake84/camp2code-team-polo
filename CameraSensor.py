@@ -83,59 +83,6 @@ def put_steering_lines_into_image(img, lanes = None):
 
     return img_with_lines
 
-def detect_lanes(hough_parameter, img_h, step_num=50, m_max=10, min_dist=1, delta_px=20, plot_bool=True):
-    if hough_parameter is None or len(hough_parameter) == 0:
-        return None, None, []
-
-    rho, theta = hough_parameter.reshape(-1, 2).T
-    sin_t = np.maximum(np.sin(theta), 1e-6)
-    m_lines = np.clip(-np.cos(theta) / sin_t, -0.999 * m_max, 0.999 * m_max)
-    b_lines = rho / sin_t
-    m = np.append(m_lines, [-m_max, m_max])   # feste Bin-Grenzen, Dummy-Punkte fallen in Count_I_D auf die Kante und werden nicht gezählt
-
-    # Anzahl der Steigungen -> Häufigkeit über steigung
-    Counts, m_interval, _ = Count_I_D(np.arange(len(m)), m, step_num=step_num, plot_bool=False)
-
-    # Zwei Maxima mit Mindestabstand -> Geradengleichung (m, b)
-    Counts_tmp = Counts.copy()
-    m_step = m_interval[1] - m_interval[0]
-    lanes = []
-    for _ in range(2):
-        idx = int(np.argmax(Counts_tmp))
-        if Counts_tmp[idx] == 0:
-            break
-        sel = np.abs(m_lines - m_interval[idx]) <= 1.5 * m_step   # Peak-Bin ±1 Nachbar-Bin
-        Counts_tmp[max(0, idx - min_dist):idx + min_dist + 1] = 0
-        if not sel.any():
-            continue
-        lanes.append((float(np.mean(m_lines[sel])), float(np.mean(b_lines[sel]))))
-    lanes.sort()   # links (m < 0) zuerst
-
-    # Delta-Schlauch: Wenn überlappen -> Nimm beide Kurgen und mach mittelwert
-    if len(lanes) == 2:
-        m_arr, b_arr = np.array(lanes).T
-        m_safe = np.where(np.abs(m_arr) > 1e-6, m_arr, 1e-6)
-        y = np.arange(img_h)                                    # jede Bildzeile
-        x = (y[None, :] - b_arr[:, None]) / m_safe[:, None]     # x-Positionen beider Linien, shape (2, img_h)
-        if np.any(np.abs(x[0] - x[1]) <= delta_px):             # Schläuche haben gemeinsame Koordinaten
-            xb, xt = x[:, -1].mean(), x[:, 0].mean()            # Mittellinie über x unten/oben
-            dx = xb - xt if abs(xb - xt) > 1e-6 else 1e-6
-            m_mean = float(np.clip((img_h - 1) / dx, -m_max, m_max))
-            lanes = [(m_mean, float(-m_mean * xt))]             # nur eine gemittelte Linie
-
-    if plot_bool:
-        data = [m_interval, Counts, 'Steigungen', 'blue', 'y1', '-']
-        plot = myplt.Plot()
-        plot.fig_num = 1
-        plot.x_axe_name = 'Steigung $m$'
-        plot.y_axe_name = 'Häufigkeit'
-        plot.log_x = False
-        plot.use_meta_data(data)
-        plot.save_plotting = True
-        plot.plotting()
-
-    return Counts, m_interval, lanes
-
 def detect_lanes_from_areas(mask, n_lanes=2, min_area=150, m_max=10, fit_frac=1.0, morph_kernel=(5, 5)):
     '''Fasst zusammenhaengende Pixel der Maske zu Flaechen zusammen, nimmt die n_lanes groessten
     und fittet durch deren Pixel je eine Gerade y = m*x + b. Rueckgabe: lanes (links -> rechts), sel_mask'''
@@ -298,9 +245,6 @@ class CameraSensor(Camera):
 
                 # Plotte Lines in Image
                 #img_with_lines, _ = put_lines_into_image(img_kanten, hough_parameter)
-
-                # Steigungsverteilung der Hough-Linien (alter Ansatz, bleibt zum Vergleich erhalten)
-                counts, m_interval, lanes_hough = detect_lanes(hough_parameter, img_kanten.shape[0], delta_px=20, plot_bool=False)
 
                 # NEU: Flaechen der Maske -> zwei groesste Flaechen -> Geradengleichungen (m, b)
                 lanes, img_areas = detect_lanes_from_areas(img_blur, n_lanes=2, min_area=150, fit_frac=1.0)
