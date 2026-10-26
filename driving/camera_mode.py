@@ -16,7 +16,9 @@ from CarLogger import Loggable
 import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
+from LenkwinkelKalkulator import (
+    put_steering_lines_into_image, cals_drive_parameter_from_lanes
+)
 import select
 from evdev import InputDevice, ecodes
 from .base import DrivingMode
@@ -51,7 +53,15 @@ class CameraMode(DrivingMode):
 
             print('3: vor lenkwinkel_from_image', flush=True)
 
-            steering_angle_raw, processed_img_areas, lanes = lenkwinkel_from_image(camera_data_transfer.process_image)
+            # Der LaneDetector hat die Linien bereits fuer diesen Frame ermittelt.
+            # Hier wird nur noch der Lenkwinkel aus den Linien berechnet.
+            lanes = list(camera_data_transfer.lanes)
+            img_with_lines = put_steering_lines_into_image(
+                camera_data_transfer.process_image, lanes
+            )
+            steering_angle_raw, processed_img_areas = cals_drive_parameter_from_lanes(
+                img_with_lines, lanes
+            )
 
             print('4: nach lenkwinkel_from_image', flush=True)
 

@@ -10,6 +10,7 @@ import dash_bootstrap_components as dbc
 import numpy as np
 from dash import Dash, Input, Output, dcc, html, State
 from flask import Flask, Response
+import plotly.graph_objects as go
 
 import LenkwinkelKalkulator
 import logging_setup  # noqa: F401  – konfiguriert Logging beim Import
@@ -20,6 +21,8 @@ from Save_Data_AI import SaveData_4_AI
 
 from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
+from telemetry import FrequencyCounter
+from dashboard_overlay import render_calibration_overlay
 
 
 # Config
@@ -47,6 +50,7 @@ class ImageStream:
         self.lines = None  # Koordinaten im skalierten Bild (Faktor SCALE)!
         self.sensor = sensor
         self.driving = driving
+        self.metrics = FrequencyCounter()
 
     def set_hsv(self, hue, saturation, value, crop, blur, morph_kernel):
         self.sensor.processing_parameters = (hue, saturation, value, crop, blur, morph_kernel)
@@ -63,30 +67,33 @@ class ImageStream:
             stop_event.wait(max(0.0, period - (time.monotonic() - t0)))
 
     def _process_once(self):
-        frame, line_data, steering_angle, speed = None, None, None, None
+        """Ein Bild erzeugen, ohne das Original im CameraCar zu veraendern."""
+        from dashboard_overlay import render_overlay
 
-        if self.use_raw_data:
-            frame = self.car.camera_data.raw_image
+        # Beide Streams zeichnen dasselbe Overlay, aber auf verschiedenen
+        # Originalbildern: links Rohbild, rechts vorverarbeitetes ROI-Bild.
+        # Die Linienerkennung selbst wird NICHT erneut ausgefuehrt.
+        processed = not self.use_raw_data
+        mode_running = self.driving is not None and self.driving.is_running()
+        if not mode_running:
+            camera = self.car.camera_data
+            frame = render_calibration_overlay(camera, processed=processed)
         else:
-            frame_wo_lanes = self.car.camera_data.process_image
-            lanes = self.car.camera_data_processed.lanes
-            frame = LenkwinkelKalkulator.put_steering_lines_into_image(frame_wo_lanes, lanes)
-            #camera_data_processed = self.car.camera_data_processed
-
-            # if camera_data_processed is None:
-            #     return
-
-            #frame = camera_data_processed.process_image_lines
-            # line_data = camera_data_processed.line_data
-            # steering_angle = camera_data_processed.steering_angle
-            # speed = camera_data_processed.speed
+            state = self.car.driving_state
+            if state is None:
+                return
+            record = next((r for r in reversed(self.car.frame_history.snapshot())
+                           if r.camera.frame_id == state.frame_id and r.driving is not None), None)
+            if record is None:
+                return
+            frame = render_overlay(record.camera, record.driving, processed=processed)
 
         if frame is None or frame.size == 0:
             return
 
         ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-
         if ok:
+            self.metrics.tick()
             with self._frame_cond:
                 self._jpeg = jpeg.tobytes()
                 self._frame_cond.notify_all()
@@ -134,10 +141,19 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
     app.layout = dbc.Container([
 
         dbc.Row(html.H1('Projektphase 2')),
+        dbc.Row([
+            dbc.Col([
+                html.H5('Thread-Frequenzen: Soll / Ist'),
+                html.Div(id='thread-metrics', className='mb-2'),
+                dcc.Graph(id='frequency-plot', config={'displayModeBar': False},
+                          style={'height': '310px'}),
+            ]),
+            dcc.Interval(id='metrics-interval', interval=1000, n_intervals=0),
+        ]),
 
         dbc.Row([
-            dbc.Col(html.Img(src='/stream', style={'width': '100%'}), md=4),
-            dbc.Col(html.Img(src='/stream2', style={'width': '100%'}), md=4),
+            dbc.Col([html.H6('Rohbild + Overlay'), html.Img(src='/stream', style={'width': '100%'})], md=4),
+            dbc.Col([html.H6('Vorverarbeitetes Bild + Overlay'), html.Img(src='/stream2', style={'width': '100%'})], md=4),
             dbc.Col([
                 slider('h', 179),
                 slider('s', 255),
@@ -178,6 +194,52 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
         ]),
 
     ], fluid=True)
+
+    @app.callback(
+        Output('thread-metrics', 'children'),
+        Output('frequency-plot', 'figure'),
+        Input('metrics-interval', 'n_intervals'),
+    )
+    def show_thread_metrics(_):
+        """Soll-/Ist-Frequenzen anzeigen und in einem eigenen Plot vergleichen.
+
+        Bei einem inaktiven Thread zeigen wir 0 Hz statt einer alten Messung.
+        Die Sollwerte stammen aus der jeweiligen Konfiguration.
+        """
+        camera_mode = modes.get('fahrmodus_1')
+        controller_target = float(camera_mode._frequency) if camera_mode else 0.0
+        entries = [
+            ('Kamera', float(sensor.scan_frequency), car.thread_metrics['camera']),
+            ('Controller', controller_target, car.thread_metrics['controller']),
+            ('Dashboard Rohbild', float(TARGET_FPS), stream_pre_processing.metrics),
+            ('Dashboard verarbeitet', float(TARGET_FPS), stream_post_processing.metrics),
+        ]
+        names, targets, actuals, parts = [], [], [], []
+        for name, target, metric in entries:
+            age = metric.age_seconds
+            active = age is not None and age <= 2.0
+            actual = metric.hz if active else 0.0
+            status = 'aktiv' if active else 'inaktiv / keine Daten'
+            names.append(name)
+            targets.append(target)
+            actuals.append(actual)
+            parts.append(html.Span(
+                f'{name}: {target:.1f} / {actual:.1f} Hz ({status})',
+                className='badge bg-secondary me-2 mb-2',
+            ))
+
+        figure = go.Figure()
+        figure.add_bar(name='Soll', x=names, y=targets, marker_color='#7b8ca3')
+        figure.add_bar(name='Ist', x=names, y=actuals, marker_color='#20a080')
+        figure.update_layout(
+            barmode='group',
+            margin=dict(l=30, r=15, t=15, b=65),
+            yaxis_title='Frequenz (Hz)',
+            yaxis=dict(rangemode='tozero'),
+            legend=dict(orientation='h', y=1.15),
+            uirevision='frequenzen',
+        )
+        return parts, figure
 
     @app.callback(
         Output('hsv-info', 'children'),

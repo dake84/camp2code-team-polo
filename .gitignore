@@ -226,6 +226,5 @@ driving_controller_log.json
 new_config.json
 *.log.*
 Driving copy.py
-camera_test.jpg
-.jpg
-.jpeg
+*.jpg
+*.jpeg

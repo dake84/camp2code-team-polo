@@ -12,6 +12,7 @@ import ConfigReader
 from CameraCar import CameraCar
 
 from basisklassen_cam import Camera
+from pipeline_processors import LaneProcessor, CopilotLaneProcessor
 
 def blur_img(img, blur_value = (10,10)):
     return cv2.blur(img,blur_value)
@@ -49,6 +50,8 @@ class CameraSensor(Camera):
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
+        # Der Prozessor ist austauschbar; die restliche Architektur bleibt gleich.
+        self._processor = CopilotLaneProcessor()
         # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
         self._frame_id = 0
         self._pack_processing_parameters = ((110,179), # hue
@@ -56,7 +59,8 @@ class CameraSensor(Camera):
                                             (0,255), # value
                                             (0.1,0.9), # crop
                                             3, # blue
-                                            5 # morph kernel
+                                            5, # morph kernel
+                                            (50,100) # Canny-Schwellen
                                             )
         print(self._cfg.get('colormode'))
         super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
@@ -84,6 +88,21 @@ class CameraSensor(Camera):
         with self._lock:
             self._pack_processing_parameters = pack_processing_parameters
 
+    def set_processor(self, name: str):
+        """Wechselt zwischen Legacy und Diagnose-Prozessor.
+
+        Der Wechsel wird unter dem bestehenden Sensor-Lock vorgenommen.
+        """
+        if name not in ('legacy', 'copilot'):
+            raise ValueError('Unbekannter Prozessor')
+        with self._lock:
+            self._processor = LaneProcessor() if name == 'legacy' else CopilotLaneProcessor()
+
+    @property
+    def processor_name(self) -> str:
+        with self._lock:
+            return 'copilot' if isinstance(self._processor, CopilotLaneProcessor) else 'legacy'
+
     def read_loop(self, stop_event:threading.Event):
         try:
             self._log.debug('Entering Camera-Sensor loop')
@@ -99,40 +118,23 @@ class CameraSensor(Camera):
                 if self.save_image:
                     cv2.imwrite('camera_test.jpg', image)
 
-                processed_image = image
-                h = processed_image.shape[0]
-                cropped = processed_image[int(h*(1-self.processing_parameters[3][1])):int(h*(1-self.processing_parameters[3][0])),:]
-                hsv = cv2.cvtColor(cropped, cv2.COLOR_BGR2HSV)
-                lower_boundary = np.array([self.processing_parameters[0][0],self.processing_parameters[1][0],self.processing_parameters[2][0]])
-                upper_boundary = np.array([self.processing_parameters[0][1],self.processing_parameters[1][1],self.processing_parameters[2][1]])
-                mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
-
-                # evtl noch blur zB mask_blur = cv2.blur(image_gray,(4,4))
-                blur = max(1, int(self.processing_parameters[4]))
-                img_blur = blur_img(mask, blur_value = (blur,blur))
-
-                morph_kernel_parameter = ((self.processing_parameters[5],self.processing_parameters[5]))
-                img_morph_kernel = morph_kernel_filter(img_blur, morph_kernel=morph_kernel_parameter)
-
-                # Kantenerkennung
-                img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))
-
-                # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
-                #FIXME
-                if self.save_image:
-                    cv2.imwrite('camera_test_processed.jpg', mask)
-
-                # Bild bearbeitung -> Linienwerte
-                # Linienwerte an Auto (CameraCar.py) übergeben
-                timestamp = time.time_ns()
-
+                # Parameter fuer diesen Frame einmalig lesen.
+                parameters = self.processing_parameters
+                # Genau eine Verarbeitung je Frame, mit optionalen Diagnosebildern.
+                with self._lock:
+                    processor = self._processor
+                result = processor.process(image, parameters)
                 self._frame_id += 1
                 cameradata = CameraData(
                     raw_image=image,
-                    timestamp=timestamp,
+                    timestamp=time.time_ns(),
                     frame_id=self._frame_id,
                     monotonic_ns=time.monotonic_ns(),
-                    process_image=img_kanten
+                    crop=(tuple(parameters[3]) if len(parameters) < 8 or
+                          parameters[7].get("roi", True) else (0.0, 1.0)),
+                    lanes=result.lanes,
+                    process_image=result.processed_image,
+                    stages=result.stages,
                 )
                 self._car.camera_data = cameradata
 
