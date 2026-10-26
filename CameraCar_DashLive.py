@@ -67,15 +67,16 @@ class ImageStream:
         if self.use_raw_data:
             frame = self.car.camera_data.raw_image
         else:
-            camera_data_processed = self.car.camera_data_processed
+            frame = self.car.camera_data.process_image
+            # camera_data_processed = self.car.camera_data_processed
 
-            if camera_data_processed is None:
-                return
+            # if camera_data_processed is None:
+            #     return
 
-            frame = camera_data_processed.process_image_lines
-            line_data = camera_data_processed.line_data
-            steering_angle = camera_data_processed.steering_angle
-            speed = camera_data_processed.speed
+            # frame = camera_data_processed.process_image_lines
+            # line_data = camera_data_processed.line_data
+            # steering_angle = camera_data_processed.steering_angle
+            # speed = camera_data_processed.speed
 
         if frame is None or frame.size == 0:
             return
