@@ -24,8 +24,6 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-*.jpg
-*.jpeg
 MANIFEST
 
 # PyInstaller
@@ -229,3 +227,5 @@ new_config.json
 *.log.*
 Driving copy.py
 camera_test.jpg
+.jpg
+.jpeg

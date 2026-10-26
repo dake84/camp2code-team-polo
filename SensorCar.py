@@ -100,7 +100,7 @@ class SensorCar(SonicCar):
     def i_wert(self, i:float):
         self.__log.info(f"I-Wert: {i}")
         with self._lock:
-            self._p_wert = i
+            self._i_wert = i
 
     @property
     def d_wert(self) -> float:
@@ -111,7 +111,7 @@ class SensorCar(SonicCar):
     def d_wert(self, d:float):
         self.__log.info(f"D-Wert: {d}")
         with self._lock:
-            self._p_wert = d
+            self._d_wert = d
 
     # Methode macht hier mehr Sinn (direkte Interpretation von Messdaten. Im Mode nur Reaktion auf Messdaten, keine Interpretation)
     def is_on_line(self) -> bool:
@@ -177,4 +177,3 @@ class MockSensorCar(SensorCar):
 
                 return value
         return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self) # pyright: ignore[reportAttributeAccessIssue]
-    

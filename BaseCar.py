@@ -127,8 +127,8 @@ class BaseCar(Loggable):
             self._mode = self.FORWARD_MODE
             self._bw.forward()
         else:
-            speed = min(max(-vmin, -speed), -vmax)
-            self._bw.speed = -speed
+            speed = max(-vmax, min(-vmin, speed))
+            self._bw.speed = abs(speed)
             self._mode = self.BACKWARD_MODE
             self._bw.backward()
         with self._lock:

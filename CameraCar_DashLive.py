@@ -11,6 +11,7 @@ import numpy as np
 from dash import Dash, Input, Output, dcc, html, State
 from flask import Flask, Response
 
+import LenkwinkelKalkulator
 import logging_setup  # noqa: F401  – konfiguriert Logging beim Import
 
 # Unsere Packge für CameraCar
@@ -67,13 +68,15 @@ class ImageStream:
         if self.use_raw_data:
             frame = self.car.camera_data.raw_image
         else:
-            frame = self.car.camera_data.process_image
-            # camera_data_processed = self.car.camera_data_processed
+            frame_wo_lanes = self.car.camera_data.process_image
+            lanes = self.car.camera_data_processed.lanes
+            frame = LenkwinkelKalkulator.put_steering_lines_into_image(frame_wo_lanes, lanes)
+            #camera_data_processed = self.car.camera_data_processed
 
             # if camera_data_processed is None:
             #     return
 
-            # frame = camera_data_processed.process_image_lines
+            #frame = camera_data_processed.process_image_lines
             # line_data = camera_data_processed.line_data
             # steering_angle = camera_data_processed.steering_angle
             # speed = camera_data_processed.speed

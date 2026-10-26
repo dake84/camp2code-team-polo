@@ -4,7 +4,7 @@ import time
 from typing import Optional
 import cv2
 
-from CameraCar import CameraData, CameraDataProcessed
+from models import CameraData, CameraDataProcessed
 
 import numpy as np
 
@@ -49,6 +49,8 @@ class CameraSensor(Camera):
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
+        # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
+        self._frame_id = 0
         self._pack_processing_parameters = ((110,179), # hue
                                             (0,255), # saturation
                                             (0,255), # value
@@ -124,9 +126,12 @@ class CameraSensor(Camera):
                 # Linienwerte an Auto (CameraCar.py) übergeben
                 timestamp = time.time_ns()
 
+                self._frame_id += 1
                 cameradata = CameraData(
                     raw_image=image,
                     timestamp=timestamp,
+                    frame_id=self._frame_id,
+                    monotonic_ns=time.monotonic_ns(),
                     process_image=img_kanten
                 )
                 self._car.camera_data = cameradata

@@ -240,7 +240,7 @@ def cals_drive_parameter_from_lanes(
     return steering_angle, img_with_steering_lane
 
 
-def lenkwinkel_from_image(img) -> tuple[int, np.ndarray]:
+def lenkwinkel_from_image(img) -> tuple[int, np.ndarray, list]:
 
     steering_angle = 90.0
 
@@ -273,4 +273,4 @@ def lenkwinkel_from_image(img) -> tuple[int, np.ndarray]:
         )
     )
 
-    return steering_angle, img_with_steering_lane
+    return steering_angle, img_with_steering_lane, lanes
