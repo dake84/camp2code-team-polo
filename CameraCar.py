@@ -27,6 +27,7 @@ class CameraDataProcessed:
     line_data: np.ndarray # Auf Dashboard
     timestamp: float = 0
     steering_angle: int = 90 # AufDashboard
+    steering_angle_car: int = None # Winkel, der wirklich am Auto ankommt
     speed: int = 0 # Auf Dashboard
 
  

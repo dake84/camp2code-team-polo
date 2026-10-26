@@ -152,7 +152,7 @@ def cals_drive_parameter_from_lanes(
 
     h, w = img_with_steering_lane.shape[:2]
 
-    # Kein Abbruch mehr, wenn nicht genau zwei Fahrbahnen erkannt wurden
+    # Wenn keine 2 lines -> Behalte lenkwinkel bei
     if lanes is None or len(lanes) != 2:
         cv2.putText(
             img_with_steering_lane,
@@ -165,7 +165,7 @@ def cals_drive_parameter_from_lanes(
             cv2.LINE_AA
         )
 
-        return steering_angle, img_with_steering_lane
+        return None, img_with_steering_lane  # NEU: None = keine zwei Linien
 
     if not all(lane is not None for lane in lanes):
         return steering_angle, img_with_steering_lane
@@ -202,11 +202,7 @@ def cals_drive_parameter_from_lanes(
         x_bottom_arr[i] = (y_bottom - b) / m_safe
         x_top_arr[i] = (y_top - b) / m_safe
 
-    x_steer_start = int(np.clip(
-        np.mean(x_bottom_arr),
-        0,
-        w - 1
-    ))
+    x_steer_start = int(w // 2)
 
     x_steer_end = int(np.clip(
         np.mean(x_top_arr),
@@ -246,7 +242,8 @@ def cals_drive_parameter_from_lanes(
 
 
 def lenkwinkel_from_image(
-        img
+        img,
+        morph_kernel=(5, 5)
 ) -> tuple[int, np.ndarray]:
 
     steering_angle = 90.0
@@ -261,7 +258,8 @@ def lenkwinkel_from_image(
         img,
         n_lanes=2,
         min_area=150,
-        fit_frac=1.0
+        fit_frac=1.0,
+        morph_kernel=morph_kernel
     )
 
     # Sicherheitsfallback, falls keine Ausgabemaske erzeugt wurde

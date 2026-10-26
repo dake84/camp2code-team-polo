@@ -17,6 +17,10 @@ from SensorCar import SensorCar
 from SonicCar import SonicCar
 from LenkwinkelKalkulator import lenkwinkel_from_image
 
+# FÜr PS COntroller
+import select
+from evdev import InputDevice, ecodes
+
 
 class StopReason(int):
 
@@ -111,15 +115,24 @@ class DrivingMode(abc.ABC):
 
             i = 0
             running = True
+            
+            period = 1.0 / self._frequency
             while (not self._stop_event.is_set() and self._run_condition() and running):
+                start_time = time.monotonic()
                 if (update_cfg):
                     self._cfg._load_config_file()
                     self._car._update_config()
 
                 running = self._run()
-                time.sleep(1/self._frequency)
-                i+=1
 
+                elapsed_time = time.monotonic() - start_time
+
+                # self._stop_event.wait(
+                #     max(0.0, period - elapsed_time)
+                # )
+
+                time.sleep(max(0, period - elapsed_time))
+                i+=1
                 if (i%self._frequency == 5):
                     self._log.debug(f"Running {self._name} in iteration #{i}")
                 
@@ -731,42 +744,187 @@ class KeyboardMode(DrivingMode):
                 self._stop_event.set()
                 break
 
+### PS Controller
+# Mode: PS-Controller
+class PSControllerMode(DrivingMode):
+
+    def __init__(self, name='PS-Controller', car:Optional[BaseCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None, device_path:str='/dev/input/event4'):
+        car = car if car is not None else CameraCar()
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader('cameracar_controller')
+        super().__init__(name, car, logger, cfg)
+        self._device_path = device_path
+        self._controller = None
+        self._steer = 0.0
+        self._speed = 0.0
+        self._steer_min = 0.1
+        self._speed_min = 15
+        self._last_drive = None
+
+    def _run_condition(self) -> bool:
+        return True
+
+    def _pre_run(self) -> bool:
+        try:
+            self._controller = InputDevice(self._device_path)
+            self._controller.grab()
+        except OSError as e:
+            self._log.error(f'Controller {self._device_path} nicht verfügbar: {e}')
+            self._controller = None
+            return False
+        self._log.info(f'Using device: {self._controller.path} - {self._controller.name}')
+        self._steer, self._speed, self._last_drive = 0.0, 0.0, None
+        return super()._pre_run()
+
+    def _run(self) -> bool:
+        if self._controller is None: return False
+
+        try:
+            ready, _, _ = select.select([self._controller.fd], [], [], 0.005)
+            if ready:
+                for event in self._controller.read():
+                    if event.type != ecodes.EV_ABS: continue
+                    if event.code == ecodes.ABS_RY: self._speed = (event.value - 127) / 128
+                    elif event.code == ecodes.ABS_X: self._steer = (event.value - 127) / 128
+        except BlockingIOError:
+            pass
+        except OSError as e:
+            self._log.error(f'Controller getrennt: {e}')
+            return False
+
+        # Lenkung
+        steer_angle = 90 if abs(self._steer) < self._steer_min else int(max(45, min(135, 90 + 45 * self._steer)))
+
+        # Geschwindigkeit: Stick nach oben -> speed < 0 -> vorwärts (wie bw.forward() im Originalskript)
+        speed_0_to_100 = min(100, int(abs(self._speed) * 100))
+        v = 0 if speed_0_to_100 < self._speed_min else (speed_0_to_100 if self._speed < 0 else -speed_0_to_100)
+
+        # Nur bei Änderung an die Hardware senden
+        if (v, steer_angle) != self._last_drive:
+            self._car.drive(v, steer_angle)
+            self._last_drive = (v, steer_angle)
+
+        return True
+
+    def _post_run(self) -> bool:
+        if self._controller is not None:
+            try: self._controller.ungrab()
+            except OSError: pass
+            try: self._controller.close()
+            except OSError: pass
+            self._controller = None
+        return super()._post_run()
+    
+
 # Mode: Image Processing - CameraMode
 class CameraMode(DrivingMode):
 
     def __init__(self, name='CameraModus', car:Optional[CameraCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
         car = car if car is not None else CameraCar()
-        # just a pointer to remove linter-errors
         self._cameracar = car
-        logger = logging.getLogger(self.__class__.__name__)
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
+        self._morph_kernel = 5
+        self._last_steering_angle = 90
+        self._pack_processing_parameters_lenkwinkel = (3, # blue
+                                                        5 # morph kernel
+                                                        )
+        self._lost_since = None
+        self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
+        logger = logging.getLogger(self.__class__.__name__)
+
         super().__init__(name, car, logger, cfg)
 
+    @property
+    def morph_kernel(self) -> int:
+        with self._lock:
+            return self._morph_kernel
+    @morph_kernel.setter
+    def morph_kernel(self, value:int):
+        with self._lock:
+            self._morph_kernel = max(1, int(value))
+
+    # Werte aus dem vorherigen run
+    def _pre_run(self) -> bool:
+        self._last_steering_angle = 90
+        self._lost_since = None
+        self._car.drive(0, 90)
+        return True
+
     def _run(self) -> bool:
+        print('1: _run START', flush=True)
+
         camera_data_transfer = self._cameracar.camera_data
+        print('2: camera_data gelesen', flush=True)
+
         try:
-            steering_angle_raw, processed_img_areas = lenkwinkel_from_image(camera_data_transfer.process_image)
-            if processed_img_areas is not None and processed_img_areas.size > 0:
-                cv2.imwrite("processed_image_areas.jpg", processed_img_areas)
-                cv2.imwrite("camera_data_transfer.process_image.jpg", camera_data_transfer.process_image)
+            now = time.monotonic_ns()
+
+            morph_kernel_value = max(1, int(self._pack_processing_parameters_lenkwinkel[1]))
+
+            print('3: vor lenkwinkel_from_image', flush=True)
+
+            steering_angle_raw, processed_img_areas = lenkwinkel_from_image(
+                camera_data_transfer.process_image,
+                morph_kernel=(morph_kernel_value, morph_kernel_value)
+            )
+
+            print('4: nach lenkwinkel_from_image', flush=True)
+
+            if steering_angle_raw is None:
+                if self._lost_since is None:
+                    self._lost_since = now
+
+                if now - self._lost_since > self._lost_timeout * 1e9:
+                    self._log.info(f'Seit {self._lost_timeout}s keine zwei Linien – {self._name} wird beendet')
+                    return False
+
+                steering_angle_raw = self._last_steering_angle
+
+            else:
+                self._lost_since = None
+                self._last_steering_angle = steering_angle_raw
+
             driving_parameter = self.driving_parameter(steering_angle_raw)
-            steering_angle = driving_parameter[0]
+
+            steering_gain = self._cfg.get_float('steering_gain', 2.0)
+            steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
             speed = driving_parameter[1]
-            camera_data_processed = CameraDataProcessed(raw_image=camera_data_transfer.raw_image,
-                                                timestamp = camera_data_transfer.timestamp,
-                                                process_image = camera_data_transfer.process_image,
-                                                process_image_lines = processed_img_areas,
-                                                steering_angle = steering_angle,
-                                                line_data=np.empty(0),
-                                                speed = speed)
-            self._cameracar.camera_data_processed = camera_data_processed
-            
+
+            print('5: vor drive', flush=True)
+
             self._cameracar.drive(speed, steering_angle)
 
-        except ValueError as e:
-            print(e)
+            print('6: nach drive', flush=True)
 
-        return True    
+            timestamp = time.time_ns()
+
+            latenz = timestamp - camera_data_transfer.timestamp
+            print(f'7: Latenz = {latenz}', flush=True)
+
+            camera_data_processed = CameraDataProcessed(
+                raw_image=camera_data_transfer.raw_image,
+                timestamp=timestamp,
+                process_image=camera_data_transfer.process_image,
+                process_image_lines=processed_img_areas,
+                steering_angle=steering_angle_raw,
+                steering_angle_car=self._car.steering_angle,
+                line_data=np.empty(0),
+                speed=self._car.speed
+            )
+
+            print('8: CameraDataProcessed erzeugt', flush=True)
+
+            self._car.camera_data_processed = camera_data_processed
+
+            print('9: camera_data_processed gesetzt', flush=True)
+
+        except Exception:
+            self._log.exception('Fehler in CameraMode._run()')
+            return False
+
+        print('10: _run ENDE', flush=True)
+
+        return True
 
 
     def _run_condition(self) -> bool:
@@ -776,6 +934,25 @@ class CameraMode(DrivingMode):
 
     def driving_parameter (self, steering_angle_raw: int ) -> tuple[int, int]:
         steering_angle = steering_angle_raw  # Replace with actual calculation
-        speed = 50           # Replace with actual calculation
+        speed = 30           # Replace with actual calculation
 
         return steering_angle, speed
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -4,7 +4,7 @@ import time
 from typing import Optional
 import cv2
 
-from CameraCar import CameraData
+from CameraCar import CameraData, CameraDataProcessed
 
 import numpy as np
 
@@ -29,7 +29,13 @@ class CameraSensor(Camera):
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
-        self._pack_processing_parameters = ((110,179),(0,255),(0,255),(0.1,0.9), 35) #hue/saturation/value/crop
+        self._pack_processing_parameters = ((110,179), # hue
+                                            (0,255), # saturation
+                                            (0,255), # value
+                                            (0.1,0.9), # crop
+                                            3, # blue
+                                            5 # morph kernel
+                                            )
         print(self._cfg.get('colormode'))
         super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
                           height=self._cfg.get_int('height',480),
@@ -80,7 +86,8 @@ class CameraSensor(Camera):
                 mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
 
                 # evtl noch blur zB mask_blur = cv2.blur(image_gray,(4,4))
-                img_blur = blur_img(mask, blur_value = (3,3))
+                blur = max(1, int(self.processing_parameters[4]))
+                img_blur = blur_img(mask, blur_value = (blur,blur))
 
                 # Kantenerkennung
                 img_kanten = kanten_erkennung(img_blur, minmaxVal = (50,100))
@@ -93,10 +100,12 @@ class CameraSensor(Camera):
                 # Bild bearbeitung -> Linienwerte
                 # Linienwerte an Auto (CameraCar.py) übergeben
                 timestamp = time.time_ns()
-                cameradata = CameraData(raw_image=image,
-                                            timestamp = timestamp,
-                                            process_image = img_kanten)
 
+                cameradata = CameraData(
+                    raw_image=image,
+                    timestamp=timestamp,
+                    process_image=img_kanten
+                )
                 self._car.camera_data = cameradata
 
                 time.sleep(1/self.scan_frequency)
@@ -104,10 +113,6 @@ class CameraSensor(Camera):
             raise e
         finally:
             self._log.debug('Exit Camera loop')
-
-    # def: Bild zuschneiden (Horizont weghauen)
-
-    # def: Bearbeitetes Bild einlsesen, Bild bearbeiten, Linienwerte weitergeben
 
 if __name__ == '__main__':
 
