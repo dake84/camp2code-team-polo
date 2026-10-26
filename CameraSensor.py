@@ -113,7 +113,7 @@ class CameraSensor(Camera):
                 img_morph_kernel = morph_kernel_filter(img_blur, morph_kernel=morph_kernel_parameter)
 
                 # Kantenerkennung
-                img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))
+                #img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))
 
                 # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
                 #FIXME
@@ -127,7 +127,7 @@ class CameraSensor(Camera):
                 cameradata = CameraData(
                     raw_image=image,
                     timestamp=timestamp,
-                    process_image=img_kanten
+                    process_image=img_morph_kernel
                 )
                 self._car.camera_data = cameradata
 

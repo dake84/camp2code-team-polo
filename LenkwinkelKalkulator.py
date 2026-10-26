@@ -133,13 +133,13 @@ def detect_lanes_from_areas(
 
 def cals_drive_parameter_from_lanes(
         img,
-        lanes
-) -> tuple[float, np.ndarray]:
-
-    steering_angle = 90.0
+        lanes,
+        lookahead_fraction=0.55,
+        max_steering_delta=35.0
+) -> tuple[float | None, np.ndarray]:
 
     if img is None or img.size == 0:
-        return steering_angle, img
+        return None, img
 
     img_with_steering_lane = img.copy()
 
@@ -151,7 +151,7 @@ def cals_drive_parameter_from_lanes(
 
     h, w = img_with_steering_lane.shape[:2]
 
-    # Wenn keine 2 lines -> Behalte lenkwinkel bei
+    # Es werden zwingend zwei Fahrbahnbegrenzungen benötigt
     if lanes is None or len(lanes) != 2:
         cv2.putText(
             img_with_steering_lane,
@@ -164,62 +164,130 @@ def cals_drive_parameter_from_lanes(
             cv2.LINE_AA
         )
 
-        return None, img_with_steering_lane  # NEU: None = keine zwei Linien
+        return None, img_with_steering_lane
 
     if not all(lane is not None for lane in lanes):
-        return steering_angle, img_with_steering_lane
+        return None, img_with_steering_lane
 
     y_bottom = h - 1
-    y_top = 0
+
+    # Nicht bis zum oberen Bildrand extrapolieren
+    y_lookahead = int(np.clip(
+        lookahead_fraction * h,
+        0,
+        h - 2
+    ))
 
     x_bottom_arr = np.zeros(2, dtype=float)
-    x_top_arr = np.zeros(2, dtype=float)
+    x_lookahead_arr = np.zeros(2, dtype=float)
 
     for i, lane in enumerate(lanes):
 
         m, b = lane
 
-        x1 = 0
-        x2 = w - 1
+        if not np.isfinite(m) or not np.isfinite(b):
+            return None, img_with_steering_lane
 
-        y1 = int(np.clip(m * x1 + b, -1e6, 1e6))
-        y2 = int(np.clip(m * x2 + b, -1e6, 1e6))
+        if abs(m) < 1e-6:
+            return None, img_with_steering_lane
+
+        # Aus y = m*x + b folgt x = (y - b) / m
+        x_bottom_arr[i] = (y_bottom - b) / m
+        x_lookahead_arr[i] = (y_lookahead - b) / m
+
+        # Fahrbahnlinien nur innerhalb des relevanten Bildbereichs zeichnen
+        x_bottom_draw = int(np.clip(
+            x_bottom_arr[i],
+            0,
+            w - 1
+        ))
+
+        x_lookahead_draw = int(np.clip(
+            x_lookahead_arr[i],
+            0,
+            w - 1
+        ))
 
         cv2.line(
             img_with_steering_lane,
-            (x1, y1),
-            (x2, y2),
+            (x_bottom_draw, y_bottom),
+            (x_lookahead_draw, y_lookahead),
             (0, 255, 0),
             2
         )
 
-        if abs(m) < 1e-6:
-            m_safe = np.copysign(1e-6, m if m != 0 else 1.0)
-        else:
-            m_safe = m
+    # Prüfen, ob links und rechts weiterhin richtig sortiert sind
+    if (
+        x_bottom_arr[0] >= x_bottom_arr[1]
+        or x_lookahead_arr[0] >= x_lookahead_arr[1]
+    ):
+        cv2.putText(
+            img_with_steering_lane,
+            'Fahrbahnlinien unplausibel',
+            (10, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 255),
+            1,
+            cv2.LINE_AA
+        )
 
-        x_bottom_arr[i] = (y_bottom - b) / m_safe
-        x_top_arr[i] = (y_top - b) / m_safe
+        return None, img_with_steering_lane
 
-    x_steer_start = int(w // 2)
+    # Fahrbahnmitte im Look-ahead-Bereich
+    lane_center_lookahead = float(np.mean(x_lookahead_arr))
 
-    x_steer_end = int(np.clip(
-        np.mean(x_top_arr),
+    # Unterer Startpunkt entspricht der Fahrzeug-/Kameramitte
+    x_steer_start = float(w / 2.0)
+    x_steer_end = lane_center_lookahead
+
+    delta_x = x_steer_end - x_steer_start
+    delta_y = y_bottom - y_lookahead
+
+    # 90 Grad = geradeaus
+    steering_delta = np.degrees(
+        np.arctan2(delta_x, delta_y)
+    )
+
+    # Extremes Lenken durch einzelne fehlerhafte Frames verhindern
+    steering_delta = float(np.clip(
+        steering_delta,
+        -max_steering_delta,
+        max_steering_delta
+    ))
+
+    steering_angle = float(np.clip(
+        90.0 + steering_delta,
+        45.0,
+        135.0
+    ))
+
+    x_steer_end_draw = int(np.clip(
+        x_steer_end,
         0,
         w - 1
     ))
 
-    delta_x = x_steer_end - x_steer_start
-    delta_y = y_top - y_bottom
+    cv2.line(
+        img_with_steering_lane,
+        (int(x_steer_start), y_bottom),
+        (x_steer_end_draw, y_lookahead),
+        (0, 0, 255),
+        2
+    )
 
-    slope_degree = (
-        180.0 + np.degrees(np.arctan2(delta_y, delta_x))
-    ) % 180.0
+    cv2.circle(
+        img_with_steering_lane,
+        (x_steer_end_draw, y_lookahead),
+        5,
+        (255, 0, 0),
+        -1
+    )
 
     cv2.putText(
         img_with_steering_lane,
-        f'{slope_degree:.1f}',
-        (20, 20),
+        f'Lenkwinkel: {steering_angle:.1f}',
+        (10, 20),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.5,
         (255, 0, 0),
@@ -227,17 +295,19 @@ def cals_drive_parameter_from_lanes(
         cv2.LINE_AA
     )
 
-    cv2.line(
+    cv2.putText(
         img_with_steering_lane,
-        (x_steer_start, y_bottom),
-        (x_steer_end, y_top),
-        (0, 0, 255),
-        2
+        f'Abweichung: {delta_x:.1f}px',
+        (10, 42),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.45,
+        (255, 0, 0),
+        1,
+        cv2.LINE_AA
     )
 
-    steering_angle = int(slope_degree)
-
     return steering_angle, img_with_steering_lane
+
 
 
 def lenkwinkel_from_image(img) -> tuple[int, np.ndarray]:
