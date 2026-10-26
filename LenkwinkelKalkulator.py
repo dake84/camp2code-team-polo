@@ -44,8 +44,7 @@ def detect_lanes_from_areas(
         n_lanes=2,
         min_area=150,
         m_max=10,
-        fit_frac=1.0,
-        morph_kernel=(5, 5)
+        fit_frac=1.0
 ):
 
     if mask is None:
@@ -54,29 +53,29 @@ def detect_lanes_from_areas(
     if mask.size == 0:
         return [], mask.copy()
 
-    # Falls ein BGR-Bild übergeben wird, in Graustufen umwandeln
-    if mask.ndim == 3:
-        mask_gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-    else:
-        mask_gray = mask
+    # # Falls ein BGR-Bild übergeben wird, in Graustufen umwandeln
+    # if mask.ndim == 3:
+    #     mask_gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    # else:
+    #     mask_gray = mask
 
-    mask_bin = (mask_gray > 0).astype(np.uint8) * 255
+    # mask_bin = (mask_gray > 0).astype(np.uint8) * 255
 
-    kernel = np.ones(morph_kernel, dtype=np.uint8)
+    # kernel = np.ones(morph_kernel, dtype=np.uint8)
 
-    mask_bin = cv2.morphologyEx(
-        mask_bin,
-        cv2.MORPH_CLOSE,
-        kernel
-    )
+    # mask_bin = cv2.morphologyEx(
+    #     mask_bin,
+    #     cv2.MORPH_CLOSE,
+    #     kernel
+    # )
 
     num, labels, stats, _ = cv2.connectedComponentsWithStats(
-        mask_bin,
+        mask,
         connectivity=8
     )
 
     if num <= 1:
-        return [], np.zeros_like(mask_bin)
+        return [], np.zeros_like(mask)
 
     order = np.argsort(
         stats[1:, cv2.CC_STAT_AREA]
@@ -86,7 +85,7 @@ def detect_lanes_from_areas(
         stats[order, cv2.CC_STAT_AREA] >= min_area
     ]
 
-    h = mask_bin.shape[0]
+    h = mask.shape[0]
     y_min = int((1.0 - fit_frac) * h)
 
     lanes = []
@@ -120,7 +119,7 @@ def detect_lanes_from_areas(
         valid_labels.append(lbl)
 
     if not lanes:
-        return [], np.zeros_like(mask_bin)
+        return [], np.zeros_like(mask)
 
     sort_indices = np.argsort(x_bottom)
 
@@ -241,10 +240,7 @@ def cals_drive_parameter_from_lanes(
     return steering_angle, img_with_steering_lane
 
 
-def lenkwinkel_from_image(
-        img,
-        morph_kernel=(5, 5)
-) -> tuple[int, np.ndarray]:
+def lenkwinkel_from_image(img) -> tuple[int, np.ndarray]:
 
     steering_angle = 90.0
 
@@ -258,8 +254,7 @@ def lenkwinkel_from_image(
         img,
         n_lanes=2,
         min_area=150,
-        fit_frac=1.0,
-        morph_kernel=morph_kernel
+        fit_frac=1.0
     )
 
     # Sicherheitsfallback, falls keine Ausgabemaske erzeugt wurde

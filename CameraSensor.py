@@ -19,6 +19,26 @@ def blur_img(img, blur_value = (10,10)):
 def kanten_erkennung(img, minmaxVal = (20,250)):
     return cv2.Canny(img,minmaxVal[0],minmaxVal[1])
 
+def morph_kernel_filter(img, morph_kernel=(5, 5)):
+
+    # Falls ein BGR-Bild übergeben wird, in Graustufen umwandeln
+    if img.ndim == 3:
+        mask_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        mask_gray = img
+
+    mask_bin = (mask_gray > 0).astype(np.uint8) * 255
+
+    kernel = np.ones(morph_kernel, dtype=np.uint8)
+
+    img_morph_kernel = cv2.morphologyEx(
+        mask_bin,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    return img_morph_kernel
+
 
 class CameraSensor(Camera):
 
@@ -89,8 +109,11 @@ class CameraSensor(Camera):
                 blur = max(1, int(self.processing_parameters[4]))
                 img_blur = blur_img(mask, blur_value = (blur,blur))
 
+                morph_kernel_parameter = ((self.processing_parameters[5],self.processing_parameters[5]))
+                img_morph_kernel = morph_kernel_filter(img_blur, morph_kernel=morph_kernel_parameter)
+
                 # Kantenerkennung
-                img_kanten = kanten_erkennung(img_blur, minmaxVal = (50,100))
+                img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))
 
                 # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
                 #FIXME

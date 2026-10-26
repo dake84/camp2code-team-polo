@@ -35,7 +35,7 @@ _shutdown_lock = threading.Lock()
 class ImageStream:
     '''Importiert Kamerabilder in einem eigenen Thread und hält das letzte Ergebnis bereit.'''
 
-    def __init__(self, car, sensor, use_raw_data:bool=True):
+    def __init__(self, car, sensor, driving, use_raw_data:bool=True):
         self.car = car
         self._hsv_lock = threading.Lock()
         self._lower = np.array([DEFAULT_HSV[k][0] for k in 'hsv'], dtype=np.uint8)
@@ -45,6 +45,7 @@ class ImageStream:
         self._jpeg = None
         self.lines = None  # Koordinaten im skalierten Bild (Faktor SCALE)!
         self.sensor = sensor
+        self.driving = driving
 
     def set_hsv(self, hue, saturation, value, crop, blur, morph_kernel):
         self.sensor.processing_parameters = (hue, saturation, value, crop, blur, morph_kernel)
@@ -67,8 +68,10 @@ class ImageStream:
             frame = self.car.camera_data.raw_image
         else:
             camera_data_processed = self.car.camera_data_processed
+
             if camera_data_processed is None:
                 return
+
             frame = camera_data_processed.process_image_lines
             line_data = camera_data_processed.line_data
             steering_angle = camera_data_processed.steering_angle
@@ -78,6 +81,7 @@ class ImageStream:
             return
 
         ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+
         if ok:
             with self._frame_cond:
                 self._jpeg = jpeg.tobytes()
@@ -89,8 +93,10 @@ class ImageStream:
             with self._frame_cond:
                 self._frame_cond.wait(timeout=1.0)
                 jpeg = self._jpeg
+
             if jpeg is None:
                 continue
+
             yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n'
 
 
@@ -113,10 +119,12 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
 
     def slider(channel, max_value, increment=1.0):
         default = DEFAULT_HSV[channel]
+
         if isinstance(default, (tuple, list)):
             component = dcc.RangeSlider(0, max_value, value=list(default), step=increment, id=f'{channel}-slider', tooltip={'placement': 'bottom'})
         else:
             component = dcc.Slider(0, max_value, value=default, step=increment, id=f'{channel}-slider', tooltip={'placement': 'bottom'})
+
         return html.Div([html.Label(channel.upper()), component])
 
     app.layout = dbc.Container([
@@ -147,7 +155,9 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
                         {'label': 'Fahrmodus 2 - AI', 'value': 'fahrmodus_2'},
                         {'label': 'Fahrmodus 3 - PS Controller', 'value': 'fahrmodus_ps'}
                     ],
-                    value='fahrmodus_1', clearable=False, placeholder='Bitte Fahrmodus wählen'
+                    value='fahrmodus_1',
+                    clearable=False,
+                    placeholder='Bitte Fahrmodus wählen'
                 ),
                 dbc.Button('Fahrmodus starten', id='button_fahrmodi', n_clicks=0, color='success', className='mt-4'),
                 dcc.Store(id='fahrmodus_state', data=False),
@@ -167,41 +177,58 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
 
     @app.callback(
         Output('hsv-info', 'children'),
-        Input('h-slider', 'value'), Input('s-slider', 'value'), Input('v-slider', 'value'),
-        Input('crop-slider', 'value'), Input('blur-slider', 'value'), Input('morph_kernel-slider', 'value')
+        Input('h-slider', 'value'),
+        Input('s-slider', 'value'),
+        Input('v-slider', 'value'),
+        Input('crop-slider', 'value'),
+        Input('blur-slider', 'value'),
+        Input('morph_kernel-slider', 'value')
     )
     def update_filter(h, s, v, crop, blur, morph_kernel):
         stream_pre_processing.set_hsv(h, s, v, crop, blur, morph_kernel)
         return f'H: {h}, S: {s}, V: {v}, crop: {crop}, blur: {blur}, morph: {morph_kernel}'
 
-    @app.callback(Output('stop-info', 'children'), Input('stop-button', 'n_clicks'), prevent_initial_call=True)
+    @app.callback(
+        Output('stop-info', 'children'),
+        Input('stop-button', 'n_clicks'),
+        prevent_initial_call=True
+    )
     def stop_app(n_clicks):
         on_stop()
         threading.Timer(0.5, os.kill, args=(os.getpid(), signal.SIGINT)).start()
         return 'App beendet'
 
     @app.callback(
-        Output('fahrmodus_state', 'data'), Output('button_fahrmodi', 'children'), Output('button_fahrmodi', 'color'), Output('dropdown_fahrmodus', 'disabled'),
+        Output('fahrmodus_state', 'data'),
+        Output('button_fahrmodi', 'children'),
+        Output('button_fahrmodi', 'color'),
+        Output('dropdown_fahrmodus', 'disabled'),
         Input('button_fahrmodi', 'n_clicks'),
-        State('fahrmodus_state', 'data'), State('dropdown_fahrmodus', 'value'),
+        State('fahrmodus_state', 'data'),
+        State('dropdown_fahrmodus', 'value'),
         prevent_initial_call=True
     )
     def toggle_fahrmodus(n_clicks, running, selected):
         if running:
             for m in modes.values():
                 m.stop()
+
             return False, 'Fahrmodus starten', 'success', False
 
         mode = modes.get(selected)
+
         if mode is None:
             log.warning(f'{selected} ist nicht implementiert')
             return False, 'Fahrmodus starten', 'success', False
 
         mode.start()
+
         return True, 'Fahrmodus stoppen', 'danger', True
 
     @app.callback(
-        Output('save_data_state', 'data'), Output('button_save_data', 'children'), Output('button_save_data', 'color'),
+        Output('save_data_state', 'data'),
+        Output('button_save_data', 'children'),
+        Output('button_save_data', 'color'),
         Input('button_save_data', 'n_clicks'),
         State('save_data_state', 'data'),
         prevent_initial_call=True
@@ -210,7 +237,9 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
         if running:
             save_data.stop()
             return False, 'Datenaufnahme starten', 'primary'
+
         save_data.start()
+
         return True, 'Datenaufnahme stoppen', 'danger'
 
     return app
@@ -241,6 +270,7 @@ def shutdown(modes, car, sensor, save_data, threads, stop_event):
 
     for t in threads:
         t.join(timeout=2)
+
         if t.is_alive():
             log.warning('Thread %s läuft noch', t.name)
 
@@ -253,10 +283,13 @@ def main():
     sensor = CameraSensor(car)
     save_data = SaveData_4_AI(car=car, frequency=5.0)
 
-    modes = {'fahrmodus_1': Driving.CameraMode(car=car), 'fahrmodus_ps': Driving.PSControllerMode(car=car)}
+    modes = {
+        'fahrmodus_1': Driving.CameraMode(car=car),
+        'fahrmodus_ps': Driving.PSControllerMode(car=car)
+    }
 
-    stream_pre_processing = ImageStream(car, sensor, use_raw_data=True)
-    stream_post_processing = ImageStream(car, sensor, use_raw_data=False)
+    stream_pre_processing = ImageStream(car, sensor, modes.get('fahrmodus_1'), use_raw_data=True)
+    stream_post_processing = ImageStream(car, sensor, modes.get('fahrmodus_1'), use_raw_data=False)
 
     stop_event = threading.Event()
 
@@ -271,9 +304,15 @@ def main():
 
     try:
         app = create_app(
-            modes, car, stream_pre_processing, stream_post_processing, sensor, save_data,
+            modes,
+            car,
+            stream_pre_processing,
+            stream_post_processing,
+            sensor,
+            save_data,
             on_stop=lambda: shutdown(modes, car, sensor, save_data, threads, stop_event)
         )
+
         # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host='0.0.0.0', debug=False, use_reloader=False)
 
@@ -286,7 +325,7 @@ if __name__ == '__main__':
 
 
     # 1: [X] Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen
-    # 2: [X] Sensor an App übergeben ("update_filter") zur Übergabe der Filterwerte
+    # 2: [X] Sensor an App übergeben ('update_filter') zur Übergabe der Filterwerte
     # 3: [HOLD] inkl. Switch RGBBHRGREYHSV...
     # 4: [X] Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
     # 5: inkl. Linienerkennung einmalen in img_processed

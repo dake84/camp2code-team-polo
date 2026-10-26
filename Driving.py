@@ -823,25 +823,12 @@ class CameraMode(DrivingMode):
         car = car if car is not None else CameraCar()
         self._cameracar = car
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
-        self._morph_kernel = 5
         self._last_steering_angle = 90
-        self._pack_processing_parameters_lenkwinkel = (3, # blue
-                                                        5 # morph kernel
-                                                        )
         self._lost_since = None
         self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
         logger = logging.getLogger(self.__class__.__name__)
 
         super().__init__(name, car, logger, cfg)
-
-    @property
-    def morph_kernel(self) -> int:
-        with self._lock:
-            return self._morph_kernel
-    @morph_kernel.setter
-    def morph_kernel(self, value:int):
-        with self._lock:
-            self._morph_kernel = max(1, int(value))
 
     # Werte aus dem vorherigen run
     def _pre_run(self) -> bool:
@@ -859,14 +846,9 @@ class CameraMode(DrivingMode):
         try:
             now = time.monotonic_ns()
 
-            morph_kernel_value = max(1, int(self._pack_processing_parameters_lenkwinkel[1]))
-
             print('3: vor lenkwinkel_from_image', flush=True)
 
-            steering_angle_raw, processed_img_areas = lenkwinkel_from_image(
-                camera_data_transfer.process_image,
-                morph_kernel=(morph_kernel_value, morph_kernel_value)
-            )
+            steering_angle_raw, processed_img_areas = lenkwinkel_from_image(camera_data_transfer.process_image)
 
             print('4: nach lenkwinkel_from_image', flush=True)
 
