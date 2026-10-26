@@ -54,18 +54,23 @@ class CameraSensor(Camera):
         self._processor = CopilotLaneProcessor()
         # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
         self._frame_id = 0
-        self._pack_processing_parameters = ((110,179), # hue
-                                            (0,255), # saturation
-                                            (0,255), # value
-                                            (0.1,0.9), # crop
-                                            3, # blue
-                                            5, # morph kernel
-                                            (50,100) # Canny-Schwellen
-                                            )
+        # Gespeicherte Studio-Konfiguration auch ohne offenen Browser nutzen.
+        from pipeline_config import load as load_pipeline_config
+        settings = load_pipeline_config()
+        self._pack_processing_parameters = (
+            tuple(settings['hue']), tuple(settings['sat']), tuple(settings['val']),
+            tuple(settings['crop']), int(settings['blur']), int(settings['morph']),
+            tuple(settings['canny']), dict(settings['enabled']),
+        )
         print(self._cfg.get('colormode'))
         super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
                           height=self._cfg.get_int('height',480),
                           width=self._cfg.get_int('width',640))
+        
+        self.set_camera_controls({
+            "AeEnable": True,
+            "ExposureValue": 1.0,
+        })
 
     @property
     def scan_frequency(self) -> int:

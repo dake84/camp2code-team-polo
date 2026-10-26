@@ -9,6 +9,8 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 from CameraCar import CameraCar
 from CameraSensor import CameraSensor
+from pipeline_config import load as load_pipeline_config, save as save_pipeline_config
+CFG = load_pipeline_config()
 from dashboard_overlay import render_calibration_overlay
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ def image_uri(image):
     return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii') if ok else None
 
 def slider(label, name, min_v, max_v, value, step=1, range_slider=False):
+    value = CFG.get(name, value)
     control = dcc.RangeSlider if range_slider else dcc.Slider
     return html.Div([html.Label(label, className='small fw-semibold'),
                      control(id=name, min=min_v, max=max_v, step=step, value=value,
@@ -58,7 +61,7 @@ def card(key,title,desc,kind):
                   'objectFit':'contain','background':'#101827','borderRadius':'8px'})),
                   html.Div([dcc.Checklist(id=f'enabled-{key}',
                          options=[{'label':' Verarbeitung aktiv', 'value':'on'}],
-                         value=['on'], inline=True)], className='pt-2')
+                         value=['on'] if CFG['enabled'].get('lanes' if key == 'overlay' else 'canny' if key == 'edges' else key, True) else [], inline=True)], className='pt-2')
                   if key in ('roi','mask','blur','morph','edges','overlay') else html.Div(),
                   html.Div(controls(kind),className='pt-3')])
     ],className='h-100 shadow-sm'),xs=12,md=6,xl=4,className='mb-3')
@@ -74,10 +77,12 @@ def make_app(car,sensor):
                        dcc.Dropdown(id='processor',options=[
                            {'label':'CopilotLaneProcessor · Diagnose','value':'copilot'},
                            {'label':'LaneProcessor · Legacy','value':'legacy'}],
-                           value='copilot',clearable=False)],md=3)],className='pt-4 mb-3'),
+                           value=CFG['processor'],clearable=False)],md=3)],className='pt-4 mb-3'),
         dbc.Alert('Kalibrierungsmodus: Dieses Dashboard startet keinen Fahrmodus und sendet keine Fahrbefehle.',
                   color='info'),
         dbc.Row([card(*stage) for stage in STAGES]),
+        dbc.Row([dbc.Col([dbc.Button('Einstellungen speichern', id='save-config', color='success'),
+                          html.Span(id='save-feedback', className='ms-3')], className='mb-3')]),
         dbc.Card([dbc.CardHeader('Performance · Soll / Ist'),dbc.CardBody([
             html.Div(id='status',className='mb-2'),
             dcc.Graph(id='frequency-chart',config={'displayModeBar':False})])],className='mb-4'),
@@ -99,6 +104,27 @@ def make_app(car,sensor):
                                       int(blur),int(morph),tuple(canny),enabled)
         sensor.set_processor(processor)
         return 'Parameter uebernommen'
+
+    @app.callback(Output('save-feedback', 'children'),
+                  Input('save-config', 'n_clicks'),
+                  State('processor', 'value'), State('crop', 'value'),
+                  State('hue', 'value'), State('sat', 'value'), State('val', 'value'),
+                  State('blur', 'value'), State('morph', 'value'), State('canny', 'value'),
+                  *[State(f'enabled-{name}', 'value') for name in
+                    ('roi', 'mask', 'blur', 'morph', 'edges', 'overlay')],
+                  prevent_initial_call=True)
+    def persist(_, processor, crop, hue, sat, val, blur, morph, canny, *switches):
+        """Speichert Slider und Aktivierungsschalter fuer den naechsten Start."""
+        names = ('roi', 'mask', 'blur', 'morph', 'canny', 'lanes')
+        enabled = {name: 'on' in values for name, values in zip(names, switches)}
+        config = dict(processor=processor, crop=crop, hue=hue, sat=sat, val=val,
+                      blur=blur, morph=morph, canny=canny, enabled=enabled)
+        try:
+            save_pipeline_config(config)
+            return 'Gespeichert in pipeline_studio.json'
+        except OSError as exc:
+            log.exception('Kalibrierung konnte nicht gespeichert werden')
+            return f'Speichern fehlgeschlagen: {exc}'
 
     outputs=[Output(f'image-{key}','src') for key,_,_,_ in STAGES]
     @app.callback(outputs+[Output('status','children'),Output('frequency-chart','figure')],Input('refresh','n_intervals'))

@@ -363,6 +363,9 @@ class Camera:
 
         self.release()
 
+    def set_camera_controls(self, controls: dict) -> None:
+        """Setzt Kameraeinstellungen über das aktive Kamerabackend."""
+        self.__VideoCapture.set_controls(controls)
 
 if __name__ == "__main__":
 
