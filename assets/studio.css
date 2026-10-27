@@ -1,2 +1,36 @@
-/* Ruhigeres, responsives Engineering Studio. */
-body{background:#101522!important} .card{border-radius:13px!important;overflow:hidden;border:1px solid #354057!important;box-shadow:0 4px 18px #0002}.card-header{font-weight:650;background:#1b273a!important;color:#e9f3ff!important}.card-body{min-width:0}.nav-tabs{display:flex;flex-wrap:wrap;gap:5px;border-bottom:1px solid #38445b!important}.nav-tabs .nav-link{border-radius:9px 9px 0 0!important;white-space:nowrap}.nav-tabs .nav-link.active{background:#2464bd!important;color:#fff!important}.js-plotly-plot,.plot-container{max-width:100%}img{max-width:100%} .btn{font-weight:600;border-radius:8px}.container-fluid{max-width:1800px} @media(max-width:700px){.card-body{padding:12px!important}.container-fluid{padding:8px!important}h2{font-size:1.5rem!important}}
+/* Camp2Code Control Center - Dark Theme, responsiv (Version 6.0).
+   Hinweis: Die Dropdown-/Slider-Selektoren decken Dash 2 (react-select) und
+   neuere Dash-Versionen ab. Auf dem Pi pruefen, welche Dash-Version installiert ist. */
+:root{--c2c-bg:#0e1424;--c2c-card:#172235;--c2c-line:#33405a;--c2c-text:#e9f1ff;--c2c-muted:#9aa8bf;--c2c-input:#0f1726}
+body{background:var(--c2c-bg)!important;color:var(--c2c-text)}
+.container-fluid{max-width:1800px}
+.card{background:var(--c2c-card)!important;border-radius:12px!important;overflow:hidden;border:1px solid var(--c2c-line)!important;box-shadow:0 4px 18px #0003}
+.card-header{font-weight:650;background:#1c2a41!important;color:var(--c2c-text)!important;padding:.55rem .9rem}
+.card-body{min-width:0}
+.c2c-control-bar{position:sticky;top:0;z-index:1000}
+.nav-tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--c2c-line)!important}
+.nav-tabs .nav-link{border-radius:9px 9px 0 0!important;white-space:nowrap;color:var(--c2c-muted)}
+.nav-tabs .nav-link.active{background:#2464bd!important;color:#fff!important}
+.btn{font-weight:600;border-radius:8px}
+.btn:disabled{opacity:.45}
+img{max-width:100%}
+.js-plotly-plot,.plot-container{max-width:100%}
+.c2c-kpi-label{font-size:.75rem;color:var(--c2c-muted);text-transform:uppercase;letter-spacing:.04em}
+.c2c-kpi{font-size:2.2rem;font-weight:600;line-height:1.1}
+.c2c-kpi-small{font-size:1.3rem;font-weight:600}
+.c2c-events{max-height:420px;overflow-y:auto;font-family:ui-monospace,Consolas,monospace;font-size:.82rem}
+.c2c-events>div{padding:3px 0;border-bottom:1px solid #26314a}
+/* Eingabefelder (inkl. Zahlenfelder neben Slidern) */
+input[type=text],input[type=number],.form-control{background:var(--c2c-input)!important;color:var(--c2c-text)!important;border:1px solid var(--c2c-line)!important}
+/* Dropdowns: Dash 2 (react-select) */
+.c2c-dropdown .Select-control{background:var(--c2c-input)!important;border-color:var(--c2c-line)!important}
+.c2c-dropdown .Select-value-label,.c2c-dropdown .Select-placeholder,.c2c-dropdown .Select-input>input{color:var(--c2c-text)!important}
+.c2c-dropdown .Select-menu-outer{background:var(--c2c-input)!important;border-color:var(--c2c-line)!important}
+.c2c-dropdown .VirtualizedSelectOption{background:var(--c2c-input);color:var(--c2c-text)}
+.c2c-dropdown .VirtualizedSelectFocusedOption{background:#24406b;color:#fff}
+/* Dropdowns: neuere Dash-Versionen (generische Selektoren) */
+.c2c-dropdown,.c2c-dropdown *{color:var(--c2c-text)}
+.c2c-dropdown [class*="control"],.c2c-dropdown [class*="menu"],.c2c-dropdown [class*="option"],
+.c2c-dropdown [class*="dropdown"]{background-color:var(--c2c-input)}
+.c2c-dropdown [class*="option"]:hover{background-color:#24406b}
+@media(max-width:700px){.card-body{padding:10px!important}.container-fluid{padding:6px!important}h2{font-size:1.4rem!important}.c2c-kpi{font-size:1.6rem}}

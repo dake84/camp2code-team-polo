@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -229,7 +230,7 @@ Driving copy.py
 *.jpg
 *.jpeg
 
-# Lieferpakete und Exporte
-*.zip
-camp2code-*.txt
-src-*.txt
+# Camp2Code 6.0: Laufzeitdaten nicht versionieren
+Data_AI/
+logs/
+pipeline_studio.json.tmp

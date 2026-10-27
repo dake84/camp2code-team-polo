@@ -1,28 +1,16 @@
+"""Fahrmodus 4: Erkundungsfahrt mit Ausweichmanoever."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
+import logging
 import random
-import threading
 import time
 from datetime import datetime
-from typing import Optional, Tuple
-import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
+from typing import TYPE_CHECKING, Optional
 
 from .approach_obstacle import ApproachObstacle
+
+if TYPE_CHECKING:
+    from SonicCar import SonicCar
 
 class RoomExplorer(ApproachObstacle):
     def __init__(self, name="Fahrmodus 4 (RoomExplorer)", car:Optional[SonicCar]=None):
@@ -34,7 +22,7 @@ class RoomExplorer(ApproachObstacle):
         explorer_max_time = self._cfg.get_int("explorer_max_time", 30)
 
         self._t_end = time.time() + explorer_max_time
-        self._log.debug(f"Erkunde den Raum für {explorer_max_time}s bis {datetime.fromtimestamp(self._t_end).strftime("%Y-%m-%d %H:%M:%S")}")
+        self._log.debug(f"Erkunde den Raum für {explorer_max_time}s bis {datetime.fromtimestamp(self._t_end).strftime('%Y-%m-%d %H:%M:%S')}")
 
         actual_speed_drive_explore = self._cfg.get_int("start_speed", 60)
         steering_angle_drive_explore = self._cfg.get_int("start_angle", 90)

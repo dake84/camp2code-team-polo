@@ -1,185 +1,188 @@
-from __future__ import annotations
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
-import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar
-from models import CameraDataProcessed, CameraData, DrivingState
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import (
-    put_steering_lines_into_image, cals_drive_parameter_from_lanes
-)
-import select
-from evdev import InputDevice, ecodes
-from .base import DrivingMode
-class CameraMode(DrivingMode):
+"""Kamerabasierter Fahrmodus (Standardmodus des CameraCar).
 
-    def __init__(self, name='CameraModus', car:Optional[CameraCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
-        car = car if car is not None else CameraCar()
+Datenvertrag:
+    * Eingang ist ausschliesslich ``CameraCar.camera_data`` (eine Bildverarbeitung
+      je Frame im ``CameraSensor``). Der Regler erkennt keine Linien selbst.
+    * Jede Fahrentscheidung wird als ``DrivingState`` mit derselben ``frame_id``
+      veroeffentlicht und im Ringbuffer dem Kameraframe zugeordnet.
+
+Aenderungen gegenueber V5.5 (siehe CHANGELOG):
+    * Ein Kameraframe wird genau einmal ausgewertet. Vorher wurde derselbe Frame
+      bei 500 Hz Abtastrate bis zu ~30-mal neu berechnet und an die Hardware
+      gesendet.
+    * Die Schutzfunktion ``LANE_TIMEOUT`` bleibt unveraendert (gleiche Uhr, gleiche
+      Schwelle) und wird auch ohne neuen Frame geprueft.
+    * Neu: ``CAMERA_STALE`` stoppt, wenn laenger als ``lost_line_timeout`` kein
+      neuer Kameraframe eintrifft (vorher fuhr das Fahrzeug mit dem letzten
+      Winkel weiter, falls der Kamerathread ausfiel).
+    * Neu: Ohne gueltigen Kameraframe (``frame_id < 0``, Platzhalter beim Start)
+      wird nicht gefahren. Vorher fuhr das Fahrzeug mit 90 Grad und Speed 30 los,
+      obwohl noch kein Bild vorlag. Nach ``lost_line_timeout`` -> ``NO_CAMERA_DATA``.
+    * ``CameraDataProcessed`` wird nicht mehr erzeugt (keine Leser vorhanden).
+    * Unveraendert: Winkelberechnung, ``steering_gain``, Speed-Steuerwert 30.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import TYPE_CHECKING, Optional
+
+import ConfigReader
+from LenkwinkelKalkulator import steering_angle_from_lanes
+from models import DrivingState
+
+from .base import DrivingMode
+
+if TYPE_CHECKING:
+    from CameraCar import CameraCar
+
+
+class CameraMode(DrivingMode):
+    # Speed-Steuerwert des CameraMode. Wurde bewusst von 20 auf 30 erhoeht,
+    # weil das Fahrzeug bei 20 nicht anfaehrt. Nicht ohne Absprache aendern;
+    # tests/test_camera_mode.py sichert den Wert ab.
+    SPEED_CONTROL_VALUE = 30
+
+    def __init__(self, name='CameraModus', car: Optional[CameraCar] = None,
+                 cfg: Optional[ConfigReader.ConfigReader] = None):
+        if car is None:
+            # Lazy-Import: Hardware nur bei Bedarf initialisieren.
+            from CameraCar import CameraCar
+            car = CameraCar()
         self._cameracar = car
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         self._last_steering_angle = 90
         self._lost_since = None
+        self._last_frame_id = None
+        self._started_ns = time.monotonic_ns()
         self.last_stop_reason = None
         self.last_diagnostic = None
         self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
         logger = logging.getLogger(self.__class__.__name__)
-
         super().__init__(name, car, logger, cfg)
+        # Driving-Mode-Kennung fuer DrivingState/Recorder.
+        self.mode_key = 'camera'
 
-    # Werte aus dem vorherigen run
+    @property
+    def poll_frequency(self) -> int:
+        """Abtastrate der Reglerschleife in Hz (nicht die Entscheidungsrate)."""
+        return self._frequency
+
     def _pre_run(self) -> bool:
         self._last_steering_angle = 90
         self._lost_since = None
+        self._last_frame_id = None
         self.last_stop_reason = None
         self.last_diagnostic = None
+        self._started_ns = time.monotonic_ns()
         self._car.drive(0, 90)
         return True
 
-    def _run(self) -> bool:
+    def _check_without_new_frame(self, camera, now) -> bool:
+        """Prueft die Schutzfunktionen, wenn kein neuer Kameraframe vorliegt."""
+        timeout_ns = self._lost_timeout * 1e9
+        if self._lost_since is not None and now - self._lost_since > timeout_ns:
+            self._stop_with('LANE_TIMEOUT', camera.frame_id)
+            return False
+        published = getattr(camera, 'monotonic_ns', 0) or 0
+        if published and now - published > timeout_ns:
+            self._stop_with('CAMERA_STALE', camera.frame_id)
+            return False
+        return True
 
+    def _stop_with(self, reason, frame_id):
+        self.last_stop_reason = reason
+        if self.last_diagnostic is not None:
+            self.last_diagnostic['stop_reason'] = reason
+        self._log.warning('CameraMode stoppt: %s, Frame %s, letzte Lenkung %s',
+                          reason, frame_id, self._last_steering_angle)
+
+    def _run(self) -> bool:
         camera_data_transfer = self._cameracar.camera_data
         if camera_data_transfer is None:
             self.last_stop_reason = 'NO_CAMERA_DATA'
             self._log.error('CameraMode beendet: kein Kameradatenpaket')
             return False
-
         try:
             now = time.monotonic_ns()
-
+            if camera_data_transfer.frame_id < 0:
+                # Platzhalter ohne Kamerabild: nicht fahren, nur Wartezeit pruefen.
+                if now - self._started_ns > self._lost_timeout * 1e9:
+                    self._stop_with('NO_CAMERA_DATA', camera_data_transfer.frame_id)
+                    return False
+                return True
+            if camera_data_transfer.frame_id == self._last_frame_id:
+                # Kein neuer Frame: keine neue Entscheidung, keine Hardwarebefehle.
+                return self._check_without_new_frame(camera_data_transfer, now)
+            self._last_frame_id = camera_data_transfer.frame_id
 
             # Der LaneDetector hat die Linien bereits fuer diesen Frame ermittelt.
             # Hier wird nur noch der Lenkwinkel aus den Linien berechnet.
             lanes = list(camera_data_transfer.lanes)
-            img_with_lines = put_steering_lines_into_image(
-                camera_data_transfer.process_image, lanes
-            )
-            steering_angle_raw, processed_img_areas = cals_drive_parameter_from_lanes(
-                img_with_lines, lanes
-            )
+            process_image = camera_data_transfer.process_image
+            if process_image is None or process_image.size == 0:
+                # Verhalten wie bisher: ohne Bild liefert der Kalkulator 90 Grad.
+                steering_angle_raw = 90.0
+            else:
+                height, width = process_image.shape[:2]
+                steering_angle_raw = steering_angle_from_lanes(lanes, width, height)
 
-
-            # Diagnose wird unabhängig von der Fahrentscheidung veröffentlicht.
-            # Die beiden Linienwerte stammen ausschließlich aus CameraData.
-            self.last_diagnostic = {
+            # Diagnose wird unabhaengig von der Fahrentscheidung veroeffentlicht.
+            diagnostic = {
                 'frame_id': camera_data_transfer.frame_id,
                 'lanes': tuple(lanes),
                 'raw_angle': steering_angle_raw,
                 'held_previous_angle': steering_angle_raw is None,
                 'previous_angle': self._last_steering_angle,
                 'stop_reason': None,
+                'decided_monotonic_ns': now,
             }
+            self.last_diagnostic = diagnostic
             if steering_angle_raw is None:
                 if self._lost_since is None:
                     self._lost_since = now
-
                 if now - self._lost_since > self._lost_timeout * 1e9:
-                    self.last_stop_reason = 'LANE_TIMEOUT'
-                    self.last_diagnostic['stop_reason'] = 'LANE_TIMEOUT'
-                    self._log.warning('CameraMode stoppt: LANE_TIMEOUT, Frame %s, letzte Lenkung %s', camera_data_transfer.frame_id, self._last_steering_angle)
-                    self._log.info(f'Seit {self._lost_timeout}s keine zwei Linien – {self._name} wird beendet')
+                    self._stop_with('LANE_TIMEOUT', camera_data_transfer.frame_id)
+                    self._log.info(f'Seit {self._lost_timeout}s keine zwei Linien - {self._name} wird beendet')
                     return False
-
                 steering_angle_raw = self._last_steering_angle
-
             else:
                 self._lost_since = None
                 self._last_steering_angle = steering_angle_raw
 
             driving_parameter = self.driving_parameter(steering_angle_raw)
-
             steering_gain = self._cfg.get_float('steering_gain', 2.0)
             steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
             speed = driving_parameter[1]
-
-
             self._cameracar.drive(speed, steering_angle)
-            self.last_diagnostic.update(
-                requested_angle=steering_angle,
-                actual_angle=self._car.steering_angle,
-                speed_control=self._car.speed,
-            )
-
-
-            timestamp = time.time_ns()
-
-            latenz = timestamp - camera_data_transfer.timestamp
-
-            camera_data_processed = CameraDataProcessed(
-                frame_id=camera_data_transfer.frame_id,
-                raw_image=camera_data_transfer.raw_image,
-                timestamp=timestamp,
-                process_image=camera_data_transfer.process_image,
-                process_image_lines=processed_img_areas,
-                steering_angle=steering_angle_raw,
-                steering_angle_car=self._car.steering_angle,
-                line_data=np.empty(0),
-                speed=self._car.speed,
-                lanes=lanes
-            )
-
+            actual_angle = self._car.steering_angle
+            actual_speed = self._car.speed
+            diagnostic.update(requested_angle=steering_angle, actual_angle=actual_angle,
+                              speed_control=actual_speed)
 
             # Die Fahrentscheidung referenziert genau das verarbeitete Bild.
             self._cameracar.driving_state = DrivingState(
                 frame_id=camera_data_transfer.frame_id,
-                timestamp_ns=timestamp,
-                steering_angle=camera_data_processed.steering_angle,
-                speed=camera_data_processed.speed,
-                lanes=camera_data_processed.lanes,
-                steering_angle_car=camera_data_processed.steering_angle_car,
+                timestamp_ns=time.time_ns(),
+                steering_angle=steering_angle_raw,
+                speed=actual_speed,
+                lanes=lanes,
+                steering_angle_car=actual_angle,
+                driving_mode=self.mode_key,
+                requested_angle=steering_angle,
+                monotonic_ns=time.monotonic_ns(),
             )
-            # Alter Datenvertrag bleibt fuer Dashboard/Recorder vorerst aktiv.
-            self._cameracar.camera_data_processed = camera_data_processed
-
-
         except Exception:
             self.last_stop_reason = 'CONTROLLER_EXCEPTION'
             self._log.exception('Fehler in CameraMode._run()')
             return False
-
-
         return True
 
-
     def _run_condition(self) -> bool:
-        return True    
-    # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
+        return True
 
-
-    def driving_parameter (self, steering_angle_raw: int ) -> tuple[int, int]:
+    # def: Linienwerte bekommen, aus den Linien Lenkwinkel bearbeiten
+    def driving_parameter(self, steering_angle_raw: int) -> tuple[int, int]:
         steering_angle = steering_angle_raw  # Replace with actual calculation
-        speed = 30           # Replace with actual calculation
-
+        speed = self.SPEED_CONTROL_VALUE     # bewusst 30, siehe Klassenkonstante
         return steering_angle, speed
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

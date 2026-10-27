@@ -1,76 +1,63 @@
+"""Kamerasensor: Bildaufnahme und genau eine Bildverarbeitung je Frame.
+
+Verantwortung (Soll-Architektur, Prinzip 1 und 11):
+    * Bild aufnehmen, Zeitstempel direkt nach der Aufnahme setzen.
+    * Das Bild genau einmal mit dem gewaehlten Pipeline-Prozessor verarbeiten.
+    * Ergebnis als ``CameraData`` im ``CameraCar`` veroeffentlichen.
+Keine Fahrentscheidung, keine Dashboard-Logik.
+"""
 import logging
 import threading
 import time
 from typing import Optional
-import cv2
-
-from models import CameraData, CameraDataProcessed
-
-import numpy as np
 
 import ConfigReader
-from CameraCar import CameraCar
-
 from basisklassen_cam import Camera
-from pipeline_processors import LaneProcessor, CopilotLaneProcessor
+from CameraCar import CameraCar
+from models import CameraData
+from pipeline_processors import CopilotLaneProcessor, LaneProcessor
 
-def blur_img(img, blur_value = (10,10)):
-    return cv2.blur(img,blur_value)
 
-def kanten_erkennung(img, minmaxVal = (20,250)):
-    return cv2.Canny(img,minmaxVal[0],minmaxVal[1])
-
-def morph_kernel_filter(img, morph_kernel=(5, 5)):
-
-    # Falls ein BGR-Bild übergeben wird, in Graustufen umwandeln
-    if img.ndim == 3:
-        mask_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    else:
-        mask_gray = img
-
-    mask_bin = (mask_gray > 0).astype(np.uint8) * 255
-
-    kernel = np.ones(morph_kernel, dtype=np.uint8)
-
-    img_morph_kernel = cv2.morphologyEx(
-        mask_bin,
-        cv2.MORPH_CLOSE,
-        kernel
+def _parameters_from_settings(settings: dict) -> tuple:
+    """Wandelt die gespeicherte Studio-Konfiguration in das Parameter-Tupel."""
+    return (
+        tuple(settings['hue']), tuple(settings['sat']), tuple(settings['val']),
+        tuple(settings['crop']), int(settings['blur']), int(settings['morph']),
+        tuple(settings['canny']), dict(settings['enabled']),
     )
-
-    return img_morph_kernel
 
 
 class CameraSensor(Camera):
 
-    def __init__(self, car:CameraCar, sensor_config:Optional[ConfigReader.ConfigReader]=None, logger:Optional[logging.Logger]=None) -> None:
-
+    def __init__(self, car: CameraCar, sensor_config: Optional[ConfigReader.ConfigReader] = None,
+                 logger: Optional[logging.Logger] = None) -> None:
         self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader('cam_sensor', logger=self._log)
         self._lock = threading.Lock()
         self._debug_mode = False
         self._car = car
-        # Der Prozessor ist austauschbar; die restliche Architektur bleibt gleich.
-        self._processor = CopilotLaneProcessor()
         # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
         self._frame_id = 0
         # Gespeicherte Studio-Konfiguration auch ohne offenen Browser nutzen.
         from pipeline_config import load as load_pipeline_config
         settings = load_pipeline_config()
-        self._pack_processing_parameters = (
-            tuple(settings['hue']), tuple(settings['sat']), tuple(settings['val']),
-            tuple(settings['crop']), int(settings['blur']), int(settings['morph']),
-            tuple(settings['canny']), dict(settings['enabled']),
-        )
-        print(self._cfg.get('colormode'))
-        super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
-                          height=self._cfg.get_int('height',480),
-                          width=self._cfg.get_int('width',640))
-        
-        self.set_camera_controls({
-            "AeEnable": True,
-            "ExposureValue": 1.0,
-        })
+        self._pack_processing_parameters = _parameters_from_settings(settings)
+        # Der Prozessor ist austauschbar; gespeicherte Auswahl wird jetzt beachtet
+        # (vorher wurde beim Start immer der Diagnose-Prozessor verwendet).
+        self._processor = LaneProcessor() if settings.get('processor') == 'legacy' else CopilotLaneProcessor()
+        colorspace = str(self._cfg.get_str('colormode', 'gray'))
+        self._log.info('Kamera-Farbraum: %s', colorspace)
+        super().__init__(colorspace=colorspace,
+                         height=self._cfg.get_int('height', 480),
+                         width=self._cfg.get_int('width', 640))
+        try:
+            self.set_camera_controls({
+                "AeEnable": True,
+                "ExposureValue": 1.0,
+            })
+        except AttributeError:
+            # OpenCV-Backend (USB-Kamera) besitzt keine Picamera2-Controls.
+            self._log.warning('Kamerasteuerung vom Backend nicht unterstuetzt')
 
     @property
     def scan_frequency(self) -> int:
@@ -78,8 +65,7 @@ class CameraSensor(Camera):
             return self._cfg.get_int('scan_frequency', 25)
 
     @property
-    def save_image(self) -> bool: # Mit Zeitstempel. -- In Dateiname: Zeitstempel; Lenkwinkel, Speed
-        # Hier einstellen (Auflösung, Pixel etc.)
+    def save_image(self) -> bool:
         with self._lock:
             return self._cfg.get_bool('save_image', False)
 
@@ -89,12 +75,12 @@ class CameraSensor(Camera):
             return self._pack_processing_parameters
 
     @processing_parameters.setter
-    def processing_parameters(self,pack_processing_parameters):
+    def processing_parameters(self, pack_processing_parameters):
         with self._lock:
             self._pack_processing_parameters = pack_processing_parameters
 
     def set_processor(self, name: str):
-        """Wechselt zwischen Legacy und Diagnose-Prozessor.
+        """Wechselt zwischen Prozessor ohne ('legacy') und mit Diagnosebildern ('copilot').
 
         Der Wechsel wird unter dem bestehenden Sensor-Lock vorgenommen.
         """
@@ -108,33 +94,40 @@ class CameraSensor(Camera):
         with self._lock:
             return 'copilot' if isinstance(self._processor, CopilotLaneProcessor) else 'legacy'
 
-    def read_loop(self, stop_event:threading.Event):
+    def read_loop(self, stop_event: threading.Event):
+        """Kamerathread. Taktet auf ``scan_frequency`` inklusive Verarbeitungszeit.
+
+        Vorher wurde nach jeder Verarbeitung zusaetzlich die volle Periode gewartet;
+        dadurch lag die Ist-Frequenz deutlich unter dem Sollwert (Screenshot: 25 Hz
+        Soll, ca. 15 Hz Ist).
+        """
         try:
             self._log.debug('Entering Camera-Sensor loop')
-            while (not stop_event.is_set()):
-                if (self._debug_mode):
+            while not stop_event.is_set():
+                cycle_start = time.monotonic()
+                if self._debug_mode:
                     self._cfg._load_config_file()
-                #v = self.sensor_values
-                self._log.debug(f'Read from camera-sensor')
-
                 image = self.get_frame()
+                # Zeitstempel direkt nach der Aufnahme (Definition siehe models/camera_data.py).
+                captured_wall_ns = time.time_ns()
+                captured_mono_ns = time.monotonic_ns()
                 # Leere Frames werden nicht an die Verarbeitung weitergereicht.
                 if image is None or image.size == 0:
                     self._log.warning('Leeres Kamerabild verworfen')
                     stop_event.wait(0.1)
                     continue
-                # Parameter fuer diesen Frame einmalig lesen.
+                # Parameter und Prozessor fuer diesen Frame einmalig lesen.
                 parameters = self.processing_parameters
-                # Genau eine Verarbeitung je Frame, mit optionalen Diagnosebildern.
                 with self._lock:
                     processor = self._processor
+                # Genau eine Verarbeitung je Frame, mit optionalen Diagnosebildern.
                 result = processor.process(image, parameters)
                 self._frame_id += 1
                 cameradata = CameraData(
                     raw_image=image,
-                    timestamp=time.time_ns(),
+                    timestamp=captured_wall_ns,
                     frame_id=self._frame_id,
-                    monotonic_ns=time.monotonic_ns(),
+                    monotonic_ns=captured_mono_ns,
                     crop=(tuple(parameters[3]) if len(parameters) < 8 or
                           parameters[7].get("roi", True) else (0.0, 1.0)),
                     lanes=result.lanes,
@@ -142,10 +135,11 @@ class CameraSensor(Camera):
                     stages=result.stages,
                     processing_parameters=parameters,
                     processor_name=type(processor).__name__,
+                    processing_ns=time.monotonic_ns() - captured_mono_ns,
                 )
                 self._car.camera_data = cameradata
-
-                stop_event.wait(1/max(1, self.scan_frequency))
+                period = 1.0 / max(1, self.scan_frequency)
+                stop_event.wait(max(0.0, period - (time.monotonic() - cycle_start)))
         except Exception:
             self._log.exception("Kameraschleife fehlgeschlagen")
             raise
@@ -153,8 +147,6 @@ class CameraSensor(Camera):
             self._log.debug('Exit Camera loop')
             self.release()
 
+
 if __name__ == '__main__':
-
     print('This is the main.')
-
-

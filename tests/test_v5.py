@@ -1,3 +1,4 @@
+
 """Tests für Zustandsbeobachtung und sichere Bergung ohne Hardware."""
 import time
 import unittest
@@ -14,6 +15,14 @@ class HealthTests(unittest.TestCase):
         monitor.observe(SimpleNamespace(frame_id=3, lanes=((1,2),(3,4))), None, False)
         self.assertEqual([e.code for e in monitor.events()],
             ['LANE_LOST', 'LANE_PARTIAL', 'LANES_DETECTED', 'CONTROLLER_STOPPED'])
+
+def wait_for(condition, timeout=1.0):
+    """Wartet auf den Watchdog-Thread (Befehle werden dort ausgefuehrt)."""
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    return condition()
+
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -35,13 +44,14 @@ class RecoveryTests(unittest.TestCase):
         self.recovery.command(forward=True, deadman=False)
         self.car.drive.assert_not_called()
         self.recovery.command(forward=True, deadman=True)
+        self.assertTrue(wait_for(lambda: self.car.drive.called))
         self.car.drive.assert_called_once_with(30,90)
-        time.sleep(0.24)
-        self.assertGreaterEqual(self.car.stop.call_count, 2)
+        self.assertTrue(wait_for(lambda: self.car.stop.call_count >= 2))
 
     def test_rueckwaerts_und_stop(self):
         self.recovery.enable()
         self.recovery.command(reverse=True, left=True, deadman=True)
+        self.assertTrue(wait_for(lambda: self.car.drive.called))
         self.car.drive.assert_called_once_with(-30,75)
         self.recovery.disable()
         self.assertFalse(self.recovery.enabled)

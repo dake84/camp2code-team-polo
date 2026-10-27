@@ -1,3 +1,4 @@
+
 """Austauschbare Bildverarbeitung, ohne Eingriff in die Fahrregelung."""
 from dataclasses import dataclass, field
 import cv2
@@ -11,7 +12,10 @@ class PipelineResult:
     stages: dict[str, np.ndarray] = field(default_factory=dict)
 
 class LaneProcessor:
-    """Legacy: bisherige Operationen und Reihenfolge, ohne Debug-Zwischenbilder."""
+    """Bildverarbeitung ohne Diagnose-Zwischenbilder (im Dashboard "Legacy").
+
+    Linien: ``(m, b)`` mit ``y = m*x + b`` im ROI-Koordinatensystem.
+    """
     def __init__(self):
         self.detector = LaneDetector()
 
@@ -60,10 +64,13 @@ class LaneProcessor:
         lanes = self.detector.detect(edges) if on('lanes') else ()
         stages = {}
         if capture:
-            # Kopien sind nur fuer die Diagnose vorgesehen, nicht fuer den Fahrregler.
-            stages = {'roi': roi.copy(), 'hsv': cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR),
-                      'mask': mask.copy(), 'blur': blurred.copy(),
-                      'morph': closed.copy(), 'edges': edges.copy()}
+            # Keine Kopien mehr: alle Zwischenbilder sind frisch erzeugte Arrays
+            # (bzw. beim ROI eine Sicht auf das unveraenderliche Rohbild) und werden
+            # danach nicht mehr veraendert. Verbraucher zeichnen nur auf Kopien.
+            # 'hsv' wird als Falschfarbenbild (H,S,V -> B,G,R) gezeigt; die fruehere
+            # Rueckkonvertierung HSV->BGR ergab nur wieder das ROI-Bild.
+            stages = {'roi': roi, 'hsv': hsv, 'mask': mask, 'blur': blurred,
+                      'morph': closed, 'edges': edges}
         return PipelineResult(edges, lanes, stages)
 
 class CopilotLaneProcessor(LaneProcessor):

@@ -1,33 +1,24 @@
+"""Fahrmodus 1: vorwaerts und rueckwaerts."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
 import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
+import time
+from typing import TYPE_CHECKING, Optional
+
 import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
 
 from .base import DrivingMode
+
+if TYPE_CHECKING:
+    from BaseCar import BaseCar
 
 class ModeOne(DrivingMode):
 
     def __init__(self, car: Optional[BaseCar], name:str="Fahrmodus 1", logger: Optional[logging.Logger]=None, cfg: Optional[ConfigReader.ConfigReader]=None, update_cfg: bool = False, frequency: int = 500) -> None:
-        car = car if car is not None else SonicCar()
+        if car is None:
+            # Lazy-Import: Hardware nur bei Bedarf initialisieren.
+            from SonicCar import SonicCar
+            car = SonicCar()
         logger = logging.getLogger(self.__class__.__name__)
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("soniccar_controller")
         super().__init__(name, car, logger, cfg)

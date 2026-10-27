@@ -1,118 +1,257 @@
-"""Eine Dash-Anwendung mit vier Ansichten und gemeinsamem Fahrzeugzustand."""
+"""Camp2Code Control Center: eine Dash-Anwendung mit fuenf Ansichten.
+
+Architektur (Version 6.0):
+    * Aktionen (Start, STOP, Bergung, Aufzeichnung) laufen ueber genau einen
+      Callback und die oeffentlichen Methoden von ``CarApplication``.
+    * Alle Anzeigen werden aus dem tatsaechlichen Anwendungszustand abgeleitet,
+      nicht aus dem letzten Buttonklick.
+    * Jede Ansicht aktualisiert sich nur, wenn ihr Tab sichtbar ist. Unsichtbare
+      Browser-Tabs pausieren das Polling (assets/visibility.js).
+    * Das Dashboard erkennt keine Linien und rechnet keine Fahrentscheidungen;
+      es zeichnet nur vorhandene Daten auf Bildkopien.
+"""
 import atexit
 import base64
+import contextlib
 import logging
+import signal
+import sys
 import threading
 import time
-import io
-import json
-import zipfile
-import csv
+
 import cv2
-import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
-from dash import Dash, Input, Output, State, dcc, html, ctx, no_update
+import plotly.graph_objects as go
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
+
 from car_application import CarApplication
-from dashboard_overlay import render_overlay, render_calibration_overlay
-from pipeline_config import load
-from pipeline_ab import PipelineAB
+from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
-from session_recorder import SessionRecorder, list_sessions, load_session
+from pipeline_ab import PipelineAB
+from pipeline_config import list_presets, load, load_preset, save_preset
 from replay_hud import draw_hud
+from replay_selection import event_window, record_frame_id, select_records, selected_bounds
+from session_recorder import (export_live_records, export_session_range, list_sessions,
+                              load_events, load_session)
+
+try:  # optional, fuer CPU- und Speicheranzeige
+    import psutil
+except ImportError:  # pragma: no cover - abhaengig von der Installation
+    psutil = None
 
 log = logging.getLogger(__name__)
-STAGES = [('raw', 'Rohbild'), ('roi', 'ROI'), ('hsv', 'HSV'), ('mask', 'Farbmaske'),
-          ('blur', 'Blur'), ('morph', 'Morphologie'), ('edges', 'Canny'), ('overlay', 'Linien')]
 
-def uri(image):
+STAGES = [('raw', 'Rohbild'), ('roi', 'ROI'), ('hsv', 'HSV (Falschfarben)'), ('mask', 'Farbmaske'),
+          ('blur', 'Blur'), ('morph', 'Morphologie'), ('edges', 'Canny'), ('overlay', 'Linien')]
+SWITCHES = ('roi', 'mask', 'blur', 'morph', 'canny', 'lanes')
+STAGE_SWITCH = {'roi': 'roi', 'mask': 'mask', 'blur': 'blur', 'morph': 'morph',
+                'edges': 'canny', 'overlay': 'lanes'}
+LIVE = '__live__'
+TABS = ('drive', 'pipeline', 'telemetry', 'record', 'replay')
+ACTIVE_PRESET = '__active__'
+MODES = [{'label': 'CameraMode (autonom)', 'value': 'camera'},
+         {'label': 'PSControllerMode (Gamepad)', 'value': 'gamepad'}]
+IMAGE_STYLE = {'width': '100%', 'background': '#0b1220', 'borderRadius': '8px', 'objectFit': 'contain'}
+
+
+# --------------------------------------------------------------------- Hilfen
+def uri(image, quality=70):
+    """Kodiert ein Bild als JPEG-Data-URI (eine Kodierung je Bild und Tick)."""
     if image is None or getattr(image, 'size', 0) == 0:
         return None
-    ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii') if ok else None
+
+
+def dark_figure(figure, height=260, **layout):
+    figure.update_layout(template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                         plot_bgcolor='#111a2b', height=height,
+                         margin=dict(l=45, r=20, t=25, b=40),
+                         legend=dict(orientation='h', y=1.12, x=0), **layout)
+    return figure
+
+
+def fmt(value, digits=0, unit=''):
+    """Formatiert Zahlen; fehlende Werte werden als Gedankenstrich angezeigt."""
+    if value is None:
+        return '–'
+    try:
+        return f'{float(value):.{digits}f}{unit}'
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def settings_from_controls(processor, crop, hue, sat, val, blur, morph, canny, switches):
+    return dict(processor=processor, crop=crop, hue=hue, sat=sat, val=val, blur=blur,
+                morph=morph, canny=canny,
+                enabled={name: 'on' in (v or []) for name, v in zip(SWITCHES, switches)})
+
+
+def parameters_from_settings(settings):
+    return (tuple(settings['hue']), tuple(settings['sat']), tuple(settings['val']),
+            tuple(settings['crop']), int(settings['blur']), int(settings['morph']),
+            tuple(settings['canny']), dict(settings['enabled']))
+
+
+def diagnostic_text(diagnostic, stop_reason, running):
+    """Controllerdiagnose als Klartext; ohne Fahrt als 'letzte Fahrt' gekennzeichnet."""
+    if not diagnostic:
+        return 'Noch keine Controllerdiagnose'
+    lanes = [x for x in diagnostic.get('lanes', ()) if x is not None]
+    prefix = 'Aktuell' if running else 'Letzte Fahrt'
+    return (f"{prefix} · Frame {diagnostic.get('frame_id')} · Linien: {len(lanes)} · "
+            f"Rohwinkel: {fmt(diagnostic.get('raw_angle'))} · "
+            f"Vorwert gehalten: {'ja' if diagnostic.get('held_previous_angle') else 'nein'} · "
+            f"Soll: {fmt(diagnostic.get('requested_angle'))} · "
+            f"Stellwert: {fmt(diagnostic.get('actual_angle'))} · "
+            f"Stoppursache: {stop_reason or 'keine'}")
+
+
+def system_stats():
+    """CPU und Speicher des Prozesses (nur wenn psutil installiert ist)."""
+    if psutil is None:
+        return 'psutil nicht installiert – CPU/Speicher nicht verfügbar'
+    process = psutil.Process()
+    load_avg = ''
+    with contextlib.suppress(AttributeError, OSError):
+        load_avg = ' · Load ' + ' / '.join(f'{x:.2f}' for x in psutil.getloadavg())
+    return (f'Prozess-CPU {process.cpu_percent(interval=None):.0f} % · '
+            f'RSS {process.memory_info().rss / 2**20:.0f} MB · '
+            f'Threads {threading.active_count()}{load_avg}')
+
+
+def card(title, content, **kwargs):
+    return dbc.Card([dbc.CardHeader(title), dbc.CardBody(content)], className='h-100', **kwargs)
+
 
 def slider(label, key, low, high, value, step=1, pair=False):
     component = dcc.RangeSlider if pair else dcc.Slider
-    return html.Div([html.Label(label), component(id=f'cfg-{key}', min=low, max=high,
-        step=step, value=value)], className='mb-3')
+    return html.Div([html.Label(label, className='small'),
+                     component(id=f'cfg-{key}', min=low, max=high, step=step, value=value,
+                               marks=None, tooltip={'placement': 'bottom'})],
+                    className='mb-2')
 
-def create_app(application):
-    cfg = load()
-    ab = PipelineAB()
-    sessions = SessionRecorder(application.car, event_source=application.health.events)
-    atexit.register(sessions.stop)
-    app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=False)
-    app.title = 'Camp2Code | Cockpit'
-    image_style = {'width': '100%', 'background': '#101827', 'borderRadius': '8px'}
-    def card(title, content):
-        return dbc.Card([dbc.CardHeader(title), dbc.CardBody(content)], className='h-100')
-    cockpit = html.Div([
-        dbc.Row([
-            dbc.Col(card('Live Vision · Lane Overlay', [
-                html.Div([dbc.Badge('KAMERA', color='success', className='me-2'),
-                          dbc.Badge(id='drive-camera-badge', color='secondary'),
-                          html.Span(id='drive-frame-badge', className='ms-2 text-secondary small')], className='mb-2'),
-                html.Img(id='drive-overlay', style={**image_style, 'maxHeight': '65vh', 'objectFit': 'contain'}),
-                html.Div('Fahrspuren und Lenkrichtung · Rohbild wird nicht verändert',
-                         className='text-secondary small mt-2')]), lg=8),
-            dbc.Col(card('Vehicle Control', [
-                html.Label('Driving Mode', className='text-secondary small'),
-                dcc.Dropdown(id='mode', options=[
-                    {'label': 'CameraMode', 'value': 'camera'},
-                    {'label': 'PSControllerMode', 'value': 'gamepad'}],
-                    value='camera', clearable=False),
-                html.Div([dbc.Button('▶ Start', id='drive-start', color='success', className='me-2 mt-3'),
-                          dbc.Button('■ STOP', id='drive-stop', color='danger', className='mt-3')]),
-                html.Div(id='drive-message', className='text-secondary small mt-3'),
-                dbc.Row([dbc.Col([html.Div('Lenkwinkel', className='text-secondary small'),
-                                  html.H2(id='drive-angle')], width=6),
-                         dbc.Col([html.Div('Speed-Steuerwert', className='text-secondary small'),
-                                  html.H2(id='drive-speed')], width=6)], className='mt-4'),
-                html.Hr(),
-                html.Div(id='drive-status', className='small'),
-                html.Div(id='drive-diagnostic', className='small text-warning mt-2'),
-                html.Div(id='drive-mode-status', className='mt-2')]), lg=4)
-        ], className='g-3')])
+
+def measure(application, name):
+    timings = getattr(application, 'timings', None)
+    return timings.measure(name) if timings is not None else contextlib.nullcontext()
+
+
+# --------------------------------------------------------------------- Layout
+def build_layout(cfg):
     def stage_controls(key):
-        """Zeigt Regler direkt unter der Bildstufe, die sie beeinflussen."""
+        """Regler stehen direkt unter der Bildstufe, die sie beeinflussen."""
         if key == 'roi':
-            return [slider('ROI', 'crop', 0, 1, cfg['crop'], .01, True)]
+            return [slider('ROI (unten / oben, Anteil)', 'crop', 0, 1, cfg['crop'], .01, True)]
         if key == 'hsv':
             return [slider('Hue', 'hue', 0, 179, cfg['hue'], 1, True),
                     slider('Saturation', 'sat', 0, 255, cfg['sat'], 1, True),
                     slider('Value', 'val', 0, 255, cfg['val'], 1, True)]
         if key == 'blur':
-            return [slider('Blur', 'blur', 1, 15, cfg['blur'])]
+            return [slider('Blur-Kernel', 'blur', 1, 15, cfg['blur'])]
         if key == 'morph':
-            return [slider('Morphologie', 'morph', 1, 15, cfg['morph'])]
+            return [slider('Morph-Kernel', 'morph', 1, 15, cfg['morph'])]
         if key == 'edges':
-            return [slider('Canny', 'canny', 0, 255, cfg['canny'], 1, True)]
+            return [slider('Canny-Schwellen', 'canny', 0, 255, cfg['canny'], 1, True)]
         return []
 
     def stage_switch(key):
-        switch_key = {'overlay': 'lanes', 'edges': 'canny'}.get(key, key)
-        if switch_key not in ('roi', 'mask', 'blur', 'morph', 'canny', 'lanes'):
+        switch_key = STAGE_SWITCH.get(key)
+        if switch_key is None:
             return []
         return [dbc.Checklist(id=f'cfg-enable-{switch_key}',
-            options=[{'label': 'Schritt aktiv', 'value': 'on'}],
-            value=['on'] if cfg['enabled'].get(switch_key, True) else [], switch=True)]
+                              options=[{'label': 'Schritt aktiv', 'value': 'on'}],
+                              value=['on'] if cfg['enabled'].get(switch_key, True) else [],
+                              switch=True, className='small')]
+
+    control_bar = dbc.Card(dbc.CardBody(dbc.Row([
+        dbc.Col([dbc.Badge(id='global-camera-state', color='secondary', className='me-1'),
+                 dbc.Badge(id='global-mode-state', color='secondary', className='me-1'),
+                 dbc.Badge(id='global-rec-state', color='secondary', className='me-1'),
+                 html.Span(id='global-frame', className='ms-1 small text-secondary')],
+                xs=12, lg=4, className='mb-2 mb-lg-0'),
+        dbc.Col(dcc.Dropdown(id='mode', options=MODES, value='camera', clearable=False,
+                             className='c2c-dropdown'), xs=12, md=4, lg=3, className='mb-2 mb-md-0'),
+        dbc.Col([dbc.Button('▶ START', id='global-start', color='success', className='me-2'),
+                 dbc.Button('■ STOP', id='global-stop', color='danger', className='me-2'),
+                 dbc.Button('Bergung', id='recovery-toggle', color='warning', outline=True, className='me-2'),
+                 dbc.Button('● REC', id='record-toggle', color='secondary', outline=True)],
+                xs=12, md=8, lg=5, className='text-lg-end'),
+    ], align='center', className='g-2')), className='mb-2 c2c-control-bar')
+
+    recovery_panel = dbc.Collapse(dbc.Alert([
+        html.Strong('Manuelle Bergung: '),
+        'Leertaste gedrückt halten + W/S (vor/zurück), A/D (lenken). '
+        'Ohne Tastensignal stoppt der Watchdog nach 0,35 s. Nur mit Sichtkontakt verwenden.',
+        html.Div(id='recovery-status', className='small mt-1'),
+    ], color='warning', className='mb-2'), id='recovery-panel', is_open=False)
+
+    cockpit = dbc.Row([
+        dbc.Col(card('Live Vision · Lane Overlay', [
+            html.Div([dbc.Badge(id='drive-frame-badge', color='dark', className='me-2'),
+                      html.Span(id='drive-age', className='small text-secondary')], className='mb-2'),
+            html.Img(id='drive-overlay', style={**IMAGE_STYLE, 'maxHeight': '68vh'}),
+            html.Div('Grün/Gelb: erkannte Linien · Magenta: Reglerrichtung aus den Linien · '
+                     'Instrument: Fahrzeug-Stellwert · Rohbild bleibt unverändert',
+                     className='text-secondary small mt-2')]), lg=8),
+        dbc.Col(card('Fahrzustand', [
+            dbc.Row([
+                dbc.Col([html.Div('Stellwert (Fahrzeug)', className='c2c-kpi-label'),
+                         html.Div(id='drive-angle', className='c2c-kpi')], width=6),
+                dbc.Col([html.Div('Speed-Steuerwert', className='c2c-kpi-label'),
+                         html.Div(id='drive-speed', className='c2c-kpi')], width=6),
+                dbc.Col([html.Div('Sollwinkel (Regler)', className='c2c-kpi-label'),
+                         html.Div(id='drive-requested', className='c2c-kpi-small')], width=6),
+                dbc.Col([html.Div('Rohwinkel (Linien)', className='c2c-kpi-label'),
+                         html.Div(id='drive-raw', className='c2c-kpi-small')], width=6),
+            ], className='g-2'),
+            html.Hr(),
+            html.Div(id='drive-mode-status', className='mb-2'),
+            html.Div('Controllerdiagnose', className='c2c-kpi-label'),
+            html.Div(id='drive-diagnostic', className='small'),
+        ]), lg=4),
+    ], className='g-3')
 
     pipeline = html.Div([
-        dbc.Row([dbc.Col(dbc.Alert('LIVE: Bilder folgen der Kamera. FREEZE: Ein Frame bleibt für die Analyse stehen.', color='secondary'), md=8),
-                 dbc.Col([dbc.Button('Freeze / Live', id='pipeline-freeze', color='warning', className='me-2'),
-                          html.Span(id='pipeline-frame-label')], md=4)], className='g-2 mb-2'),
-        dbc.Alert('Kalibrierung ohne Fahrmodus. Während einer Fahrt sind Änderungen gesperrt.', color='info'),
+        dbc.Row([
+            dbc.Col(html.Div(id='pipeline-lock'), lg=7),
+            dbc.Col([dbc.Button('Freeze / Live', id='pipeline-freeze', color='warning', className='me-2'),
+                     html.Span(id='pipeline-frame-label', className='small')], lg=5, className='text-lg-end'),
+        ], className='g-2 mb-2', align='center'),
         dbc.Row([dbc.Col(card(f'{index:02d} · {title}', [
-            html.Img(id=f'stage-{key}', style={**image_style, 'maxHeight': '220px', 'objectFit': 'contain'}),
-            html.Div(id=f'stage-info-{key}', className='small text-secondary mt-2'),
+            html.Img(id=f'stage-{key}', style={**IMAGE_STYLE, 'maxHeight': '200px'}),
+            html.Div(id=f'stage-info-{key}', className='small text-secondary mt-1'),
             *stage_controls(key), *stage_switch(key),
-            dbc.Button('Vergrößern', id=f'inspect-{key}', color='outline-info',
-                       size='sm', className='mt-2')]), md=6, xl=3)
-                 for index, (key, title) in enumerate(STAGES, 1)], className='g-3'),
-        dbc.Row([dbc.Col(card('Pipeline Inspector', [
-            html.Div(id='inspect-title', className='fw-semibold mb-2'),
-            html.Img(id='inspect-image', style={**image_style, 'maxHeight': '430px', 'objectFit': 'contain'}),
-            html.Div('Der Inspector zeigt das veröffentlichte Zwischenbild. Keine zweite Bildverarbeitung.',
-                     className='text-secondary small mt-2')]), md=12)], className='mt-3'),
+            dbc.Button('Vergrößern', id=f'inspect-{key}', color='info', outline=True, size='sm',
+                       className='mt-2')]), md=6, xl=3) for index, (key, title) in enumerate(STAGES, 1)],
+            className='g-3'),
+        dbc.Row([
+            dbc.Col(card('Pipeline Inspector', [
+                html.Div(id='inspect-title', className='fw-semibold mb-2'),
+                html.Img(id='inspect-image', style={**IMAGE_STYLE, 'maxHeight': '430px'}),
+                html.Div('Zeigt das veröffentlichte Zwischenbild. Keine zweite Bildverarbeitung.',
+                         className='text-secondary small mt-2')]), lg=7),
+            dbc.Col(card('Pipeline-Konfiguration & Presets', [
+                html.Label('Bildprozessor', className='small'),
+                dcc.Dropdown(id='cfg-processor', className='c2c-dropdown', clearable=False,
+                             value=cfg['processor'], options=[
+                                 {'label': 'Mit Diagnosebildern (Copilot)', 'value': 'copilot'},
+                                 {'label': 'Ohne Diagnosebilder (Legacy)', 'value': 'legacy'}]),
+                html.Div([dbc.Button('Übernehmen', id='cfg-apply', size='sm', className='me-2 mt-2'),
+                          dbc.Button('Als aktiv speichern', id='cfg-save', size='sm', color='success',
+                                     className='mt-2')]),
+                html.Div(id='cfg-message', className='small mt-2'),
+                html.Hr(),
+                html.Label('Preset laden', className='small'),
+                dcc.Dropdown(id='preset-choice', className='c2c-dropdown', clearable=False,
+                             value=ACTIVE_PRESET, options=[]),
+                dbc.Button('Laden', id='preset-load', size='sm', color='info', className='mt-2'),
+                html.Label('Preset speichern unter', className='small mt-3 d-block'),
+                dcc.Input(id='preset-name', type='text', placeholder='z. B. halle_hell',
+                          className='form-control form-control-sm', debounce=True),
+                dbc.Button('Preset speichern', id='preset-save', size='sm', color='success', className='mt-2'),
+                html.Div(id='preset-message', className='small mt-2')]), lg=5),
+        ], className='g-3 mt-1'),
         dbc.Row([dbc.Col(card('A/B Calibration Lab · gleicher Frame', [
             html.Div('A = Referenz beim Einfrieren · B = aktuelle Slider. Keine Änderung am Fahrmodus.',
                      className='small text-secondary mb-2'),
@@ -120,104 +259,184 @@ def create_app(application):
             dbc.Button('A/B berechnen', id='ab-run', color='primary', className='me-2'),
             dbc.Button('A/B zurücksetzen', id='ab-reset', color='secondary'),
             html.Div(id='ab-status', className='small mt-2'),
-            dbc.Row([dbc.Col([html.H6('A · Referenz'), html.Img(id='ab-image-a', style=image_style),
+            dbc.Row([dbc.Col([html.H6('A · Referenz'), html.Img(id='ab-image-a', style=IMAGE_STYLE),
                               html.Div(id='ab-lanes-a', className='small mt-2')], md=6),
-                     dbc.Col([html.H6('B · Kandidat'), html.Img(id='ab-image-b', style=image_style),
-                              html.Div(id='ab-lanes-b', className='small mt-2')], md=6)], className='g-3 mt-1')
+                     dbc.Col([html.H6('B · Kandidat'), html.Img(id='ab-image-b', style=IMAGE_STYLE),
+                              html.Div(id='ab-lanes-b', className='small mt-2')], md=6)], className='g-3 mt-1'),
         ]), md=12)], className='mt-3'),
-        dbc.Row([dbc.Col(card('Pipeline-Konfiguration', [
-            html.Label('Bildprozessor'), dcc.Dropdown(id='cfg-processor', options=[
-                {'label': 'Copilot', 'value': 'copilot'},
-                {'label': 'Legacy', 'value': 'legacy'}], value=cfg['processor'], clearable=False),
-            dbc.Button('Übernehmen', id='cfg-apply', className='me-2 mt-3'),
-            dbc.Button('Speichern', id='cfg-save', color='success', className='mt-3'),
-            html.Div(id='cfg-message', className='mt-2')]), md=12)], className='mt-3')])
-    telemetry = html.Div([dbc.Row([
-        dbc.Col(card('Live · Mini-Preview', html.Img(id='telemetry-preview', style=image_style)), md=4),
-        dbc.Col(card('Soll / Ist Frequenz', dcc.Graph(id='freq-bars')), md=6),
-        dbc.Col(card('Frequenzverlauf', dcc.Graph(id='freq-history')), md=6),
-        dbc.Col(card('Lenkwinkel / Speed / Linienverlust', dcc.Graph(id='drive-history')), md=12),
-        dbc.Col(card('Datenalter / Latenz', html.Div(id='data-age')), md=12)], className='g-3')])
+    ])
+
+    telemetry = dbc.Row([
+        dbc.Col(card('Live · Mini-Preview', html.Img(id='telemetry-preview', style=IMAGE_STYLE)), md=4),
+        dbc.Col(card('Soll / Ist Frequenz', dcc.Graph(id='freq-bars', config={'displayModeBar': False})), md=8),
+        dbc.Col(card('Frequenzverlauf (letzte 60 s)', dcc.Graph(id='freq-history', config={'displayModeBar': False})), md=12),
+        dbc.Col(card('Lenkwinkel / Speed / Linienanzahl', dcc.Graph(id='drive-history', config={'displayModeBar': False})), md=12),
+        dbc.Col(card('Datenalter · Latenzen · System', [html.Div(id='data-age'),
+                                                      html.Div(id='system-stats', className='small text-secondary mt-2')]), md=12),
+    ], className='g-3')
+
+    recording = dbc.Row([
+        dbc.Col(card('Live · Mini-Preview', html.Img(id='record-preview', style=IMAGE_STYLE)), md=4),
+        dbc.Col(card('Aufzeichnung', [
+            html.Div('Start/Stopp über den REC-Button in der Steuerleiste.', className='small text-secondary'),
+            html.Div(id='record-status', className='mt-2 fw-semibold'),
+            html.Div(id='session-stats', className='small text-secondary mt-2')]), md=8),
+        dbc.Col(card('Ereignisprotokoll (neueste zuerst)', html.Div(id='event-list', className='c2c-events')), md=12),
+    ], className='g-3')
+
     replay = html.Div([
-        dbc.Alert('Replay: Live-Ringbuffer oder gespeicherte Session. Keine Motorsteuerung.', color='info'),
-        dcc.Dropdown(id='session-choice', options=[{'label':'Live-Ringbuffer','value':'__live__'}], value='__live__', clearable=False),
-        dbc.Button('Sessions aktualisieren', id='session-refresh', color='secondary', className='my-2'),
-        dbc.Row([dbc.Col(card('Frame Inspector', [
-            html.Div(id='replay-frame-label', className='fw-semibold mb-2'),
-            html.Img(id='replay-image', style=image_style),
-            html.Div(id='replay-details', className='small mt-2')]), md=8),
+        dbc.Row([
+            dbc.Col(dcc.Dropdown(id='session-choice', className='c2c-dropdown', clearable=False,
+                                 options=[{'label': 'Live-Ringbuffer (flüchtig)', 'value': LIVE}], value=LIVE), md=6),
+            dbc.Col(dbc.Button('Sessions aktualisieren', id='session-refresh', color='secondary'), md=2),
+            dbc.Col(html.Div('Replay steuert keine Motoren.', className='small text-secondary'), md=4),
+        ], className='g-2 mb-2', align='center'),
+        dbc.Row([
+            dbc.Col(card('Frame Inspector · Replay-HUD', [
+                html.Div(id='replay-frame-label', className='fw-semibold mb-2'),
+                html.Img(id='replay-image', style={**IMAGE_STYLE, 'maxHeight': '60vh'}),
+                html.Div(id='replay-details', className='small mt-2')]), lg=8),
             dbc.Col(card('Replay-Steuerung', [
-                dbc.Button('◀', id='replay-prev', className='me-2'),
-                dbc.Button('▶ / Pause', id='replay-play', className='me-2'),
-                dbc.Button('▶', id='replay-next'),
-                dcc.Slider(id='replay-index', min=0, max=1, step=1, value=0,
-                           tooltip={'placement':'bottom'}),
+                dbc.ButtonGroup([dbc.Button('◀', id='replay-prev'),
+                                 dbc.Button('▶ Play', id='replay-play'),
+                                 dbc.Button('▶|', id='replay-next')], className='mb-2'),
+                dcc.Slider(id='replay-index', min=0, max=1, step=1, value=0, marks=None,
+                           tooltip={'placement': 'bottom'}),
                 html.Div(id='replay-range', className='small text-secondary mt-2'),
-                dbc.Button('Ringbuffer exportieren', id='replay-export', color='success', className='mt-3'),
-                dcc.Download(id='replay-download')]), md=4)], className='g-3'),
+                html.Hr(),
+                html.Label('Zu Ereignis springen', className='small'),
+                dcc.Dropdown(id='replay-event', className='c2c-dropdown', options=[], value=None),
+                dbc.Row([dbc.Col([html.Label('Vorlauf (Frames)', className='small'),
+                                  dcc.Input(id='replay-pre', type='number', min=0, step=1, value=30,
+                                            className='form-control form-control-sm')]),
+                         dbc.Col([html.Label('Nachlauf (Frames)', className='small'),
+                                  dcc.Input(id='replay-post', type='number', min=0, step=1, value=30,
+                                            className='form-control form-control-sm')])], className='g-2 mt-1'),
+                dbc.Button('Bereich zurücksetzen', id='replay-range-reset', color='secondary', size='sm',
+                           className='mt-2 me-2'),
+                dbc.Button('Bereich exportieren', id='replay-export', color='success', size='sm', className='mt-2'),
+                dcc.Download(id='replay-download')]), lg=4),
+        ], className='g-3'),
         dbc.Row([dbc.Col(card('Zeitliche Navigation', [
             dcc.Graph(id='replay-chart', config={'displayModeBar': False}),
-            html.Div('Klicke auf einen Messpunkt, um den zugehörigen Frame auszuwählen.', className='small text-secondary')]), md=12)], className='mt-3'),
+            html.Div('Klick auf Messpunkt = Frame wählen · Ziehen = Bereich wählen · Doppelklick = alles',
+                     className='small text-secondary')]), md=12)], className='mt-3'),
     ])
-    recording = html.Div([dbc.Row([
-        dbc.Col(card('Live · Mini-Preview', html.Img(id='record-preview', style=image_style)), md=4),
-        dbc.Col(card('Aufzeichnung', [dbc.Button('Session starten / stoppen', id='record-toggle', color='success'),
-            html.Div(id='record-status', className='mt-3'), html.Div(id='session-stats', className='small text-secondary mt-2')]), md=6),
-        dbc.Col(card('Ereignisse (Linienbeobachtungen)', html.Div(id='event-list')), md=6)], className='g-3')])
-    app.layout = dbc.Container([
-        html.H2('Camp2Code · Control Center', className='mt-3'),
-        dbc.Card(dbc.CardBody(dbc.Row([
-            dbc.Col([dbc.Badge(id='global-camera-state', color='info'),
-                     dbc.Badge(id='global-mode-state', color='secondary', className='ms-2'),
-                     html.Span(id='global-frame', className='ms-2 small')], md=5),
-            dbc.Col([dbc.Button('▶ START', id='global-start', color='success', className='me-2'),
-                     dbc.Button('■ STOP', id='global-stop', color='danger', className='me-2'),
-                     dbc.Button('Bergung aktivieren', id='recovery-toggle', color='warning', outline=True)], md=7),
-        ], align='center')), className='mb-3', style={'position':'sticky','top':'0','zIndex':1000}),
+
+    return dbc.Container([
+        html.H2('Camp2Code · Control Center', className='mt-3 mb-2'),
+        control_bar,
         html.Div(id='global-action-message', className='small mb-2'),
-        dbc.Collapse(dbc.Card(dbc.CardBody([
-            html.Div('Manuelle Bergung: Leertaste gedrückt halten + W/S/A/D. Bei Verbindungsverlust stoppt der Watchdog.', className='small'),
-            html.Div(id='recovery-status'),
-            dcc.Store(id='recovery-keys', data={'deadman':False}),
-            dcc.Interval(id='recovery-pulse', interval=120, n_intervals=0),
-        ])), id='recovery-panel', is_open=False),
+        recovery_panel,
         dbc.Tabs([dbc.Tab(cockpit, label='Driving Cockpit', tab_id='drive'),
                   dbc.Tab(pipeline, label='Pipeline Studio', tab_id='pipeline'),
                   dbc.Tab(telemetry, label='Telemetrie & Performance', tab_id='telemetry'),
                   dbc.Tab(recording, label='Recording & Events', tab_id='record'),
-                  dbc.Tab(replay, label='Replay Lab', tab_id='replay')], id='main-tabs', active_tab='drive', className='mb-3'),
+                  dbc.Tab(replay, label='Replay Lab', tab_id='replay')],
+                 id='main-tabs', active_tab='drive', className='mb-3'),
+        dcc.Store(id='last-action', data=None, storage_type='memory'),
+        dcc.Store(id='recovery-keys', data={'deadman': False}, storage_type='memory'),
         dcc.Store(id='replay-playing', data=False, storage_type='memory'),
+        dcc.Store(id='replay-bounds', data=None, storage_type='memory'),
         dcc.Store(id='pipeline-frozen', data=None, storage_type='memory'),
         dcc.Store(id='inspected-stage', data='overlay', storage_type='memory'),
+        dcc.Store(id='drive-rendered', data=None, storage_type='memory'),
+        dcc.Store(id='pipeline-rendered', data=None, storage_type='memory'),
+        # Globale Statusleiste; Ansichten haben eigene Takte, nur der sichtbare Tab ist aktiv.
         dcc.Interval(id='refresh', interval=700, n_intervals=0),
+        *[dcc.Interval(id=f'tick-{tab}', interval=700, n_intervals=0, disabled=tab != 'drive') for tab in TABS],
+        dcc.Interval(id='recovery-pulse', interval=120, n_intervals=0, disabled=True),
     ], fluid=True)
 
-    @app.callback(Output('global-action-message', 'children'),
-                  Input('global-start', 'n_clicks'), Input('global-stop', 'n_clicks'),
-                  State('mode', 'value'), prevent_initial_call=True)
-    def global_action(_start, _stop, mode):
-        try:
-            if ctx.triggered_id == 'global-stop':
-                application.recovery.disable()
-                application.stop_modes()
-                return 'Fahrzeug gestoppt'
-            application.start_mode(mode)
-            return 'Fahrmodus gestartet'
-        except Exception as exc:
-            return f'Aktion abgewiesen: {exc}'
 
-    @app.callback(Output('recovery-panel', 'is_open'),
-                  Input('recovery-toggle', 'n_clicks'),
-                  State('recovery-panel', 'is_open'), prevent_initial_call=True)
-    def recovery_toggle(_, opened):
+# --------------------------------------------------------------------- App
+def create_app(application):
+    cfg = load()
+    ab = PipelineAB()
+    app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=False,
+               title='Camp2Code | Control Center', update_title=None)
+    app.layout = build_layout(cfg)
+    car = application.car
+
+    # ------------------------------------------------ Aktionen (ein Callback)
+    @app.callback(Output('last-action', 'data'),
+                  Input('global-start', 'n_clicks'), Input('global-stop', 'n_clicks'),
+                  Input('recovery-toggle', 'n_clicks'), Input('record-toggle', 'n_clicks'),
+                  State('mode', 'value'), prevent_initial_call=True)
+    def handle_actions(_start, _stop, _recovery, _record, mode):
+        trigger = ctx.triggered_id
         try:
-            if opened:
-                application.recovery.disable()
-                return False
-            application.recovery.enable()
-            return True
-        except RuntimeError:
-            return False
+            if trigger == 'global-stop':
+                application.stop_all()
+                text = 'STOP ausgeführt'
+            elif trigger == 'global-start':
+                application.start_mode(mode)
+                text = f'Fahrmodus {mode} gestartet'
+            elif trigger == 'recovery-toggle':
+                if application.recovery.enabled:
+                    application.disable_recovery()
+                    text = 'Bergung beendet'
+                else:
+                    application.enable_recovery()
+                    text = 'Bergung aktiv'
+            elif trigger == 'record-toggle':
+                text = 'Aufzeichnung läuft' if application.toggle_recording() else 'Aufzeichnung gestoppt'
+            else:
+                return no_update
+            return {'text': text, 'ok': True, 'time': time.strftime('%H:%M:%S')}
+        except Exception as exc:
+            log.warning('Aktion %s abgewiesen: %s', trigger, exc)
+            return {'text': f'Aktion abgewiesen: {exc}', 'ok': False, 'time': time.strftime('%H:%M:%S')}
+
+    @app.callback(*[Output(f'tick-{tab}', 'disabled') for tab in TABS],
+                  Input('main-tabs', 'active_tab'), Input('refresh', 'disabled'))
+    def tab_intervals(active_tab, paused):
+        """Nur der sichtbare Tab pollt; im Hintergrund-Browsertab pausiert alles."""
+        return tuple(bool(paused) or tab != active_tab for tab in TABS)
+
+    # ------------------------------------------------ Globale Steuerleiste
+    @app.callback(Output('global-camera-state', 'children'), Output('global-camera-state', 'color'),
+                  Output('global-mode-state', 'children'), Output('global-mode-state', 'color'),
+                  Output('global-rec-state', 'children'), Output('global-rec-state', 'color'),
+                  Output('global-frame', 'children'),
+                  Output('global-start', 'disabled'), Output('global-stop', 'outline'),
+                  Output('recovery-toggle', 'children'), Output('recovery-toggle', 'outline'),
+                  Output('recovery-panel', 'is_open'), Output('recovery-pulse', 'disabled'),
+                  Output('record-toggle', 'children'), Output('record-toggle', 'color'),
+                  Output('record-toggle', 'outline'), Output('mode', 'disabled'),
+                  Output('global-action-message', 'children'),
+                  Input('refresh', 'n_intervals'), Input('last-action', 'data'))
+    def global_status(_tick, last_action):
+        camera = car.camera_data
+        has_frame = camera is not None and camera.frame_id >= 0
+        camera_ok = application.camera_alive() if hasattr(application, 'camera_alive') else has_frame
+        running = application.running()
+        recovery = application.recovery.enabled
+        recording = application.recorder.is_running()
+        stop_reason = application.stop_reason() if hasattr(application, 'stop_reason') else None
+        if running:
+            status = f'Fahrt aktiv · Modus {application.active_mode}'
+        elif recovery:
+            status = 'Bergung aktiv · autonomer Fahrmodus gesperrt'
+        else:
+            status = 'Fahrmodus aus' + (f' · letzte Stoppursache: {stop_reason}' if stop_reason else '')
+        message = [html.Span(status, className='me-3')]
+        if last_action:
+            message.append(html.Span(f"{last_action.get('time')} · {last_action.get('text')}",
+                                     className='text-success' if last_action.get('ok') else 'text-warning'))
+        camera_label = ('KAMERA LIVE' if camera_ok and has_frame else
+                        'KAMERA WARTET' if camera_ok else 'KAMERA AUSGEFALLEN')
+        return (camera_label, 'info' if camera_ok and has_frame else 'danger' if not camera_ok else 'secondary',
+                'FAHRT AKTIV' if running else 'BERGUNG' if recovery else 'FAHRMODUS AUS',
+                'success' if running else 'warning' if recovery else 'secondary',
+                'REC ●' if recording else 'REC AUS', 'danger' if recording else 'secondary',
+                f'Frame #{camera.frame_id}' if has_frame else '',
+                running or recovery, not (running or recovery),
+                'Bergung beenden' if recovery else 'Bergung aktivieren', not recovery,
+                recovery, not recovery,
+                '■ REC stoppen' if recording else '● REC starten', 'danger' if recording else 'secondary',
+                not recording, running,
+                message)
 
     @app.callback(Output('recovery-status', 'children'),
                   Input('recovery-pulse', 'n_intervals'), State('recovery-keys', 'data'))
@@ -230,77 +449,164 @@ def create_app(application):
                 forward=bool(keys.get('w')), reverse=bool(keys.get('s')),
                 left=bool(keys.get('a')), right=bool(keys.get('d')),
                 deadman=bool(keys.get('deadman')))
-            return 'Bergung aktiv · Steuerung nur mit Leertaste'
+            return 'Deadman gedrückt' if keys.get('deadman') else 'Bereit · Leertaste halten zum Fahren'
         except RuntimeError as exc:
             return str(exc)
 
-    @app.callback(Output('session-stats', 'children'), Input('refresh', 'n_intervals'))
-    def session_stats(_):
-        return f"{'REC ●' if sessions.is_running() else 'REC AUS'} · {sessions.count} Frames · {sessions.path or 'keine Session'} · {sessions.error or 'kein Fehler'}"
+    # ------------------------------------------------ Driving Cockpit
+    @app.callback(Output('drive-overlay', 'src'), Output('drive-rendered', 'data'),
+                  Output('drive-angle', 'children'), Output('drive-speed', 'children'),
+                  Output('drive-requested', 'children'), Output('drive-raw', 'children'),
+                  Output('drive-mode-status', 'children'), Output('drive-diagnostic', 'children'),
+                  Output('drive-frame-badge', 'children'), Output('drive-age', 'children'),
+                  Input('tick-drive', 'n_intervals'), Input('main-tabs', 'active_tab'),
+                  State('drive-rendered', 'data'))
+    def cockpit_view(_, tab, rendered):
+        if tab != 'drive':
+            return (no_update,) * 10
+        with measure(application, 'dashboard.cockpit'):
+            camera = car.camera_data
+            running = application.running()
+            diagnostic = application.last_diagnostic() if hasattr(application, 'last_diagnostic') else None
+            stop_reason = application.stop_reason() if hasattr(application, 'stop_reason') else None
+            record = car.frame_history.latest_complete() if running else None
+            if record is not None:
+                key = f'drive:{record.camera.frame_id}'
+                shown = record.camera
+            else:
+                key = f'cal:{getattr(camera, "frame_id", None)}'
+                shown = camera
+            image = no_update
+            if key != rendered and shown is not None and shown.frame_id >= 0:
+                overlay = (render_overlay(record.camera, record.driving) if record is not None
+                           else render_calibration_overlay(camera))
+                image = uri(draw_steering_overlay(overlay, car.steering_angle))
+            else:
+                key = rendered
+            age = '–'
+            if shown is not None and getattr(shown, 'monotonic_ns', 0):
+                age = f'Datenalter {(time.monotonic_ns() - shown.monotonic_ns) / 1e6:.0f} ms'
+                if record is not None and record.driving.monotonic_ns:
+                    age += f' · Entscheidung nach {(record.driving.monotonic_ns - shown.monotonic_ns) / 1e6:.0f} ms'
+            mode_badge = dbc.Badge(f'Modus: {application.active_mode}' if running else 'Modus: aus',
+                                   color='success' if running else 'secondary')
+            return (image, key, fmt(car.steering_angle, 0, '°'), fmt(car.speed),
+                    fmt(diagnostic.get('requested_angle'), 0, '°') if running and diagnostic else '–',
+                    fmt(diagnostic.get('raw_angle'), 0, '°') if running and diagnostic else '–',
+                    mode_badge, diagnostic_text(diagnostic, stop_reason, running),
+                    f'Frame #{shown.frame_id}' if shown is not None else '', age)
 
-    @app.callback(Output('global-camera-state', 'children'),
-                  Output('global-mode-state', 'children'), Output('global-frame', 'children'),
-                  Output('global-start', 'disabled'), Output('global-start', 'outline'),
-                  Output('global-stop', 'outline'), Output('recovery-toggle', 'outline'),
-                  Output('telemetry-preview', 'src'), Output('record-preview', 'src'),
-                  Input('refresh', 'n_intervals'), State('main-tabs', 'active_tab'))
-    def global_status(_, tab):
-        camera = application.car.camera_data
-        active = application.running()
-        frame = camera.frame_id if camera is not None else None
-        preview = None
-        if tab in ('telemetry', 'record') and camera is not None:
-            # Niedrig aufgelöstes Rohbild, keine zweite Linienerkennung.
-            raw = camera.raw_image
-            if raw is not None and getattr(raw, 'size', 0):
-                h, w = raw.shape[:2]
-                preview_image = render_calibration_overlay(camera)
-                if preview_image is not None:
-                    ph, pw = preview_image.shape[:2]
-                    preview = uri(cv2.resize(preview_image, (min(320, pw), max(1, int(ph * min(320,pw)/pw)))))
-        return ('KAMERA LIVE' if camera is not None else 'KAMERA WARTET',
-                'FAHRT AKTIV' if active else 'FAHRMODUS AUS',
-                f'Frame #{frame}' if frame is not None else '',
-                active or application.recovery.enabled, not active,
-                active, not application.recovery.enabled,
-                preview if tab == 'telemetry' else no_update,
-                preview if tab == 'record' else no_update)
-
-    @app.callback(Output('drive-message', 'children'), Input('drive-start', 'n_clicks'),
-                  Input('drive-stop', 'n_clicks'), State('mode', 'value'), prevent_initial_call=True)
-    def drive_action(_start, _stop, mode):
-        try:
-            if ctx.triggered_id == 'drive-start':
-                application.start_mode(mode)
-                return 'Fahrmodus gestartet'
-            application.recovery.disable()
-            application.stop_modes()
-            return 'Fahrzeug gestoppt'
-        except Exception as exc:
-            log.exception('Fahraktion fehlgeschlagen')
-            return f'Fehler: {exc}'
-
+    # ------------------------------------------------ Pipeline Studio
     @app.callback(Output('cfg-message', 'children'), Input('cfg-apply', 'n_clicks'),
                   Input('cfg-save', 'n_clicks'),
                   Input('cfg-processor', 'value'), Input('cfg-crop', 'value'),
                   Input('cfg-hue', 'value'), Input('cfg-sat', 'value'),
                   Input('cfg-val', 'value'), Input('cfg-blur', 'value'),
                   Input('cfg-morph', 'value'), Input('cfg-canny', 'value'),
-                  *[Input(f'cfg-enable-{name}', 'value') for name in ('roi','mask','blur','morph','canny','lanes')],
+                  *[Input(f'cfg-enable-{name}', 'value') for name in SWITCHES],
                   prevent_initial_call=True)
     def configure(_apply, _save, processor, crop, hue, sat, val, blur, morph, canny, *switches):
-        names = ('roi','mask','blur','morph','canny','lanes')
-        settings = dict(processor=processor, crop=crop, hue=hue, sat=sat, val=val,
-                        blur=blur, morph=morph, canny=canny,
-                        enabled={name: 'on' in (v or []) for name,v in zip(names,switches)})
+        settings = settings_from_controls(processor, crop, hue, sat, val, blur, morph, canny, switches)
         try:
             if ctx.triggered_id == 'cfg-save':
                 application.save_pipeline(settings)
-                return 'Einstellungen gespeichert'
+                return 'Als aktive Konfiguration gespeichert (pipeline_studio.json)'
             application.set_pipeline(settings)
-            return 'Live-Vorschau aktualisiert · zum dauerhaften Speichern auf Speichern klicken'
+            return 'Live übernommen · dauerhaft mit „Als aktiv speichern“'
         except Exception as exc:
             return f'Nicht übernommen: {exc}'
+
+    @app.callback(Output('cfg-processor', 'value'), Output('cfg-crop', 'value'),
+                  Output('cfg-hue', 'value'), Output('cfg-sat', 'value'), Output('cfg-val', 'value'),
+                  Output('cfg-blur', 'value'), Output('cfg-morph', 'value'), Output('cfg-canny', 'value'),
+                  *[Output(f'cfg-enable-{name}', 'value') for name in SWITCHES],
+                  Output('preset-choice', 'options'), Output('preset-message', 'children'),
+                  Input('preset-load', 'n_clicks'), Input('preset-save', 'n_clicks'),
+                  Input('main-tabs', 'active_tab'),
+                  State('preset-choice', 'value'), State('preset-name', 'value'),
+                  State('cfg-processor', 'value'), State('cfg-crop', 'value'),
+                  State('cfg-hue', 'value'), State('cfg-sat', 'value'), State('cfg-val', 'value'),
+                  State('cfg-blur', 'value'), State('cfg-morph', 'value'), State('cfg-canny', 'value'),
+                  *[State(f'cfg-enable-{name}', 'value') for name in SWITCHES])
+    def preset_actions(_load, _save, _tab, choice, name, processor, crop, hue, sat, val, blur, morph, canny, *switches):
+        options = [{'label': 'Aktive Konfiguration (pipeline_studio.json)', 'value': ACTIVE_PRESET}] + [
+            {'label': preset, 'value': preset} for preset in list_presets()]
+        keep = (no_update,) * (8 + len(SWITCHES))
+        trigger = ctx.triggered_id
+        try:
+            if trigger == 'preset-save':
+                settings = settings_from_controls(processor, crop, hue, sat, val, blur, morph, canny, switches)
+                save_preset(name, settings)
+                options = [options[0]] + [{'label': preset, 'value': preset} for preset in list_presets()]
+                return (*keep, options, f'Preset „{name}“ gespeichert')
+            if trigger == 'preset-load':
+                if application.running():
+                    return (*keep, options, 'Laden nur im Stillstand')
+                data = load() if choice in (None, ACTIVE_PRESET) else load_preset(choice)
+                values = (data['processor'], data['crop'], data['hue'], data['sat'], data['val'],
+                          data['blur'], data['morph'], data['canny'],
+                          *[['on'] if data['enabled'].get(s, True) else [] for s in SWITCHES])
+                return (*values, options, f'Geladen: {choice or ACTIVE_PRESET} · wird live übernommen')
+        except (ValueError, OSError, KeyError) as exc:
+            return (*keep, options, f'Preset-Fehler: {exc}')
+        return (*keep, options, no_update)
+
+    @app.callback(Output('pipeline-frozen', 'data'), Input('pipeline-freeze', 'n_clicks'),
+                  State('pipeline-frozen', 'data'), prevent_initial_call=True)
+    def freeze(_, frozen):
+        if frozen is not None:
+            return None
+        camera = car.camera_data
+        return camera.frame_id if camera is not None and camera.frame_id >= 0 else None
+
+    @app.callback(Output('inspected-stage', 'data'),
+                  *[Input(f'inspect-{key}', 'n_clicks') for key, _ in STAGES],
+                  prevent_initial_call=True)
+    def inspect(*_):
+        button = ctx.triggered_id
+        return button.removeprefix('inspect-') if button else 'overlay'
+
+    @app.callback(*[Output(f'stage-{key}', 'src') for key, _ in STAGES],
+                  *[Output(f'stage-info-{key}', 'children') for key, _ in STAGES],
+                  Output('inspect-image', 'src'), Output('inspect-title', 'children'),
+                  Output('pipeline-frame-label', 'children'), Output('pipeline-lock', 'children'),
+                  Output('pipeline-rendered', 'data'),
+                  Input('tick-pipeline', 'n_intervals'), Input('inspected-stage', 'data'),
+                  Input('pipeline-frozen', 'data'),
+                  Input('main-tabs', 'active_tab'), State('pipeline-rendered', 'data'))
+    def pipeline_view(_, inspected, frozen, tab, rendered):
+        count = 2 * len(STAGES) + 5
+        if tab != 'pipeline':
+            return (no_update,) * count
+        with measure(application, 'dashboard.pipeline'):
+            camera = car.camera_data
+            running = application.running()
+            lock = dbc.Alert('Fahrt aktiv: Änderungen gesperrt, Anzeige läuft weiter.', color='warning',
+                             className='mb-0 py-2') if running else dbc.Alert(
+                'Kalibrierung im Stillstand. LIVE folgt der Kamera, FREEZE hält einen Frame aus dem Ringbuffer.',
+                color='secondary', className='mb-0 py-2')
+            if camera is None or camera.frame_id < 0:
+                return (*([None] * len(STAGES)), *([''] * len(STAGES)), None, 'Warte auf Kamera', '', lock, None)
+            pipeline_camera = camera
+            if frozen is not None:
+                match = car.frame_history.find(frozen)
+                if match is not None:
+                    pipeline_camera = match.camera
+                else:
+                    frozen = None
+            key = f'{pipeline_camera.frame_id}:{inspected}'
+            label = f'{"FREEZE" if frozen is not None else "LIVE"} · Frame {pipeline_camera.frame_id}'
+            if key == rendered:
+                return (*([no_update] * (2 * len(STAGES) + 2)), label, lock, no_update)
+            stages = dict(getattr(pipeline_camera, 'stages', {}) or {})
+            stages['raw'] = pipeline_camera.raw_image
+            stages['overlay'] = render_calibration_overlay(pipeline_camera)
+            encoded = {name: uri(stages.get(name)) for name, _ in STAGES}
+            infos = [('Verfügbar' if encoded[name] else
+                      'Schritt deaktiviert oder ohne Diagnosebild (Legacy-Prozessor)') for name, _ in STAGES]
+            title = dict(STAGES).get(inspected, inspected)
+            return (*[encoded[name] for name, _ in STAGES], *infos, encoded.get(inspected), title,
+                    label, lock, key)
 
     @app.callback(Output('ab-status', 'children'), Output('ab-image-a', 'src'),
                   Output('ab-image-b', 'src'), Output('ab-lanes-a', 'children'),
@@ -311,20 +617,18 @@ def create_app(application):
                   State('cfg-hue', 'value'), State('cfg-sat', 'value'),
                   State('cfg-val', 'value'), State('cfg-blur', 'value'),
                   State('cfg-morph', 'value'), State('cfg-canny', 'value'),
-                  *[State(f'cfg-enable-{name}', 'value') for name in ('roi','mask','blur','morph','canny','lanes')],
+                  *[State(f'cfg-enable-{name}', 'value') for name in SWITCHES],
                   prevent_initial_call=True)
     def ab_calibrate(_freeze, _run, _reset, processor, crop, hue, sat, val, blur, morph, canny, *switches):
         trigger = ctx.triggered_id
         if trigger == 'ab-reset':
             ab.clear()
             return 'A/B zurückgesetzt', None, None, '', ''
-        enabled = {name: 'on' in (v or []) for name, v in
-                   zip(('roi','mask','blur','morph','canny','lanes'), switches)}
-        params = (tuple(hue), tuple(sat), tuple(val), tuple(crop),
-                  int(blur), int(morph), tuple(canny), enabled)
+        params = parameters_from_settings(
+            settings_from_controls(processor, crop, hue, sat, val, blur, morph, canny, switches))
         try:
             if trigger == 'ab-freeze':
-                frame = ab.freeze(application.car.camera_data, params, processor)
+                frame = ab.freeze(car.camera_data, params, processor)
                 return f'Referenz A: Frame {frame} eingefroren', None, None, '', ''
             comparison = ab.compare(params, processor)
             return (f'A/B auf Frame {comparison.frame_id} berechnet',
@@ -334,250 +638,305 @@ def create_app(application):
         except (ValueError, TypeError, cv2.error) as exc:
             return f'A/B nicht möglich: {exc}', no_update, no_update, no_update, no_update
 
-    @app.callback(Output('record-status', 'children'), Input('record-toggle', 'n_clicks'),
-                  prevent_initial_call=True)
-    def toggle(_):
-        try:
-            if sessions.is_running(): sessions.stop()
-            else: sessions.start()
-            return ('REC AKTIV' if sessions.is_running() else 'Aufzeichnung gestoppt')
-        except Exception as exc:
-            return f'Aufzeichnungsfehler: {exc}'
-
-    @app.callback(Output('session-choice', 'options'), Input('session-refresh', 'n_clicks'))
-    def refresh_sessions(_):
-        return [{'label':'Live-Ringbuffer','value':'__live__'}] + [
-            {'label':name,'value':name} for name in list_sessions()]
-
-    @app.callback(Output('pipeline-frozen', 'data'), Input('pipeline-freeze', 'n_clicks'),
-                  State('pipeline-frozen', 'data'), prevent_initial_call=True)
-    def freeze(_, frozen):
-        if frozen is not None:
-            return None
-        camera = application.car.camera_data
-        return camera.frame_id if camera is not None else None
-
-    @app.callback(Output('inspected-stage', 'data'),
-                  *[Input(f'inspect-{key}', 'n_clicks') for key, _ in STAGES],
-                  prevent_initial_call=True)
-    def inspect(*_):
-        button = ctx.triggered_id
-        return button.removeprefix('inspect-') if button else 'overlay'
-
-    @app.callback(Output('drive-overlay', 'src'),
-                  *[Output(f'stage-{key}', 'src') for key,_ in STAGES],
-                  Output('drive-status', 'children'), Output('drive-angle', 'children'),
-                  Output('drive-speed', 'children'), Output('drive-camera-badge', 'children'),
-                  Output('drive-frame-badge', 'children'), Output('drive-mode-status', 'children'),
-                  Output('record-status', 'title'),
-                  Output('pipeline-frame-label', 'children'),
-                  Output('inspect-image', 'src'), Output('inspect-title', 'children'),
-                  *[Output(f'stage-info-{key}', 'children') for key,_ in STAGES],
-                  Input('refresh', 'n_intervals'), State('pipeline-frozen', 'data'),
-                  State('inspected-stage', 'data'), State('main-tabs', 'active_tab'))
-    def images(_, frozen, inspected, active_tab):
-        camera = application.car.camera_data
-        if camera is None or camera.frame_id < 0:
-            return (None, *([None] * len(STAGES)), 'Noch kein Kameraframe', '–', '–', 'WARTET', '', 'Fahrmodus aus', '', 'Warte auf Kamera', None, '', *([''] * len(STAGES)))
-        if frozen is not None:
-            match = next((r.camera for r in application.car.frame_history.snapshot()
-                          if r.camera.frame_id == frozen), None)
-            if match is not None:
-                pipeline_camera = match
-            else:
-                pipeline_camera = camera
-                frozen = None
-        else:
-            pipeline_camera = camera
-        stages = getattr(pipeline_camera, 'stages', {}) or {}
-        state = application.car.driving_state
-        record = next((r for r in reversed(application.car.frame_history.snapshot())
-                       if state is not None and r.camera.frame_id == state.frame_id and r.driving is not None), None)
-        overlay = None
-        if active_tab == 'drive':
-            overlay = (render_overlay(record.camera, record.driving)
-                       if record and record.camera.frame_id == camera.frame_id and application.running()
-                       else render_calibration_overlay(camera))
-            overlay = draw_steering_overlay(overlay, application.car.steering_angle)
-        stage_images = ({**stages, 'raw': pipeline_camera.raw_image,
-                         'overlay': render_calibration_overlay(pipeline_camera)}
-                        if active_tab == 'pipeline' else {})
-        speed = state.speed if state and application.running() else application.car.speed
-        angle = state.steering_angle_car if state and application.running() else application.car.steering_angle
-        text = f'Frame {camera.frame_id} · Speed-Steuerwert {speed} · Lenkwinkel {angle} · Modus {application.active_mode or "aus"}'
-        return (uri(overlay) if active_tab == 'drive' else no_update,
-                *[(uri(stage_images.get(key)) if active_tab == 'pipeline' else no_update) for key,_ in STAGES], text,
-                f'{angle}°', str(speed), 'LIVE', f'Frame #{camera.frame_id}',
-                f'Modus: {application.active_mode or "aus"}',
-                f'Frame {camera.frame_id} · Recorder {"aktiv" if application.recorder.is_running() else "inaktiv"}',
-                f'{"FREEZE" if frozen is not None else "LIVE"} · Frame {pipeline_camera.frame_id}',
-                (uri(stage_images.get(inspected)) if active_tab == 'pipeline' else no_update), inspected,
-                *[('Verfügbar' if stage_images.get(key) is not None else 'Nicht bereitgestellt')
-                  for key, _ in STAGES])
-
-    @app.callback(Output('drive-diagnostic', 'children'), Input('refresh', 'n_intervals'))
-    def driving_diagnostic(_):
-        mode = application.modes.get('camera')
-        diagnostic = getattr(mode, 'last_diagnostic', None)
-        if not diagnostic:
-            return 'Noch keine Controllerdiagnose'
-        return (f"Frame {diagnostic.get('frame_id')} · "
-                f"Linien: {len([x for x in diagnostic.get('lanes', ()) if x is not None])} · "
-                f"Rohwinkel: {diagnostic.get('raw_angle')} · "
-                f"Vorheriger Winkel gehalten: {diagnostic.get('held_previous_angle')} · "
-                f"Soll: {diagnostic.get('requested_angle')} · "
-                f"Stellwert: {diagnostic.get('actual_angle')} · "
-                f"Stoppursache: {getattr(mode, 'last_stop_reason', None) or 'keine'}")
-
+    # ------------------------------------------------ Telemetrie
     @app.callback(Output('freq-bars', 'figure'), Output('freq-history', 'figure'),
                   Output('drive-history', 'figure'), Output('data-age', 'children'),
-                  Output('event-list', 'children'), Input('refresh', 'n_intervals'))
-    def charts(_):
-        rows, freqs, events = application.sample()
-        camera = application.car.camera_data
-        state = application.car.driving_state
-        metrics = application.car.thread_metrics
-        targets = [float(application.sensor.scan_frequency),
-                   float(getattr(application.modes.get('camera'), '_frequency', 0))]
-        actual = [metrics[key].hz if metrics[key].age_seconds is not None and metrics[key].age_seconds < 2 else 0
-                  for key in ('camera', 'controller')]
-        bars = go.Figure()
-        bars.add_bar(name='Soll', x=['Kamera','Controller'], y=targets)
-        bars.add_bar(name='Ist', x=['Kamera','Controller'], y=actual)
-        bars.update_layout(barmode='group')
-        fplot = go.Figure()
-        if freqs:
-            start = freqs[-1][0]
-            for i, name in ((1, 'Kamera'), (2, 'Controller')):
-                fplot.add_scatter(x=[r[0]-start for r in freqs], y=[r[i] for r in freqs], name=name)
-        dplot = go.Figure()
-        if rows:
-            start = rows[-1][0]
-            for i, name in ((2, 'Lenkwinkel'), (3, 'Speed'), (4, 'Linie fehlt')):
-                dplot.add_scatter(x=[r[0]-start for r in rows], y=[r[i] for r in rows], name=name)
-        age = 'Keine Daten verfügbar'
-        if camera is not None and camera.monotonic_ns:
-            camera_ms = max(0, time.monotonic_ns() - camera.monotonic_ns) / 1e6
-            age = f'Kameradatenalter: {camera_ms:.1f} ms'
-            if state and state.frame_id == camera.frame_id:
-                age += f' · Entscheidungsverzögerung: {(state.timestamp_ns-camera.timestamp)/1e6:.1f} ms (Systemuhr)'
-        return bars, fplot, dplot, age, (
-            [html.Div(f'Frame {event.frame_id}: {event.code} · {event.detail}')
-             for event in application.health.events()[-12:]] +
-            [html.Div(f'Frame {fid}: {text}') for fid,text in list(events)[-5:]])
-    def replay_rows(name):
-        if not name or name == '__live__':
-            return application.car.frame_history.snapshot()
-        try:
-            return load_session(name)[1]
-        except (ValueError, OSError):
-            return []
+                  Output('system-stats', 'children'), Output('telemetry-preview', 'src'),
+                  Input('tick-telemetry', 'n_intervals'), Input('main-tabs', 'active_tab'))
+    def telemetry_view(_, tab):
+        if tab != 'telemetry':
+            return (no_update,) * 6
+        with measure(application, 'dashboard.telemetry'):
+            rows, freqs, _events = application.sample()
+            camera = car.camera_data
+            metrics = car.thread_metrics
+            running = application.running()
+            camera_target = float(application.sensor.scan_frequency)
+            actual = [metrics[key].hz if metrics[key].age_seconds is not None and metrics[key].age_seconds < 2 else 0
+                      for key in ('camera', 'controller')]
+            # Der Regler entscheidet einmal je neuem Kameraframe; Soll = Kamerafrequenz.
+            targets = [camera_target, camera_target if running else 0.0]
+            bars = go.Figure()
+            bars.add_bar(name='Soll', x=['Kamera', 'Entscheidungen'], y=targets, marker_color='#6c7a92')
+            bars.add_bar(name='Ist', x=['Kamera', 'Entscheidungen'], y=actual, marker_color='#2fbf8f')
+            dark_figure(bars, 240, barmode='group', yaxis_title='Hz', uirevision='bars')
+            fplot = go.Figure()
+            if freqs:
+                end = freqs[-1][0]
+                recent = [r for r in freqs if end - r[0] <= 60]
+                for i, name in ((1, 'Kamera'), (2, 'Entscheidungen')):
+                    fplot.add_scatter(x=[r[0] - end for r in recent], y=[r[i] for r in recent],
+                                      name=name, mode='lines')
+            dark_figure(fplot, 240, xaxis_title='Sekunden', yaxis_title='Hz', uirevision='freq')
+            dplot = go.Figure()
+            if rows:
+                end = rows[-1][0]
+                x = [r[0] - end for r in rows]
+                dplot.add_scatter(x=x, y=[r[2] for r in rows], name='Rohwinkel', mode='lines')
+                dplot.add_scatter(x=x, y=[r[6] if len(r) > 6 else None for r in rows], name='Stellwert', mode='lines')
+                dplot.add_scatter(x=x, y=[r[3] for r in rows], name='Speed-Steuerwert', mode='lines')
+                dplot.add_scatter(x=x, y=[r[5] if len(r) > 5 else None for r in rows], name='Linienanzahl',
+                                  mode='lines', line={'shape': 'hv'}, yaxis='y2')
+            dark_figure(dplot, 300, xaxis_title='Sekunden', yaxis_title='Grad / Steuerwert',
+                        yaxis2=dict(overlaying='y', side='right', range=[0, 3], title='Linien'),
+                        uirevision='drive')
+            lines = []
+            if camera is not None and camera.monotonic_ns:
+                lines.append(f'Kameradatenalter (seit Aufnahme): {(time.monotonic_ns() - camera.monotonic_ns) / 1e6:.0f} ms')
+                if getattr(camera, 'processing_ns', 0):
+                    lines.append(f'Bildverarbeitung: {camera.processing_ns / 1e6:.1f} ms')
+            record = car.frame_history.latest_complete()
+            if record is not None and record.driving.monotonic_ns and record.camera.monotonic_ns:
+                lines.append(f'Entscheidungslatenz (Aufnahme → Fahrbefehl): '
+                             f'{(record.driving.monotonic_ns - record.camera.monotonic_ns) / 1e6:.1f} ms '
+                             f'(Frame {record.camera.frame_id})')
+            history = car.frame_history
+            lines.append(f'Ringbuffer: {len(history.snapshot())}/{getattr(history, "maxlen", "?")} Frames · '
+                         f'Regler-Abtastung {application.controller_poll_hz:.0f} Hz (nur neue Frames werden ausgewertet)')
+            timings = getattr(application, 'timings', None)
+            if timings is not None:
+                for name, values in sorted(timings.summary().items()):
+                    lines.append(f'{name}: Ø {values["mean_ms"]:.1f} ms · max {values["max_ms"]:.1f} ms')
+            preview = None
+            if camera is not None and camera.frame_id >= 0:
+                image = render_calibration_overlay(camera)
+                if image is not None:
+                    h, w = image.shape[:2]
+                    scale = min(1.0, 320 / max(1, w))
+                    preview = uri(cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale)))), 60)
+            return (bars, fplot, dplot, [html.Div(line) for line in lines] or 'Keine Daten verfügbar',
+                    system_stats(), preview)
 
-    def record_id(record):
-        return int(record['frame_id']) if isinstance(record, dict) else record.camera.frame_id
+    # ------------------------------------------------ Recording & Events
+    @app.callback(Output('record-status', 'children'), Output('session-stats', 'children'),
+                  Output('event-list', 'children'), Output('record-preview', 'src'),
+                  Input('tick-record', 'n_intervals'), Input('last-action', 'data'),
+                  Input('main-tabs', 'active_tab'))
+    def recording_view(_, _action, tab):
+        if tab != 'record':
+            return (no_update,) * 4
+        recorder = application.recorder
+        stats = recorder.stats() if hasattr(recorder, 'stats') else {
+            'frames': getattr(recorder, 'count', 0), 'path': getattr(recorder, 'path', None),
+            'error': getattr(recorder, 'error', None)}
+        status = 'REC ● Aufzeichnung läuft' if recorder.is_running() else 'Keine Aufzeichnung aktiv'
+        details = (f"{stats.get('frames', 0)} Frames · Lücken {stats.get('gap_frames', 0)} · "
+                   f"fehlende Entscheidungen {stats.get('missing_decisions', 0)} · "
+                   f"{stats.get('path') or 'keine Session'} · {stats.get('error') or 'kein Fehler'}")
+        now = time.monotonic_ns()
+        events = list(application.health.events())[-25:][::-1]
+        colors = {'STOP_REASON': 'text-danger', 'CONTROLLER_STOPPED': 'text-warning',
+                  'LANE_LOST': 'text-warning', 'RECORDER_FRAME_GAP': 'text-danger'}
+        items = [html.Div([html.Span(f'vor {(now - e.timestamp_ns) / 1e9:5.1f} s', className='text-secondary me-2'),
+                           html.Span(f'Frame {e.frame_id}' if e.frame_id is not None else 'Frame –', className='me-2'),
+                           html.Strong(e.code, className=colors.get(e.code, '') + ' me-2'),
+                           html.Span(e.detail, className='small')]) for e in events] or 'Keine Ereignisse'
+        camera = car.camera_data
+        preview = None
+        if camera is not None and camera.frame_id >= 0:
+            image = render_calibration_overlay(camera)
+            if image is not None:
+                h, w = image.shape[:2]
+                scale = min(1.0, 320 / max(1, w))
+                preview = uri(cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale)))), 60)
+        return status, details, items, preview
+
+    # ------------------------------------------------ Replay Lab
+    def replay_records(name, bounds):
+        """Liefert (Datensaetze, Ereignisse, Pfad) gefiltert auf den Frame-ID-Bereich."""
+        bounds = tuple(bounds) if bounds else None
+        if not name or name == LIVE:
+            events = [{'frame_id': e.frame_id, 'code': e.code, 'detail': e.detail}
+                      for e in application.health.events() if e.frame_id is not None]
+            return select_records(car.frame_history.snapshot(), bounds), events, None
+        try:
+            path, rows = load_session(name)
+            events = load_events(name)
+        except (ValueError, OSError):
+            return (), [], None
+        return select_records(rows, bounds), events, path
+
+    @app.callback(Output('session-choice', 'options'), Input('session-refresh', 'n_clicks'),
+                  Input('last-action', 'data'))
+    def refresh_sessions(_, _action):
+        return [{'label': 'Live-Ringbuffer (flüchtig)', 'value': LIVE}] + [
+            {'label': name, 'value': name} for name in list_sessions()]
+
+    @app.callback(Output('replay-event', 'options'), Output('replay-event', 'value'),
+                  Input('session-choice', 'value'))
+    def replay_event_options(name):
+        _, events, _ = replay_records(name, None)
+        options = []
+        for event in events[-300:]:
+            try:
+                frame_id = int(event.get('frame_id'))
+            except (TypeError, ValueError):
+                continue
+            options.append({'label': f"Frame {frame_id} · {event.get('code')}", 'value': frame_id})
+        return options, None
+
+    @app.callback(Output('replay-index', 'value'), Output('replay-bounds', 'data'),
+                  Input('replay-prev', 'n_clicks'), Input('replay-next', 'n_clicks'),
+                  Input('replay-chart', 'clickData'), Input('replay-chart', 'relayoutData'),
+                  Input('replay-event', 'value'), Input('replay-range-reset', 'n_clicks'),
+                  Input('tick-replay', 'n_intervals'),
+                  State('replay-index', 'value'), State('replay-playing', 'data'),
+                  State('session-choice', 'value'), State('replay-bounds', 'data'),
+                  State('replay-pre', 'value'), State('replay-post', 'value'),
+                  State('main-tabs', 'active_tab'))
+    def seek(_prev, _next, click, relayout, event_frame, _reset, _tick, index, playing, name, bounds,
+             pre, post, tab):
+        trigger = ctx.triggered_id
+        if tab != 'replay' and trigger == 'tick-replay':
+            return no_update, no_update
+        if trigger == 'replay-range-reset':
+            return 0, None
+        if trigger == 'replay-chart' and ctx.triggered and ctx.triggered[0]['prop_id'].endswith('relayoutData'):
+            if not isinstance(relayout, dict) or not any(k.startswith('xaxis') for k in relayout):
+                return no_update, no_update
+            chosen = selected_bounds(relayout)
+            return 0, list(chosen) if chosen else None
+        if trigger == 'replay-event' and event_frame is not None:
+            window = event_window(event_frame, pre, post)
+            records, _, _ = replay_records(name, window)
+            ids = [record_frame_id(r) for r in records]
+            position = next((i for i, fid in enumerate(ids) if fid is not None and fid >= event_frame), 0)
+            return position, list(window)
+        records, _, _ = replay_records(name, bounds)
+        if not records:
+            return 0, no_update
+        index = max(0, min(int(index or 0), len(records) - 1))
+        if trigger == 'replay-prev':
+            return max(0, index - 1), no_update
+        if trigger == 'replay-next':
+            return min(len(records) - 1, index + 1), no_update
+        if trigger == 'replay-chart' and click and click.get('points'):
+            fid = click['points'][0].get('customdata')
+            return next((i for i, r in enumerate(records) if record_frame_id(r) == fid), index), no_update
+        if trigger == 'tick-replay' and playing:
+            return min(len(records) - 1, index + 1), no_update
+        return no_update, no_update
 
     @app.callback(Output('replay-index', 'max'), Output('replay-range', 'children'),
-                  Input('refresh', 'n_intervals'), Input('session-choice', 'value'))
-    def replay_limits(_, session_name):
-        records = replay_rows(session_name)
-        return max(0, len(records)-1), f'{len(records)} Frames · '+('Live-Ringbuffer' if session_name == '__live__' else 'gespeicherte Session')
+                  Input('replay-bounds', 'data'), Input('session-choice', 'value'),
+                  Input('tick-replay', 'n_intervals'), State('main-tabs', 'active_tab'))
+    def replay_limits(bounds, name, _, tab):
+        if tab != 'replay' and ctx.triggered_id == 'tick-replay':
+            return no_update, no_update
+        records, _, _ = replay_records(name, bounds)
+        source = 'Live-Ringbuffer (gleitend)' if name in (None, LIVE) else 'gespeicherte Session'
+        selection = f' · Bereich Frame {int(bounds[0])}–{int(bounds[1])}' if bounds else ''
+        return max(0, len(records) - 1), f'{len(records)} Frames · {source}{selection}'
 
     @app.callback(Output('replay-playing', 'data'), Input('replay-play', 'n_clicks'),
                   State('replay-playing', 'data'), prevent_initial_call=True)
     def replay_toggle(_, playing):
         return not bool(playing)
 
-    @app.callback(Output('replay-index', 'value'),
-                  Input('replay-prev', 'n_clicks'), Input('replay-next', 'n_clicks'),
-                  Input('replay-chart', 'clickData'), Input('refresh', 'n_intervals'),
-                  State('replay-index', 'value'), State('replay-playing', 'data'), State('session-choice', 'value'))
-    def seek(_prev, _next, click, _tick, index, playing, session_name):
-        records = replay_rows(session_name)
-        if not records:
-            return 0
-        index = max(0, min(int(index or 0), len(records)-1))
-        trigger = ctx.triggered_id
-        if trigger == 'replay-prev':
-            return max(0, index-1)
-        if trigger == 'replay-next':
-            return min(len(records)-1, index+1)
-        if trigger == 'replay-chart' and click and click.get('points'):
-            fid = click['points'][0].get('customdata')
-            return next((i for i,r in enumerate(records) if record_id(r) == fid), index)
-        if trigger == 'refresh' and playing:
-            return min(len(records)-1, index+1)
-        return no_update
+    @app.callback(Output('replay-play', 'children'), Input('replay-playing', 'data'))
+    def replay_play_label(playing):
+        return '⏸ Pause' if playing else '▶ Play'
 
     @app.callback(Output('replay-image', 'src'), Output('replay-frame-label', 'children'),
                   Output('replay-details', 'children'), Output('replay-chart', 'figure'),
-                  Input('replay-index', 'value'), Input('refresh', 'n_intervals'), Input('session-choice', 'value'))
-    def replay_render(index, _, session_name):
-        records = replay_rows(session_name)
-        chart = go.Figure()
-        if not records:
-            return None, 'Keine Frames', 'Kamera starten', chart
-        ids = [record_id(r) for r in records]
-        angles = [float(r['steering_angle']) if r.get('steering_angle') else None for r in records] if isinstance(records[0], dict) else [r.driving.steering_angle if r.driving else None for r in records]
-        chart.add_scatter(x=ids, y=angles, customdata=ids, mode='lines+markers', name='Lenkwinkel')
-        chart.update_layout(xaxis_title='Frame-ID', yaxis_title='Lenkwinkel',
-                            margin=dict(l=35,r=15,t=20,b=35), height=220)
-        record = records[max(0, min(int(index or 0),len(records)-1))]
-        if isinstance(record, dict):
-            path, _rows = load_session(session_name)
-            filename = (path/record['image_filename']).resolve()
-            if not filename.is_relative_to(path):
-                return None, 'Ungültiger Bildpfad', '', chart
-            image = draw_hud(cv2.imread(str(filename)), record)
-            return uri(image), f"Frame #{record_id(record)}", f"Status: {record['data_status']} · Winkel: {record['steering_angle'] or 'fehlt'}", chart
-        image = render_overlay(record.camera, record.driving) if record.driving else render_calibration_overlay(record.camera)
-        info = (f'Frame {record.camera.frame_id} · '
-                + (f'Lenkwinkel {record.driving.steering_angle} · Speed {record.driving.speed}'
-                   if record.driving else 'Keine zugeordnete Fahrentscheidung'))
-        return uri(image), f'Frame #{record.camera.frame_id}', info, chart
+                  Input('replay-index', 'value'), Input('session-choice', 'value'),
+                  Input('replay-bounds', 'data'), Input('tick-replay', 'n_intervals'),
+                  State('main-tabs', 'active_tab'))
+    def replay_render(index, name, bounds, _, tab):
+        trigger = ctx.triggered_id
+        if tab != 'replay' or (trigger == 'tick-replay' and name not in (None, LIVE)):
+            return (no_update,) * 4
+        with measure(application, 'dashboard.replay'):
+            records, events, path = replay_records(name, bounds)
+            chart = go.Figure()
+            dark_figure(chart, 240, xaxis_title='Frame-ID', yaxis_title='Winkel',
+                        yaxis2=dict(overlaying='y', side='right', range=[0, 3], title='Linien'),
+                        uirevision=f'{name}|{bounds}')
+            if not records:
+                return None, 'Keine Frames', 'Kamera starten oder Session auswählen', chart
+            ids = [record_frame_id(r) for r in records]
+            if isinstance(records[0], dict):
+                def number(row, key):
+                    try:
+                        return float(row.get(key) or 'nan')
+                    except ValueError:
+                        return None
+                angles = [number(r, 'steering_angle_car') for r in records]
+                lanes = [number(r, 'lane_count') for r in records]
+            else:
+                angles = [r.driving.steering_angle_car if r.driving else None for r in records]
+                lanes = [sum(lane is not None for lane in (r.camera.lanes or ())) for r in records]
+            chart.add_scatter(x=ids, y=angles, customdata=ids, mode='lines+markers', name='Stellwert',
+                              marker={'size': 4})
+            chart.add_scatter(x=ids, y=lanes, customdata=ids, mode='lines', name='Linienanzahl',
+                              line={'shape': 'hv'}, yaxis='y2')
+            lo, hi = min(i for i in ids if i is not None), max(i for i in ids if i is not None)
+            for event in events:
+                try:
+                    fid = int(event.get('frame_id'))
+                except (TypeError, ValueError):
+                    continue
+                if lo <= fid <= hi and event.get('code') not in ('LANES_DETECTED', 'STEERING_COMPUTED'):
+                    chart.add_vline(x=fid, line_width=1, line_dash='dot', line_color='#f0ad4e')
+            position = max(0, min(int(index or 0), len(records) - 1))
+            record = records[position]
+            chart.add_vline(x=record_frame_id(record), line_width=2, line_color='#4da3ff')
+            if isinstance(record, dict):
+                filename = (path / record.get('image_filename', '')).resolve()
+                if not filename.is_relative_to(path) or not filename.is_file():
+                    return None, 'Bild fehlt', f"Frame {record.get('frame_id')}", chart
+                image = draw_hud(cv2.imread(str(filename)), record)
+                details = (f"Status {record.get('data_status')} · Stellwert {record.get('steering_angle_car') or '–'} · "
+                           f"Soll {record.get('requested_angle') or '–'} · Roh {record.get('steering_angle') or '–'} · "
+                           f"Speed {record.get('speed') or '–'} · Linien {record.get('lane_count') or '–'} · "
+                           f"Ereignisse {record.get('event_codes') or '–'}")
+                return uri(image, 80), f"Frame #{record.get('frame_id')}", details, chart
+            image = (render_overlay(record.camera, record.driving) if record.driving
+                     else render_calibration_overlay(record.camera))
+            info = (f'Frame {record.camera.frame_id} · '
+                    + (f'Stellwert {fmt(record.driving.steering_angle_car)} · Roh {fmt(record.driving.steering_angle)} · '
+                       f'Speed {fmt(record.driving.speed)}' if record.driving else 'Keine zugeordnete Fahrentscheidung'))
+            return uri(image, 80), f'Frame #{record.camera.frame_id}', info, chart
 
     @app.callback(Output('replay-download', 'data'), Input('replay-export', 'n_clicks'),
+                  State('session-choice', 'value'), State('replay-bounds', 'data'),
                   prevent_initial_call=True)
-    def export_buffer(_):
-        records = application.car.frame_history.snapshot()
-        if not records:
+    def export_range(_, name, bounds):
+        lo, hi = (int(bounds[0]), int(bounds[1])) if bounds else (None, None)
+        try:
+            if name in (None, LIVE):
+                records = select_records(car.frame_history.snapshot(), tuple(bounds) if bounds else None)
+                if not records:
+                    return no_update
+                target = export_live_records(records)
+            else:
+                target = export_session_range(name, lo, hi)
+        except (ValueError, OSError) as exc:
+            log.warning('Export fehlgeschlagen: %s', exc)
             return no_update
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-            rows = []
-            for record in records:
-                camera, driving = record.camera, record.driving
-                image = camera.raw_image
-                if image is None or image.size == 0:
-                    continue
-                success, encoded = cv2.imencode('.jpg', image)
-                if not success:
-                    continue
-                name = f'frames/frame_{camera.frame_id}.jpg'
-                archive.writestr(name, encoded.tobytes())
-                rows.append(dict(frame_id=camera.frame_id, image=name,
-                                 timestamp_ns=camera.timestamp,
-                                 steering_angle=driving.steering_angle if driving else '',
-                                 speed=driving.speed if driving else '',
-                                 status='complete' if driving else 'no_driving_state'))
-            text = io.StringIO()
-            writer = csv.DictWriter(text, fieldnames=['frame_id','image','timestamp_ns',
-                'steering_angle','speed','status'])
-            writer.writeheader()
-            writer.writerows(rows)
-            archive.writestr('frames.csv', text.getvalue())
-            archive.writestr('README.txt', 'Kurzexport des flüchtigen Ringbuffers. Keine vollständige Session.\n')
-        return dcc.send_bytes(buffer.getvalue(), 'camp2code_ringbuffer_export.zip')
+        return dcc.send_file(str(target))
 
     return app
 
 
 def main():
+    logging.basicConfig(level=logging.INFO)
+    # Jede Dash-Anfrage wuerde sonst eine Logzeile erzeugen (ca. 10 pro Sekunde).
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
     application = CarApplication()
     atexit.register(application.shutdown)
+
+    def _terminate(signum, _frame):
+        # SIGTERM (z. B. systemd, kill) beendet sonst den Prozess ohne Motorstopp.
+        log.warning('Signal %s empfangen, beende Anwendung', signum)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _terminate)
     try:
         create_app(application).run(host='0.0.0.0', port=8050, debug=False, use_reloader=False)
     finally:
         application.shutdown()
+
 
 if __name__ == '__main__':
     main()

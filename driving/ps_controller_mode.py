@@ -1,33 +1,30 @@
+"""Manuelle Steuerung ueber einen Gamepad-Controller (evdev)."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
 import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
 import select
-from evdev import InputDevice, ecodes
+from typing import TYPE_CHECKING, Optional
+
+import ConfigReader
 
 from .base import DrivingMode
+
+try:  # evdev ist nur auf Linux verfuegbar; Import des Pakets bleibt dadurch moeglich.
+    from evdev import InputDevice, ecodes
+except ImportError:  # pragma: no cover - abhaengig von der Plattform
+    InputDevice = None
+    ecodes = None
+
+if TYPE_CHECKING:
+    from BaseCar import BaseCar
 
 class PSControllerMode(DrivingMode):
 
     def __init__(self, name='PS-Controller', car:Optional[BaseCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None, device_path:str='/dev/input/event4'):
-        car = car if car is not None else CameraCar()
+        if car is None:
+            # Lazy-Import: Hardware nur bei Bedarf initialisieren.
+            from CameraCar import CameraCar
+            car = CameraCar()
         logger = logging.getLogger(self.__class__.__name__)
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader('cameracar_controller')
         super().__init__(name, car, logger, cfg)
@@ -43,6 +40,9 @@ class PSControllerMode(DrivingMode):
         return True
 
     def _pre_run(self) -> bool:
+        if InputDevice is None:
+            self._log.error('evdev ist nicht installiert; Controller-Modus nicht verfuegbar')
+            return False
         try:
             self._controller = InputDevice(self._device_path)
             self._controller.grab()

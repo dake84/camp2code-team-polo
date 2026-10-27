@@ -1,31 +1,9 @@
+"""Stoppursachen der IR-/Ultraschall-Fahrmodi."""
 from __future__ import annotations
-
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
-import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
-
 
 class StopReason(int):
 
-    NONE=int(0),
+    NONE = int(0)  # Korrektur: frueher Tupel (0,) durch ein ueberzaehliges Komma
     LOST_LINE = int(10)
     OBSTACLE_AHEAD = int(20)
     PROGRAM_STOPPED_BY_USER = int(30)

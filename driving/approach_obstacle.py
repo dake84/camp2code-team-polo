@@ -1,29 +1,13 @@
+"""Fahrmodus 3: Fahrt bis zu einem Hindernis (Ultraschall)."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
-import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
+from typing import TYPE_CHECKING, Optional
 
 from .sonic_car_mode import SonicCarMode
 from .stop_reason import StopReason
+
+if TYPE_CHECKING:  # nur fuer Typpruefung, kein Hardwareimport zur Laufzeit
+    from SonicCar import SonicCar
 
 class ApproachObstacle(SonicCarMode):
         

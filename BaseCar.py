@@ -1,3 +1,4 @@
+
 from threading import RLock
 from typing import Any, Optional
 import logging
@@ -19,11 +20,10 @@ class BaseCar(Loggable):
         self._speed = 0
         self._mode = self.FORWARD_MODE
         self._cfg = config if config is not None else ConfigReader("car")
+        self._lock = RLock()
         self._fw = FrontWheels(turning_offset=self.turning_offset)
         self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
         self.__log = logging.getLogger(BaseCar.__name__)
-
-        self._lock = RLock()
 
     def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
         with self._lock:
@@ -95,13 +95,15 @@ class BaseCar(Loggable):
     @steering_angle.setter
     def steering_angle(self, angle:int):
         angle = min(135, max(45, angle))
-        self._fw.turn(angle)
+        # Hardwarezugriff unter dem Fahrzeug-Lock: Befehle aus Fahrmodus,
+        # STOP und Bergung duerfen sich auf dem I2C-Bus nicht verschraenken.
         with self._lock:
+            self._fw.turn(angle)
             if (self._steering_angle != angle):
                 self.__log.info(f"Changed steering_angle: {self._steering_angle} -> {angle}")
             self.__log.debug(f"Set steering angle: {angle}")
             self._steering_angle = angle
-    
+
     # Live value (with lock)
     @property
     def speed(self) -> int:
@@ -110,31 +112,30 @@ class BaseCar(Loggable):
 
     # Live value (with lock)
     @speed.setter
-    def speed(self, speed:int): 
-          
+    def speed(self, speed:int):
         vmin = self._cfg.get_int("v_min", 20)
         vmax = self._cfg.get_int("v_max", 100)
         speed = max(-100, min(100, speed))
-        self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
-        if (speed == 0):
-            self._bw.speed = speed
-            self._mode = self.FORWARD_MODE
-            self._bw.forward()
-        elif (speed > 0):
-            speed = min(max(vmin, speed), vmax)
-            self._bw.speed = speed
-            self._mode = self.FORWARD_MODE
-            self._bw.forward()
-        else:
-            speed = max(-vmax, min(-vmin, speed))
-            self._bw.speed = abs(speed)
-            self._mode = self.BACKWARD_MODE
-            self._bw.backward()
+        # Gesamter Ablauf (Richtung + PWM + Zustand) atomar unter dem Fahrzeug-Lock.
         with self._lock:
-            if (self._speed != speed):
+            self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
+            if (speed == 0):
+                self._bw.speed = speed
+                self._mode = self.FORWARD_MODE
+                self._bw.forward()
+            elif (speed > 0):
+                speed = min(max(vmin, speed), vmax)
+                self._bw.speed = speed
+                self._mode = self.FORWARD_MODE
+                self._bw.forward()
+            else:
+                speed = max(-vmax, min(-vmin, speed))
+                self._bw.speed = abs(speed)
+                self._mode = self.BACKWARD_MODE
+                self._bw.backward()
+            if (self._speed != abs(speed)):
                 self.__log.info(f"Changed speed: {self._speed} -> {speed}")
-
-            self.__log.debug(f"Set steering angle: {speed}")           
+            self.__log.debug(f"Set speed: {speed}")
             self._speed = abs(speed)
 
     # Direction (equals mode)
@@ -145,8 +146,10 @@ class BaseCar(Loggable):
             return self._mode
 
     def drive(self, speed:Optional[int]=None, steering_angle:Optional[int]=None):
-        self.speed = speed if speed is not None else self.speed
-        self.steering_angle = steering_angle if steering_angle is not None else self._steering_angle
+        # Ein Fahrbefehl wird atomar gesetzt (RLock, daher verschachtelt erlaubt).
+        with self._lock:
+            self.speed = speed if speed is not None else self.speed
+            self.steering_angle = steering_angle if steering_angle is not None else self._steering_angle
 
     def stop(self):
         self.drive(0,90)

@@ -1,28 +1,15 @@
+"""Fahrmodus 5: Linienverfolgung mit Infrarotsensoren (PID)."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
 import time
-from datetime import datetime
-from typing import Optional, Tuple
-import logging
-import cv2
+from typing import TYPE_CHECKING, Optional
+
 import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
-import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
 
 from .sensor_car_mode import SensorCarMode
+
+if TYPE_CHECKING:
+    from SensorCar import SensorCar
 
 class FollowLine(SensorCarMode):
     def __init__(self, name="Fahrmodus 5", car:Optional[SensorCar]=None):

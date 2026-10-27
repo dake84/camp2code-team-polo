@@ -1,20 +1,30 @@
+
 """Regressionstest für das Binärisieren nach aktiviertem Blur."""
 import sys
 import types
 import unittest
-from unittest.mock import patch
-import cv2
 import numpy as np
 
 # Für den Test der Pipeline ist kein echter Linien-Detektor nötig.
+# Die Attrappe wird nur für den Import eingesetzt und danach wieder entfernt,
+# damit andere Testmodule den echten LaneDetector verwenden (früher blieb
+# die Attrappe für alle folgenden Tests in sys.modules).
 module = types.ModuleType('lane_detector')
 class Detector:
     def detect(self, image):
         return ()
 module.LaneDetector = Detector
+_saved = {name: sys.modules.pop(name, None) for name in ('pipeline_processors', 'lane_detector')}
 sys.modules['lane_detector'] = module
-from pipeline_processors import CopilotLaneProcessor
-
+try:
+    import pipeline_processors as _isolated
+    CopilotLaneProcessor = _isolated.CopilotLaneProcessor
+finally:
+    # Nur die selbst gesetzten Eintraege entfernen (patch.dict wuerde auch cv2 entladen).
+    for _name in ('pipeline_processors', 'lane_detector'):
+        sys.modules.pop(_name, None)
+        if _saved[_name] is not None:
+            sys.modules[_name] = _saved[_name]
 
 class TestBlurMaske(unittest.TestCase):
     def test_blur_verbreitert_binäre_linie_nicht_durch_geringste_grauwerte(self):

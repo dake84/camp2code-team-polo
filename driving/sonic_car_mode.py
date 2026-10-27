@@ -1,33 +1,23 @@
+"""Basisklasse fuer Fahrmodi mit Ultraschallsensorik."""
 from __future__ import annotations
 
-# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
-# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
-import abc
-import curses
-import random
-import threading
-import time
-from datetime import datetime
-from typing import Optional, Tuple
 import logging
-import cv2
-import numpy as np
-from BaseCar import BaseCar
-from CameraCar import CameraCar, CameraDataProcessed, CameraData
-from CarLogger import Loggable
+from typing import TYPE_CHECKING, Optional
+
 import ConfigReader
-from SensorCar import SensorCar
-from SonicCar import SonicCar
-from LenkwinkelKalkulator import lenkwinkel_from_image
-import select
-from evdev import InputDevice, ecodes
 
 from .base import DrivingMode
+
+if TYPE_CHECKING:
+    from SonicCar import SonicCar
 
 class SonicCarMode(DrivingMode):
 
     def __init__(self, name:str, car:Optional[SonicCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
-        car = car if car is not None else SonicCar()
+        if car is None:
+            # Lazy-Import: Hardware nur bei Bedarf initialisieren.
+            from SonicCar import SonicCar
+            car = SonicCar()
         # just a pointer to remove linter-errors
         self._soniccar = car
         logger = logging.getLogger(self.__class__.__name__)

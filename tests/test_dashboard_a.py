@@ -1,13 +1,22 @@
+
 """Hardwarefreie Tests für die zentrale Anwendungsverwaltung."""
-import threading
 import sys
-from unittest.mock import MagicMock
-for name in ("CameraCar", "CameraSensor", "Save_Data_AI", "pipeline_config", "Driving"):
-    sys.modules.setdefault(name, MagicMock())
 import unittest
-from types import SimpleNamespace
-from unittest.mock import Mock
-from car_application import CarApplication
+from unittest.mock import MagicMock, Mock
+
+# Hardwaremodule nur waehrend des Imports ersetzen. Frueher blieben die Mocks
+# (u. a. pipeline_config, Driving) fuer alle folgenden Testmodule aktiv.
+_names = ("CameraCar", "CameraSensor", "Driving", "car_application")
+_saved = {name: sys.modules.pop(name, None) for name in _names}
+sys.modules.update({name: MagicMock() for name in _names[:-1]})
+try:
+    from car_application import CarApplication
+finally:
+    # Nur die selbst gesetzten Eintraege entfernen (patch.dict wuerde auch cv2 entladen).
+    for _name in _names:
+        sys.modules.pop(_name, None)
+        if _saved[_name] is not None:
+            sys.modules[_name] = _saved[_name]
 
 class TestCarApplication(unittest.TestCase):
     def setUp(self):

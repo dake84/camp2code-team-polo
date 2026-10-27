@@ -1,3 +1,4 @@
+
 """Beobachtet Fahrzustände ohne die Fahrregelung zu verändern."""
 from collections import deque
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from time import monotonic_ns
 
 @dataclass(frozen=True)
 class HealthEvent:
+    """Ereignis. ``timestamp_ns`` ist ein Zeitstempel der monotonen Uhr."""
     timestamp_ns: int
     frame_id: int | None
     code: str
@@ -60,6 +62,25 @@ class DrivingHealthMonitor:
                 self._events.append(HealthEvent(monotonic_ns(), frame_id,
                     'CONTROLLER_STOPPED', stop_reason or 'Ursache nicht veröffentlicht'))
             self._was_running = running
+
+    def mark_start(self, mode_name, frame_id=None):
+        """Wird von CarApplication beim Start eines Fahrmodus aufgerufen.
+
+        Setzt die zuletzt gemeldete Stoppursache zurueck. Vorher wurde eine
+        gleiche Ursache in einer spaeteren Fahrt (z. B. zweiter LANE_TIMEOUT)
+        nicht mehr protokolliert. Auch sehr kurze Fahrten, die der Sampler
+        nie als laufend sieht, erzeugen dadurch ein CONTROLLER_STOPPED.
+        """
+        with self._lock:
+            self._last_reason = None
+            self._was_running = True
+            self._events.append(HealthEvent(monotonic_ns(), frame_id,
+                                            'CONTROLLER_STARTED', str(mode_name)))
+
+    def record(self, code, detail, frame_id=None):
+        """Fuegt ein externes Ereignis hinzu (z. B. Recorder, Bergung)."""
+        with self._lock:
+            self._events.append(HealthEvent(monotonic_ns(), frame_id, code, detail))
 
     def events(self):
         with self._lock:

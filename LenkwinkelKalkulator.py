@@ -1,3 +1,11 @@
+"""Linienerkennung und Lenkwinkelberechnung aus Fahrspurlinien.
+
+Linienmodell (verbindlich, geprueft in tests/test_lane_geometry.py):
+    Jede Linie ist ein Tupel ``(m, b)`` mit ``y = m * x + b``.
+    x und y sind Pixelkoordinaten im ROI-Bild (Ursprung oben links des ROI).
+    Im Vollbild gilt ``y_voll = y_roi + roi_top_px``.
+"""
+
 import cv2
 import numpy as np
 
@@ -238,6 +246,58 @@ def cals_drive_parameter_from_lanes(
     steering_angle = int(slope_degree)
 
     return steering_angle, img_with_steering_lane
+
+
+def _steering_solution(lanes, width, height):
+    """Interne, zeichnungsfreie Variante der Winkelberechnung.
+
+    Liefert ``(winkel, x_start, y_unten, x_ende, y_oben)`` oder ``(winkel, None, ...)``.
+    Die Rechenschritte sind identisch zu ``cals_drive_parameter_from_lanes``.
+    """
+    if lanes is None or len(lanes) != 2:
+        return None, None, None, None, None
+    if not all(lane is not None for lane in lanes):
+        return 90.0, None, None, None, None
+    y_bottom = height - 1
+    y_top = 0
+    x_top_arr = np.zeros(2, dtype=float)
+    for i, lane in enumerate(lanes):
+        m, b = lane
+        if abs(m) < 1e-6:
+            m_safe = np.copysign(1e-6, m if m != 0 else 1.0)
+        else:
+            m_safe = m
+        x_top_arr[i] = (y_top - b) / m_safe
+    x_steer_start = int(width // 2)
+    x_steer_end = int(np.clip(np.mean(x_top_arr), 0, width - 1))
+    delta_x = x_steer_end - x_steer_start
+    delta_y = y_top - y_bottom
+    slope_degree = (180.0 + np.degrees(np.arctan2(delta_y, delta_x))) % 180.0
+    return int(slope_degree), x_steer_start, y_bottom, x_steer_end, y_top
+
+
+def steering_angle_from_lanes(lanes, width, height):
+    """Berechnet den Rohlenkwinkel ohne Bildkopie und ohne Zeichnen.
+
+    Ergebnis identisch zum ersten Rueckgabewert von
+    ``cals_drive_parameter_from_lanes(bild, lanes)`` fuer ein nicht leeres Bild
+    der Groesse ``width`` x ``height``:
+    ``None`` bei nicht genau zwei Linien, ``90.0`` falls eine Linie ``None`` ist,
+    sonst ein ganzzahliger Winkel in Grad (90 = geradeaus).
+    """
+    return _steering_solution(lanes, width, height)[0]
+
+
+def steering_line_from_lanes(lanes, width, height):
+    """Liefert die vom Regler verwendete Richtungsgerade im ROI-Koordinatensystem.
+
+    Rueckgabe ``((x_start, y_unten), (x_ende, y_oben))`` oder ``None``.
+    Dient ausschliesslich der Visualisierung; es wird nichts neu erkannt.
+    """
+    angle, xs, yb, xe, yt = _steering_solution(lanes, width, height)
+    if xs is None:
+        return None
+    return (xs, yb), (xe, yt)
 
 
 def lenkwinkel_from_image(img) -> tuple[int, np.ndarray, list]:
