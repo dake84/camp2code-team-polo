@@ -1,17 +1,13 @@
 import logging
 import threading
 import time
-from typing import Optional
-import cv2
-
-from CameraCar import CameraData, CameraDataProcessed
-
-import numpy as np
 
 import ConfigReader
-from CameraCar import CameraCar
-
+import cv2
+import numpy as np
 from basisklassen_cam import Camera
+from CameraCar import CameraCar, CameraData
+
 
 def blur_img(img, blur_value = (10,10)):
     return cv2.blur(img,blur_value)
@@ -42,7 +38,7 @@ def morph_kernel_filter(img, morph_kernel=(5, 5)):
 
 class CameraSensor(Camera):
 
-    def __init__(self, car:CameraCar, sensor_config:Optional[ConfigReader.ConfigReader]=None, logger:Optional[logging.Logger]=None) -> None:
+    def __init__(self, car:CameraCar, sensor_config:ConfigReader.ConfigReader | None=None, logger:logging.Logger | None=None) -> None:
 
         self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader('cam_sensor', logger=self._log)
@@ -89,7 +85,7 @@ class CameraSensor(Camera):
                 if (self._debug_mode):
                     self._cfg._load_config_file()
                 #v = self.sensor_values
-                self._log.debug(f'Read from camera-sensor')
+                self._log.debug('Read from camera-sensor')
 
                 image = self.get_frame()
                 # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
@@ -105,12 +101,15 @@ class CameraSensor(Camera):
                 upper_boundary = np.array([self.processing_parameters[0][1],self.processing_parameters[1][1],self.processing_parameters[2][1]])
                 mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
 
+
                 # evtl noch blur zB mask_blur = cv2.blur(image_gray,(4,4))
                 blur = max(1, int(self.processing_parameters[4]))
                 img_blur = blur_img(mask, blur_value = (blur,blur))
+                gray = cv2.cvtColor(img_blur, cv2.COLOR_HSV2GRAY)
+                binary = cv2.adaptiveThreshold(gray,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,2)
 
                 morph_kernel_parameter = ((self.processing_parameters[5],self.processing_parameters[5]))
-                img_morph_kernel = morph_kernel_filter(img_blur, morph_kernel=morph_kernel_parameter)
+                img_morph_kernel = morph_kernel_filter(binary, morph_kernel=morph_kernel_parameter)
 
                 # Kantenerkennung
                 #img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))
