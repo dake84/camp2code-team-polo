@@ -42,6 +42,8 @@ class CameraMode(DrivingMode):
     # weil das Fahrzeug bei 20 nicht anfaehrt. Nicht ohne Absprache aendern;
     # tests/test_camera_mode.py sichert den Wert ab.
     SPEED_CONTROL_VALUE = 30
+    # PAKET-E: Regler-Abtastung, falls cameracar_controller.scan_frequency fehlt (vorher 500 Hz)
+    DEFAULT_POLL_HZ = 100
 
     def __init__(self, name='CameraModus', car: Optional[CameraCar] = None,
                  cfg: Optional[ConfigReader.ConfigReader] = None):
@@ -60,6 +62,8 @@ class CameraMode(DrivingMode):
         self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
         logger = logging.getLogger(self.__class__.__name__)
         super().__init__(name, car, logger, cfg)
+        if cfg.get_int('scan_frequency', 0) <= 0:  # PAKET-E
+            self._frequency = self.DEFAULT_POLL_HZ
         # Driving-Mode-Kennung fuer DrivingState/Recorder.
         self.mode_key = 'camera'
 

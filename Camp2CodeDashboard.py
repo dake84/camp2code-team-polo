@@ -16,6 +16,7 @@ import contextlib
 from types import SimpleNamespace
 import logging
 import os  # PAKET-D
+from pathlib import Path  # PAKET-E
 import signal
 import sys
 import threading
@@ -129,6 +130,31 @@ def system_stats():
             f'Threads {threading.active_count()}{load_avg}')
 
 
+# PAKET-E: Diagramme als einfache dicts. go.Figure validiert jeden Trace in Python;
+# auf dem Pi kostete das pro Takt viel CPU und bremste (GIL) den Kamerathread.
+CHART_EVERY = 3          # Telemetrie-Diagramme nur jeden 3. Takt (ca. 2 s)
+CHART_WINDOW_S = 60      # Zeitfenster der Verlaeufe
+AXIS = dict(gridcolor='#2a3550', zerolinecolor='#3a4766', color='#c8d3e6')
+
+
+def axis(title=None, **kwargs):
+    result = dict(AXIS, **kwargs)
+    if title:
+        result['title'] = {'text': title}
+    return result
+
+
+def plain_figure(traces, height=260, **layout):
+    base = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#111a2b', height=height,
+                font={'color': '#e9f1ff'}, margin=dict(l=45, r=20, t=25, b=40),
+                legend=dict(orientation='h', y=1.12, x=0), xaxis=axis(), yaxis=axis())
+    base.update(layout)
+    return {'data': list(traces), 'layout': base}
+
+
+def thin(rows, limit=240):
+    step = max(1, -(-len(rows) // limit))
+    return list(rows)[::step]
 def card(title, content, **kwargs):
     return dbc.Card([dbc.CardHeader(title), dbc.CardBody(content)], className='h-100', **kwargs)
 
@@ -290,7 +316,9 @@ def build_layout(cfg):
         dbc.Col(card('Aufzeichnung', [
             html.Div('Start/Stopp über den REC-Button in der Steuerleiste.', className='small text-secondary'),
             html.Div(id='record-status', className='mt-2 fw-semibold'),
-            html.Div(id='session-stats', className='small text-secondary mt-2')]), md=8),
+            html.Div(id='session-stats', className='small text-secondary mt-2'),
+            dbc.Button('Letzte Session im Replay öffnen', id='record-open-replay', color='info',
+                       size='sm', className='mt-2')]), md=8),
         dbc.Col(card('Ereignisprotokoll (neueste zuerst)', html.Div(id='event-list', className='c2c-events')), md=12),
     ], className='g-3')
 
@@ -703,43 +731,50 @@ def create_app(application):
                   Output('drive-history', 'figure'), Output('data-age', 'children'),
                   Output('system-stats', 'children'), Output('telemetry-preview', 'src'),
                   Input('tick-telemetry', 'n_intervals'), Input('main-tabs', 'active_tab'))
-    def telemetry_view(_, tab):
+    def telemetry_view(tick, tab):
+        """PAKET-E: Diagramme als dict, nur jeden CHART_EVERY-ten Takt, Fenster 60 s."""
         if tab != 'telemetry':
             return (no_update,) * 6
         with measure(application, 'dashboard.telemetry'):
-            rows, freqs, _events = application.sample()
             camera = car.camera_data
-            metrics = car.thread_metrics
-            running = application.running()
-            camera_target = float(application.sensor.scan_frequency)
-            actual = [metrics[key].hz if metrics[key].age_seconds is not None and metrics[key].age_seconds < 2 else 0
-                      for key in ('camera', 'controller')]
-            # Der Regler entscheidet einmal je neuem Kameraframe; Soll = Kamerafrequenz.
-            targets = [camera_target, camera_target if running else 0.0]
-            bars = go.Figure()
-            bars.add_bar(name='Soll', x=['Kamera', 'Entscheidungen'], y=targets, marker_color='#6c7a92')
-            bars.add_bar(name='Ist', x=['Kamera', 'Entscheidungen'], y=actual, marker_color='#2fbf8f')
-            dark_figure(bars, 240, barmode='group', yaxis_title='Hz', uirevision='bars')
-            fplot = go.Figure()
-            if freqs:
-                end = freqs[-1][0]
-                recent = [r for r in freqs if end - r[0] <= 60]
-                for i, name in ((1, 'Kamera'), (2, 'Entscheidungen')):
-                    fplot.add_scatter(x=[r[0] - end for r in recent], y=[r[i] for r in recent],
-                                      name=name, mode='lines')
-            dark_figure(fplot, 240, xaxis_title='Sekunden', yaxis_title='Hz', uirevision='freq')
-            dplot = go.Figure()
-            if rows:
-                end = rows[-1][0]
-                x = [r[0] - end for r in rows]
-                dplot.add_scatter(x=x, y=[r[2] for r in rows], name='Rohwinkel', mode='lines')
-                dplot.add_scatter(x=x, y=[r[6] if len(r) > 6 else None for r in rows], name='Stellwert', mode='lines')
-                dplot.add_scatter(x=x, y=[r[3] for r in rows], name='Speed-Steuerwert', mode='lines')
-                dplot.add_scatter(x=x, y=[r[5] if len(r) > 5 else None for r in rows], name='Linienanzahl',
-                                  mode='lines', line={'shape': 'hv'}, yaxis='y2')
-            dark_figure(dplot, 300, xaxis_title='Sekunden', yaxis_title='Grad / Steuerwert',
-                        yaxis2=dict(overlaying='y', side='right', range=[0, 3], title='Linien'),
-                        uirevision='drive')
+            bars = fplot = dplot = no_update
+            if ctx.triggered_id == 'main-tabs' or (tick or 0) % CHART_EVERY == 1:
+                rows, freqs, _events = application.sample()
+                metrics = car.thread_metrics
+                running = application.running()
+                camera_target = float(application.sensor.scan_frequency)
+                actual = [metrics[key].hz if metrics[key].age_seconds is not None and metrics[key].age_seconds < 2 else 0
+                          for key in ('camera', 'controller')]
+                targets = [camera_target, camera_target if running else 0.0]
+                names = ['Kamera', 'Entscheidungen']
+                bars = plain_figure([dict(type='bar', name='Soll', x=names, y=targets, marker={'color': '#6c7a92'}),
+                                     dict(type='bar', name='Ist', x=names, y=actual, marker={'color': '#2fbf8f'})],
+                                    240, barmode='group', yaxis=axis('Hz'), uirevision='bars')
+                ftraces = []
+                if freqs:
+                    end = freqs[-1][0]
+                    recent = thin([r for r in freqs if end - r[0] <= CHART_WINDOW_S])
+                    for i, name in ((1, 'Kamera'), (2, 'Entscheidungen')):
+                        ftraces.append(dict(type='scatter', mode='lines', name=name,
+                                            x=[round(r[0] - end, 2) for r in recent], y=[r[i] for r in recent]))
+                fplot = plain_figure(ftraces, 240, xaxis=axis('Sekunden'), yaxis=axis('Hz'), uirevision='freq')
+                dtraces = []
+                if rows:
+                    end = time.monotonic()
+                    recent = thin([r for r in rows if end - r[0] <= CHART_WINDOW_S])
+                    x = [round(r[0] - end, 2) for r in recent]
+                    dtraces = [
+                        dict(type='scatter', mode='lines', name='Rohwinkel', x=x, y=[r[2] for r in recent]),
+                        dict(type='scatter', mode='lines', name='Stellwert', x=x,
+                             y=[r[6] if len(r) > 6 else None for r in recent]),
+                        dict(type='scatter', mode='lines', name='Speed-Steuerwert', x=x, y=[r[3] for r in recent]),
+                        dict(type='scatter', mode='lines', name='Linienanzahl', x=x, line={'shape': 'hv'}, yaxis='y2',
+                             y=[r[5] if len(r) > 5 else None for r in recent]),
+                    ]
+                dplot = plain_figure(dtraces, 300, xaxis=axis('Sekunden', range=[-CHART_WINDOW_S, 0]),
+                                     yaxis=axis('Grad / Steuerwert'),
+                                     yaxis2=axis('Linien', overlaying='y', side='right', range=[0, 3]),
+                                     uirevision='drive')
             lines = []
             if camera is not None and camera.monotonic_ns:
                 lines.append(f'Kameradatenalter (seit Aufnahme): {(time.monotonic_ns() - camera.monotonic_ns) / 1e6:.0f} ms')
@@ -1007,11 +1042,17 @@ def create_app(application):
 
     @app.callback(Output('main-tabs', 'active_tab'), Output('replay-studio-msg', 'children'),
                   Output('ab-source', 'children'), Output('replay-studio-token', 'data'),
-                  Input('replay-to-studio', 'n_clicks'),
+                  Output('session-choice', 'value'),
+                  Input('replay-to-studio', 'n_clicks'), Input('record-open-replay', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),
                   State('replay-index', 'value'), prevent_initial_call=True)
-    def replay_to_studio(_, name, bounds, index):
+    def replay_to_studio(_, _open, name, bounds, index):
         """Uebergibt Rohbild + damalige Parameter als Referenz A an das A/B-Labor."""
+        if ctx.triggered_id == 'record-open-replay':  # PAKET-E: letzte Session im Replay
+            path = getattr(application.recorder, 'path', None)
+            if not path:
+                return (no_update,) * 5
+            return 'replay', no_update, no_update, no_update, Path(str(path)).name
         try:
             _, _, path, record = replay_record_at(name, bounds, index)
             if record is None:
@@ -1028,12 +1069,12 @@ def create_app(application):
                 frame_id = record.camera.frame_id
             ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id), params, processor)
         except (ValueError, TypeError, OSError, cv2.error) as exc:
-            return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update
+            return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update, no_update
         source = 'Live-Ringbuffer' if name in (None, LIVE) else name
         return ('pipeline', f'Frame {frame_id} an das Pipeline Studio übergeben',
                 f'Referenz A = Frame {frame_id} aus {source} mit den damaligen Parametern. '
                 '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).',
-                {'frame_id': frame_id, 'source': source, 'nonce': time.time()})
+                {'frame_id': frame_id, 'source': source, 'nonce': time.time()}, no_update)
 
     @app.callback(Output('replay-download', 'data'), Input('replay-export', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),

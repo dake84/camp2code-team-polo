@@ -92,7 +92,7 @@ class ReplayCallbackTests(unittest.TestCase):
         self.ctx.set('session-choice', 'value')
         figure = self.callbacks['replay_chart']('__live__', None, 1, 'replay')
         self.assertEqual(len(figure.data), 3)                    # Stellwert, Linien, Cursor
-        tab, message, source, _token = self.callbacks['replay_to_studio'](1, '__live__', None, 1)
+        tab, message, source, _token, _s = self.callbacks['replay_to_studio'](1, None, '__live__', None, 1)  # PAKET-E
         self.assertEqual(tab, 'pipeline')
         self.assertIn('Referenz A', source)
         self.ctx.set('ab-run')

@@ -33,7 +33,7 @@ class ReplayStudioViewTests(unittest.TestCase):
 
     def test_replay_frame_in_allen_stufen(self):
         no = self.module.no_update
-        tab, _msg, _src, token = self.cb['replay_to_studio'](1, '__live__', None, 0)
+        tab, _msg, _src, token, _s = self.cb['replay_to_studio'](1, None, '__live__', None, 0)  # PAKET-E
         self.assertEqual(tab, 'pipeline')
         self.ctx.set('replay-studio-token', 'data')
         frozen = self.cb['freeze'](None, token, None)

@@ -1,4 +1,10 @@
 # Changelog
+## 6.3 – Paket E (PAKET-E)
+
+* **Telemetrie-Lag:** Diagramme als dicts statt go.Figure, nur jeden 3. Takt, Fenster 60 s,
+  max. 240 Punkte je Linie (vorher Lenkwinkel-Achse bis -400 s).
+* **Regler:** 100 Hz Abtastung, falls cameracar_controller.scan_frequency fehlt (vorher 500 Hz).
+* **Recording → Replay:** Button „Letzte Session im Replay öffnen“.
 ## 6.2 – Paket D (PAKET-D)
 
 * **Replay → Pipeline Studio:** Alle acht Stufen zeigen jetzt den übergebenen Replay-Frame
