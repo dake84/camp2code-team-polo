@@ -51,12 +51,15 @@ class CameraMode(DrivingMode):
             # Lazy-Import: Hardware nur bei Bedarf initialisieren.
             from CameraCar import CameraCar
             car = CameraCar()
+        # PAKET-F: austauschbare monotone Uhr (ns). Live = time.monotonic_ns; die Simulation
+        # setzt die aufgezeichneten Zeitstempel ein, damit LANE_TIMEOUT wie damals wirkt.
+        self._clock = time.monotonic_ns
         self._cameracar = car
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         self._last_steering_angle = 90
         self._lost_since = None
         self._last_frame_id = None
-        self._started_ns = time.monotonic_ns()
+        self._started_ns = self._clock()
         self.last_stop_reason = None
         self.last_diagnostic = None
         self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
@@ -78,7 +81,7 @@ class CameraMode(DrivingMode):
         self._last_frame_id = None
         self.last_stop_reason = None
         self.last_diagnostic = None
-        self._started_ns = time.monotonic_ns()
+        self._started_ns = self._clock()
         self._car.drive(0, 90)
         return True
 
@@ -108,7 +111,7 @@ class CameraMode(DrivingMode):
             self._log.error('CameraMode beendet: kein Kameradatenpaket')
             return False
         try:
-            now = time.monotonic_ns()
+            now = self._clock()
             if camera_data_transfer.frame_id < 0:
                 # Platzhalter ohne Kamerabild: nicht fahren, nur Wartezeit pruefen.
                 if now - self._started_ns > self._lost_timeout * 1e9:
@@ -174,7 +177,7 @@ class CameraMode(DrivingMode):
                 steering_angle_car=actual_angle,
                 driving_mode=self.mode_key,
                 requested_angle=steering_angle,
-                monotonic_ns=time.monotonic_ns(),
+                monotonic_ns=self._clock(),
             )
         except Exception:
             self.last_stop_reason = 'CONTROLLER_EXCEPTION'

@@ -15,7 +15,7 @@ import ConfigReader
 from basisklassen_cam import Camera
 from CameraCar import CameraCar
 from models import CameraData
-from pipeline_processors import CopilotLaneProcessor, LaneProcessor
+from processor_registry import create_processor, is_live_processor, key_for_class  # PAKET-F
 
 
 def _parameters_from_settings(settings: dict) -> tuple:
@@ -44,7 +44,8 @@ class CameraSensor(Camera):
         self._pack_processing_parameters = _parameters_from_settings(settings)
         # Der Prozessor ist austauschbar; gespeicherte Auswahl wird jetzt beachtet
         # (vorher wurde beim Start immer der Diagnose-Prozessor verwendet).
-        self._processor = LaneProcessor() if settings.get('processor') == 'legacy' else CopilotLaneProcessor()
+        self._processor = create_processor(  # PAKET-F: nur fahrfreigegebene Prozessoren
+            settings.get('processor') if is_live_processor(settings.get('processor')) else 'copilot')
         colorspace = str(self._cfg.get_str('colormode', 'gray'))
         self._log.info('Kamera-Farbraum: %s', colorspace)
         super().__init__(colorspace=colorspace,
@@ -84,15 +85,15 @@ class CameraSensor(Camera):
 
         Der Wechsel wird unter dem bestehenden Sensor-Lock vorgenommen.
         """
-        if name not in ('legacy', 'copilot'):
+        if not is_live_processor(name):
             raise ValueError('Unbekannter Prozessor')
         with self._lock:
-            self._processor = LaneProcessor() if name == 'legacy' else CopilotLaneProcessor()
+            self._processor = create_processor(name)
 
     @property
     def processor_name(self) -> str:
         with self._lock:
-            return 'copilot' if isinstance(self._processor, CopilotLaneProcessor) else 'legacy'
+            return key_for_class(type(self._processor).__name__)
 
     def read_loop(self, stop_event: threading.Event):
         """Kamerathread. Taktet auf ``scan_frequency`` inklusive Verarbeitungszeit.

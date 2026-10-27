@@ -40,7 +40,8 @@ def parameters_from_record(value):
 
 def processor_key(processor_name):
     """Klassenname aus der Aufzeichnung -> Schluessel fuer PipelineAB."""
-    return 'legacy' if processor_name in ('LaneProcessor', 'legacy') else 'copilot'
+    from processor_registry import key_for_class  # PAKET-F: zentrales Verzeichnis
+    return key_for_class(processor_name)
 
 
 def load_session_image(path, row):

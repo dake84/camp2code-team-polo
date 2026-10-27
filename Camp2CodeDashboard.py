@@ -31,10 +31,17 @@ try:  # PAKET-C: Teilaktualisierung des Diagramms (Dash >= 2.9)
 except ImportError:  # Dash-Attrappe in den Tests
     Patch = None
 
-from car_application import CarApplication
+try:  # PAKET-F: ohne Raspberry-Pi-Bibliotheken (Laptop) nur mit --offline
+    from car_application import CarApplication
+    _HARDWARE_ERROR = None
+except (ImportError, RuntimeError, OSError) as _exc:
+    CarApplication = None
+    _HARDWARE_ERROR = _exc
 from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
 from pipeline_ab import PipelineAB
+from processor_registry import processor_options  # PAKET-F
+from sim_lab import SimLab  # PAKET-F
 from pipeline_processors import CopilotLaneProcessor
 from replay_studio import load_session_image, parameters_from_record, processor_key
 from telemetry.thread_stats import ThreadCpuSampler
@@ -247,6 +254,7 @@ def build_layout(cfg):
         ]), lg=4),
     ], className='g-3')
 
+    cockpit = SimLab.wrap_cockpit(cockpit, dbc, dcc, html)  # PAKET-F
     pipeline = html.Div([
         dbc.Row([
             dbc.Col(html.Div(id='pipeline-lock'), lg=7),
@@ -270,8 +278,7 @@ def build_layout(cfg):
                 html.Label('Bildprozessor', className='small'),
                 dcc.Dropdown(id='cfg-processor', className='c2c-dropdown', clearable=False,
                              value=cfg['processor'], options=[
-                                 {'label': 'Mit Diagnosebildern (Copilot)', 'value': 'copilot'},
-                                 {'label': 'Ohne Diagnosebilder (Legacy)', 'value': 'legacy'}]),
+                                 *processor_options(live_only=True)]),  # PAKET-F
                 html.Div([dbc.Button('Übernehmen', id='cfg-apply', size='sm', className='me-2 mt-2'),
                           dbc.Button('Als aktiv speichern', id='cfg-save', size='sm', color='success',
                                      className='mt-2')]),
@@ -397,10 +404,14 @@ def create_app(application):
     cfg = load()
     ab = PipelineAB()
     thread_cpu = ThreadCpuSampler()  # PAKET-C
+    # PAKET-F: Cockpit-Simulation (Live | Simulation)
+    sim = SimLab(application, SimpleNamespace(dbc=dbc, dcc=dcc, html=html, Input=Input, Output=Output,
+                                              State=State, ctx=ctx, no_update=no_update), uri)
     app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=False,
                title='Camp2Code | Control Center', update_title=None)
     app.layout = build_layout(cfg)
     car = application.car
+    sim.register(app)  # PAKET-F
 
     # ------------------------------------------------ Aktionen (ein Callback)
     @app.callback(Output('last-action', 'data'),
@@ -414,6 +425,8 @@ def create_app(application):
                 application.stop_all()
                 text = 'STOP ausgeführt'
             elif trigger == 'global-start':
+                if sim.active:  # PAKET-F: im Simulationsmodus kein START
+                    raise RuntimeError('Simulation aktiv – Cockpit zuerst auf Live umschalten')
                 application.start_mode(mode)
                 text = f'Fahrmodus {mode} gestartet'
             elif trigger == 'recovery-toggle':
@@ -475,7 +488,7 @@ def create_app(application):
                 'success' if running else 'warning' if recovery else 'secondary',
                 'REC ●' if recording else 'REC AUS', 'danger' if recording else 'secondary',
                 f'Frame #{camera.frame_id}' if has_frame else '',
-                running or recovery, not (running or recovery),
+                running or recovery or sim.active, not (running or recovery),  # PAKET-F
                 'Bergung beenden' if recovery else 'Bergung aktivieren', not recovery,
                 recovery, not recovery,
                 '■ REC stoppen' if recording else '● REC starten', 'danger' if recording else 'secondary',
@@ -1097,6 +1110,17 @@ def create_app(application):
     return app
 
 
+def _port_from_argv(default):
+    """PAKET-F: ``--port N`` (z. B. Laptop-Offline parallel zu einem anderen Dienst)."""
+    if '--port' in sys.argv:
+        index = sys.argv.index('--port')
+        try:
+            return int(sys.argv[index + 1])
+        except (IndexError, ValueError):
+            raise SystemExit('--port erwartet eine Zahl')
+    return default
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     # Jede Dash-Anfrage wuerde sonst eine Logzeile erzeugen (ca. 10 pro Sekunde).
@@ -1105,7 +1129,15 @@ def main():
     _level = getattr(logging, os.environ.get('C2C_LOG', 'WARNING').upper(), logging.WARNING)
     for _name in ('BaseCar', 'SonicCar', 'SensorCar', 'CameraCar', 'picamera2'):
         logging.getLogger(_name).setLevel(_level)
-    application = CarApplication()
+    offline = '--offline' in sys.argv  # PAKET-F
+    if offline:
+        from offline_application import OfflineApplication
+        application = OfflineApplication()
+        log.warning('OFFLINE-Modus: keine Kamera, keine Motoren')
+    elif CarApplication is None:
+        raise SystemExit(f'Hardware-Module nicht ladbar ({_HARDWARE_ERROR}). Ohne Hardware starten: --offline')
+    else:
+        application = CarApplication()
     atexit.register(application.shutdown)
 
     def _terminate(signum, _frame):
@@ -1115,7 +1147,8 @@ def main():
 
     signal.signal(signal.SIGTERM, _terminate)
     try:
-        create_app(application).run(host='0.0.0.0', port=8050, debug=False, use_reloader=False)
+        create_app(application).run(host='127.0.0.1' if offline else '0.0.0.0',
+                                    port=_port_from_argv(8050), debug=False, use_reloader=False)
     finally:
         application.shutdown()
 

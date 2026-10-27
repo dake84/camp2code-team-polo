@@ -1,4 +1,19 @@
 # Changelog
+## 6.4 – Paket F: Simulation (PAKET-F)
+
+* **Zentrales Prozessor-Verzeichnis** (`processor_registry.py`): CameraSensor, Pipeline Studio,
+  A/B-Labor, Replay und Simulation lesen dieselbe Liste. Neue Prozessoren: ein Eintrag/`register()`.
+* **MockProcessor** (`mock_processor.py`): verschiebt Linien, laesst jede 7. rechte Linie weg;
+  nur Simulation (`live=False`), vom CameraSensor abgewiesen.
+* **Bildquellen** (`frame_source.py`): `SessionSource`, `RingbufferSource`.
+* **Austauschbare Uhr im CameraMode** (`self._clock`): Live unveraendert `time.monotonic_ns`;
+  Simulation nutzt aufgezeichnete Zeitstempel (LANE_TIMEOUT wie damals).
+* **ReplayCar** (`replay_car.py`): Fahrzeug-Attrappe mit BaseCar-Begrenzungen, keine Hardware.
+* **Cockpit-Umschalter Live | Simulation** (`sim_lab.py`, `sim_engine.py`): Session/Ringbuffer
+  mit beliebigem Prozessor und Parametern (damals/Studio) neu rechnen, Vorlauf, damals vs. jetzt
+  je Frame und als Diagramm, Kennzahlen. START im Simulationsmodus gesperrt.
+* **Batch-Report** `scripts/sim_report.py`: Kennzahlen, CSV und HTML mit auffaelligen Frames.
+* **Offline-Start** `python Camp2CodeDashboard.py --offline [--port N]` ohne Hardware (Laptop).
 ## 6.3 – Paket E (PAKET-E)
 
 * **Telemetrie-Lag:** Diagramme als dicts statt go.Figure, nur jeden 3. Takt, Fenster 60 s,

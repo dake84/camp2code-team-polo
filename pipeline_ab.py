@@ -52,7 +52,13 @@ class PipelineAB:
             frame_id = self._frame_id
             name_a = self._processor
         def run(name, params):
-            instance = CopilotLaneProcessor() if name == 'copilot' else LaneProcessor()
+            if name == 'copilot':
+                instance = CopilotLaneProcessor()
+            elif name == 'legacy':
+                instance = LaneProcessor()
+            else:  # PAKET-F: weitere Prozessoren aus dem zentralen Verzeichnis
+                from processor_registry import create_processor
+                instance = create_processor(name)
             return instance.process(raw.copy(), params)
         a = run(name_a, reference)
         b = run(processor or name_a, tuple(candidate))
