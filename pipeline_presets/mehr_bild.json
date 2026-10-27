@@ -1,0 +1,33 @@
+{
+  "processor": "copilot",
+  "crop": [
+    0.15,
+    0.72
+  ],
+  "hue": [
+    100,
+    130
+  ],
+  "sat": [
+    80,
+    255
+  ],
+  "val": [
+    40,
+    255
+  ],
+  "blur": 3,
+  "morph": 5,
+  "canny": [
+    50,
+    100
+  ],
+  "enabled": {
+    "roi": true,
+    "mask": true,
+    "blur": true,
+    "morph": true,
+    "canny": false,
+    "lanes": true
+  }
+}
