@@ -15,6 +15,7 @@ import base64
 import contextlib
 from types import SimpleNamespace
 import logging
+import os  # PAKET-D
 import signal
 import sys
 import threading
@@ -33,6 +34,7 @@ from car_application import CarApplication
 from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
 from pipeline_ab import PipelineAB
+from pipeline_processors import CopilotLaneProcessor
 from replay_studio import load_session_image, parameters_from_record, processor_key
 from telemetry.thread_stats import ThreadCpuSampler
 from pipeline_config import list_presets, load, load_preset, save_preset
@@ -351,6 +353,7 @@ def build_layout(cfg):
         dcc.Store(id='replay-playing', data=False, storage_type='memory'),
         dcc.Store(id='replay-bounds', data=None, storage_type='memory'),
         dcc.Store(id='pipeline-frozen', data=None, storage_type='memory'),
+        dcc.Store(id='replay-studio-token', data=None, storage_type='memory'),
         dcc.Store(id='inspected-stage', data='overlay', storage_type='memory'),
         dcc.Store(id='drive-rendered', data=None, storage_type='memory'),
         dcc.Store(id='pipeline-rendered', data=None, storage_type='memory'),
@@ -565,8 +568,12 @@ def create_app(application):
         return (*keep, options, no_update)
 
     @app.callback(Output('pipeline-frozen', 'data'), Input('pipeline-freeze', 'n_clicks'),
+                  Input('replay-studio-token', 'data'),
                   State('pipeline-frozen', 'data'), prevent_initial_call=True)
-    def freeze(_, frozen):
+    def freeze(_, token, frozen):
+        """LIVE <-> FREEZE. PAKET-D: ein Replay-Frame wird als eigener Freeze-Zustand gesetzt."""
+        if ctx.triggered_id == 'replay-studio-token':
+            return dict(token) if token else no_update
         if frozen is not None:
             return None
         camera = car.camera_data
@@ -579,6 +586,43 @@ def create_app(application):
         button = ctx.triggered_id
         return button.removeprefix('inspect-') if button else 'overlay'
 
+    def replay_pipeline_view(frozen, inspected, rendered, lock):
+        """PAKET-D: Stufen 01-08 fuer einen aus dem Replay uebergebenen Frame.
+
+        Fehler vorher: Die Kacheln lasen immer aus dem Live-Ringbuffer; der Replay-Frame
+        lag nur im A/B-Labor. Jetzt wird das Rohbild der Referenz A mit den AKTUELLEN
+        Slidern verarbeitet (Slider wirken sofort), A/B unten zeigt die damaligen Parameter.
+        """
+        if not isinstance(frozen, dict):
+            return None
+        raw, frame_id, reference, _processor = ab.reference()
+        if raw is None or str(frame_id) != str(frozen.get('frame_id')):
+            return None
+        params = getattr(application.sensor, 'processing_parameters', None) or reference
+        key = f'replay:{frame_id}:{params!r}:{inspected}'
+        label = f"REPLAY · Frame {frame_id} · {frozen.get('source') or ''}"
+        info = dbc.Alert('Replay-Frame: Stufen = dieser Frame mit den aktuellen Slidern · '
+                         'A/B unten = damalige Parameter · „Freeze / Live“ zurück zum Livebild.',
+                         color='info', className='mb-0 py-2')
+        if key == rendered:
+            return (*([no_update] * (2 * len(STAGES) + 2)), label, info, no_update)
+        try:
+            result = CopilotLaneProcessor().process(raw, params)
+        except (ValueError, TypeError, IndexError, cv2.error) as exc:
+            return (*([None] * len(STAGES)), *([''] * len(STAGES)), None,
+                    f'Replay-Frame nicht verarbeitbar: {exc}', label, info, None)
+        enabled = params[7] if len(params) > 7 else {}
+        crop = tuple(params[3]) if enabled.get('roi', True) else (0.0, 1.0)
+        view = SimpleNamespace(raw_image=raw, frame_id=frame_id, crop=crop, lanes=result.lanes,
+                               process_image=result.processed_image)
+        stages = dict(result.stages)
+        stages['raw'] = raw
+        stages['overlay'] = render_calibration_overlay(view)
+        encoded = {name: uri(stages.get(name)) for name, _ in STAGES}
+        infos = [('Replay · verfügbar' if encoded[name] else 'Replay · Schritt deaktiviert') for name, _ in STAGES]
+        title = dict(STAGES).get(inspected, inspected)
+        return (*[encoded[name] for name, _ in STAGES], *infos, encoded.get(inspected), title,
+                label, info, key)
     @app.callback(*[Output(f'stage-{key}', 'src') for key, _ in STAGES],
                   *[Output(f'stage-info-{key}', 'children') for key, _ in STAGES],
                   Output('inspect-image', 'src'), Output('inspect-title', 'children'),
@@ -598,6 +642,9 @@ def create_app(application):
                              className='mb-0 py-2') if running else dbc.Alert(
                 'Kalibrierung im Stillstand. LIVE folgt der Kamera, FREEZE hält einen Frame aus dem Ringbuffer.',
                 color='secondary', className='mb-0 py-2')
+            replay_view = replay_pipeline_view(frozen, inspected, rendered, lock)  # PAKET-D
+            if replay_view is not None:
+                return replay_view
             if camera is None or camera.frame_id < 0:
                 return (*([None] * len(STAGES)), *([''] * len(STAGES)), None, 'Warte auf Kamera', '', lock, None)
             pipeline_camera = camera
@@ -959,7 +1006,7 @@ def create_app(application):
             return chart
 
     @app.callback(Output('main-tabs', 'active_tab'), Output('replay-studio-msg', 'children'),
-                  Output('ab-source', 'children'),
+                  Output('ab-source', 'children'), Output('replay-studio-token', 'data'),
                   Input('replay-to-studio', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),
                   State('replay-index', 'value'), prevent_initial_call=True)
@@ -981,11 +1028,12 @@ def create_app(application):
                 frame_id = record.camera.frame_id
             ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id), params, processor)
         except (ValueError, TypeError, OSError, cv2.error) as exc:
-            return no_update, f'Übergabe nicht möglich: {exc}', no_update
+            return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update
         source = 'Live-Ringbuffer' if name in (None, LIVE) else name
         return ('pipeline', f'Frame {frame_id} an das Pipeline Studio übergeben',
                 f'Referenz A = Frame {frame_id} aus {source} mit den damaligen Parametern. '
-                '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).')
+                '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).',
+                {'frame_id': frame_id, 'source': source, 'nonce': time.time()})
 
     @app.callback(Output('replay-download', 'data'), Input('replay-export', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),
@@ -1012,6 +1060,10 @@ def main():
     logging.basicConfig(level=logging.INFO)
     # Jede Dash-Anfrage wuerde sonst eine Logzeile erzeugen (ca. 10 pro Sekunde).
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    # PAKET-D: Fahrbefehls-Meldungen ("Changed speed ...") nur mit C2C_LOG=INFO oder DEBUG
+    _level = getattr(logging, os.environ.get('C2C_LOG', 'WARNING').upper(), logging.WARNING)
+    for _name in ('BaseCar', 'SonicCar', 'SensorCar', 'CameraCar', 'picamera2'):
+        logging.getLogger(_name).setLevel(_level)
     application = CarApplication()
     atexit.register(application.shutdown)
 

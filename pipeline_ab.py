@@ -32,6 +32,10 @@ class PipelineAB:
             self._processor = processor
             return self._frame_id
 
+    def reference(self):
+        """PAKET-D: (Rohbild, Frame-ID, Referenzparameter, Prozessor) der Referenz A, nur lesen."""
+        with self._lock:
+            return self._raw, self._frame_id, self._reference, self._processor
     def clear(self):
         with self._lock:
             self._raw = None

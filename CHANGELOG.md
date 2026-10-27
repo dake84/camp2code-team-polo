@@ -1,4 +1,11 @@
 # Changelog
+## 6.2 – Paket D (PAKET-D)
+
+* **Replay → Pipeline Studio:** Alle acht Stufen zeigen jetzt den übergebenen Replay-Frame
+  (vorher weiter Live/Freeze). Die Stufen nutzen die aktuellen Slider, A/B die damaligen
+  Parameter. „Freeze / Live“ kehrt zum Livebild zurück.
+* **Konsole:** `Changed speed/steering_angle` und picamera2-Statusmeldungen nur noch mit
+  `C2C_LOG=INFO python Camp2CodeDashboard.py`.
 ## 6.1 – Paket C (PAKET-C)
 
 * **Replay-Bugfix:** Beim Abspielen gespeicherter Sessions lief der Slider, das Bild stand.
