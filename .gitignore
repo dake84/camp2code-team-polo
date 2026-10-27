@@ -234,3 +234,10 @@ Driving copy.py
 Data_AI/
 logs/
 pipeline_studio.json.tmp
+
+# Transfer-/Pack-Artefakte
+*.zip
+src-*.txt
+scripts/src-*.txt
+sourcecode.txt
+camp2code-full-source.txt
