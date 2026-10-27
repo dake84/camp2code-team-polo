@@ -178,7 +178,7 @@ class DashboardStructureTests(unittest.TestCase):
         expected = {'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
                     'recording_view', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
-                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range'}
+                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio'}  # PAKET-C
         self.assertEqual(set(self.callbacks), expected)
 
     def test_aktionen_und_zustand(self):
@@ -265,7 +265,7 @@ class DashboardStructureTests(unittest.TestCase):
         for frame_id in range(20, 26):
             self.app_state.publish(frame_id, with_decision=frame_id % 2 == 0)
         self.ctx.set('replay-index', 'value')
-        image, label, details, chart = self.callbacks['replay_render'](2, '__live__', None, 1, 'replay')
+        image, label, details = self.callbacks['replay_render'](2, '__live__', None, 1, 'replay')
         self.ctx.set('tick-replay', 'n_intervals')
         self.assertTrue(self.callbacks['replay_render'](2, '__live__', None, 2, 'replay')[0].startswith('data:'))
         self.assertTrue(image.startswith('data:image/jpeg'))

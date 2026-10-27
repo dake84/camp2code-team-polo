@@ -76,10 +76,12 @@ class SessionRecorder:
     """Schreibt nur neue Frames aus dem vorhandenen Ringbuffer auf die SD-Karte."""
 
     def __init__(self, car, root='Data_AI/sessions', interval=0.12, event_source=None,
-                 is_driving=None, commit_grace_s=0.25, jpeg_quality=95):
+                 is_driving=None, commit_grace_s=0.25, jpeg_quality=95, driving_since=None):
         self.car = car
         self.event_source = event_source
         self.is_driving = is_driving
+        # PAKET-C: Frames vor dem Fahrmodusstart erwarten keine Fahrentscheidung
+        self.driving_since = driving_since
         self.root = Path(root)
         self.interval = interval
         self.commit_grace_ns = int(commit_grace_s * 1e9)
@@ -203,6 +205,28 @@ class SessionRecorder:
         except Exception:
             return None
 
+    def _driving_since_ns(self):
+        """PAKET-C: Startzeit des Fahrmodus (monoton) oder None."""
+        if self.driving_since is None:
+            return None
+        try:
+            return self.driving_since()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _frame_active(cam, active, since):
+        """PAKET-C: Ringbuffer-Vorlauf vor dem Fahrmodusstart ist kein 'missing_decision'.
+
+        Fehler vorher: Beim REC-Start schreibt der Recorder bis zu 60 Frames Vorlauf aus
+        dem Ringbuffer. Lief der Fahrmodus beim Schreiben, wurden auch Frames von VOR
+        dem Start als 'missing_decision' markiert (Session 15:07: 51 von 51).
+        """
+        if active is True and since is not None:
+            captured = getattr(cam, 'monotonic_ns', 0) or 0
+            if captured and captured < since:
+                return False
+        return active
     def _ready(self, record, now_ns, active, final):
         """Darf der Frame geschrieben werden? (Wartefrist fuer die Fahrentscheidung)."""
         if final or record.driving is not None or active is not True:
@@ -274,6 +298,7 @@ class SessionRecorder:
         records = self.car.frame_history.snapshot()
         sensors = getattr(self.car, 'sensor_snapshot', None)
         active = self._driving_active()
+        since = self._driving_since_ns()
         now_ns = time.monotonic_ns()
         rows = []
         written_images = []
@@ -282,7 +307,7 @@ class SessionRecorder:
                 cam = record.camera
                 if cam.frame_id <= self._last_id:
                     continue
-                if not self._ready(record, now_ns, active, final):
+                if not self._ready(record, now_ns, self._frame_active(cam, active, since), final):
                     break  # Reihenfolge wahren: spaetere Frames im naechsten Zyklus
                 image = cam.raw_image
                 if image is None or not getattr(image, 'size', 0):
@@ -301,7 +326,7 @@ class SessionRecorder:
                 if not cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]):
                     raise OSError(f'JPEG konnte nicht geschrieben werden: {target}')
                 written_images.append(target)
-                row = self._row(cam, drive, active, events_for_frame, sensors, now_ns)
+                row = self._row(cam, drive, self._frame_active(cam, active, since), events_for_frame, sensors, now_ns)
                 row['image_filename'] = filename
                 if row['data_status'] == 'missing_decision':
                     self.missing_decisions += 1

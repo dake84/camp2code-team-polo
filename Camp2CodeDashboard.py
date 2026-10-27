@@ -13,6 +13,7 @@ Architektur (Version 6.0):
 import atexit
 import base64
 import contextlib
+from types import SimpleNamespace
 import logging
 import signal
 import sys
@@ -23,11 +24,17 @@ import cv2
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
+try:  # PAKET-C: Teilaktualisierung des Diagramms (Dash >= 2.9)
+    from dash import Patch
+except ImportError:  # Dash-Attrappe in den Tests
+    Patch = None
 
 from car_application import CarApplication
 from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
 from pipeline_ab import PipelineAB
+from replay_studio import load_session_image, parameters_from_record, processor_key
+from telemetry.thread_stats import ThreadCpuSampler
 from pipeline_config import list_presets, load, load_preset, save_preset
 from replay_hud import draw_hud
 from replay_selection import event_window, record_frame_id, select_records, selected_bounds
@@ -259,6 +266,7 @@ def build_layout(cfg):
             dbc.Button('A/B berechnen', id='ab-run', color='primary', className='me-2'),
             dbc.Button('A/B zurücksetzen', id='ab-reset', color='secondary'),
             html.Div(id='ab-status', className='small mt-2'),
+            html.Div(id='ab-source', className='small text-info'),
             dbc.Row([dbc.Col([html.H6('A · Referenz'), html.Img(id='ab-image-a', style=IMAGE_STYLE),
                               html.Div(id='ab-lanes-a', className='small mt-2')], md=6),
                      dbc.Col([html.H6('B · Kandidat'), html.Img(id='ab-image-b', style=IMAGE_STYLE),
@@ -315,7 +323,11 @@ def build_layout(cfg):
                 dbc.Button('Bereich zurücksetzen', id='replay-range-reset', color='secondary', size='sm',
                            className='mt-2 me-2'),
                 dbc.Button('Bereich exportieren', id='replay-export', color='success', size='sm', className='mt-2'),
-                dcc.Download(id='replay-download')]), lg=4),
+                dcc.Download(id='replay-download'),
+                html.Hr(className='my-2'),
+                dbc.Button('Frame im Pipeline Studio analysieren', id='replay-to-studio',
+                           color='info', size='sm'),
+                html.Div(id='replay-studio-msg', className='small mt-1')]), lg=4),
         ], className='g-3'),
         dbc.Row([dbc.Col(card('Zeitliche Navigation', [
             dcc.Graph(id='replay-chart', config={'displayModeBar': False}),
@@ -353,6 +365,7 @@ def build_layout(cfg):
 def create_app(application):
     cfg = load()
     ab = PipelineAB()
+    thread_cpu = ThreadCpuSampler()  # PAKET-C
     app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=False,
                title='Camp2Code | Control Center', update_title=None)
     app.layout = build_layout(cfg)
@@ -691,6 +704,7 @@ def create_app(application):
                              f'{(record.driving.monotonic_ns - record.camera.monotonic_ns) / 1e6:.1f} ms '
                              f'(Frame {record.camera.frame_id})')
             history = car.frame_history
+            lines.extend(thread_cpu.lines())
             lines.append(f'Ringbuffer: {len(history.snapshot())}/{getattr(history, "maxlen", "?")} Frames · '
                          f'Regler-Abtastung {application.controller_poll_hz:.0f} Hz (nur neue Frames werden ausgewertet)')
             timings = getattr(application, 'timings', None)
@@ -837,23 +851,83 @@ def create_app(application):
     def replay_play_label(playing):
         return '⏸ Pause' if playing else '▶ Play'
 
+    # ------------------------------------------------ Replay: Bild, Diagramm, Studio (PAKET-C)
+    def replay_record_at(name, bounds, index):
+        """Datensaetze des Bereichs und der Datensatz an der Slider-Position."""
+        records, events, path = replay_records(name, bounds)
+        if not records:
+            return records, events, path, None
+        position = max(0, min(int(index or 0), len(records) - 1))
+        return records, events, path, records[position]
+
+    def triggered_props():
+        """Alle ausloesenden Komponenten (ctx.triggered_id liefert nur die erste)."""
+        return {str(t.get('prop_id', '')).split('.')[0] for t in (ctx.triggered or [])}
+
     @app.callback(Output('replay-image', 'src'), Output('replay-frame-label', 'children'),
-                  Output('replay-details', 'children'), Output('replay-chart', 'figure'),
+                  Output('replay-details', 'children'),
                   Input('replay-index', 'value'), Input('session-choice', 'value'),
                   Input('replay-bounds', 'data'), Input('tick-replay', 'n_intervals'),
                   State('main-tabs', 'active_tab'))
     def replay_render(index, name, bounds, _, tab):
-        trigger = ctx.triggered_id
-        if tab != 'replay' or (trigger == 'tick-replay' and name not in (None, LIVE)):
-            return (no_update,) * 4
+        """Nur das HUD-Bild.
+
+        Fehler vorher: Beim Abspielen loesen Takt und (ueber seek) der Index im selben
+        Zyklus aus. ctx.triggered_id meldete nur den Takt, daher wurde das Bild einer
+        gespeicherten Session verworfen: Slider lief, Bild stand.
+        """
+        if tab != 'replay':
+            return (no_update,) * 3
+        live = name in (None, LIVE)
+        if not live and triggered_props() == {'tick-replay'}:
+            return (no_update,) * 3
         with measure(application, 'dashboard.replay'):
-            records, events, path = replay_records(name, bounds)
+            _, _, path, record = replay_record_at(name, bounds, index)
+            if record is None:
+                return None, 'Keine Frames', 'Kamera starten oder Session auswählen'
+            if isinstance(record, dict):
+                try:
+                    image = load_session_image(path, record)
+                except ValueError as exc:
+                    return None, str(exc), f"Frame {record.get('frame_id')}"
+                details = (f"Status {record.get('data_status')} · Stellwert {record.get('steering_angle_car') or '–'} · "
+                           f"Soll {record.get('requested_angle') or '–'} · Roh {record.get('steering_angle') or '–'} · "
+                           f"Speed {record.get('speed') or '–'} · Linien {record.get('lane_count') or '–'} · "
+                           f"Ereignisse {record.get('event_codes') or '–'}")
+                return uri(draw_hud(image, record), 80), f"Frame #{record.get('frame_id')}", details
+            image = (render_overlay(record.camera, record.driving) if record.driving
+                     else render_calibration_overlay(record.camera))
+            info = (f'Frame {record.camera.frame_id} · '
+                    + (f'Stellwert {fmt(record.driving.steering_angle_car)} · Roh {fmt(record.driving.steering_angle)} · '
+                       f'Speed {fmt(record.driving.speed)}' if record.driving else 'Keine zugeordnete Fahrentscheidung'))
+            return uri(image, 80), f'Frame #{record.camera.frame_id}', info
+
+    @app.callback(Output('replay-chart', 'figure'),
+                  Input('session-choice', 'value'), Input('replay-bounds', 'data'),
+                  Input('replay-index', 'value'),
+                  State('main-tabs', 'active_tab'))
+    def replay_chart(name, bounds, index, tab):
+        """Diagramm nur bei Session-/Bereichswechsel neu; sonst wandert nur der Cursor."""
+        if tab != 'replay':
+            return no_update
+        props = triggered_props()
+        live = name in (None, LIVE)
+        structural = live or not props or bool(props & {'session-choice', 'replay-bounds', ''})
+        if not structural and 'replay-index' not in props:
+            return no_update
+        records, events, _path, record = replay_record_at(name, bounds, index)
+        cursor = record_frame_id(record) if record is not None else None
+        if not structural and Patch is not None and cursor is not None:
+            patch = Patch()
+            patch['data'][2]['x'] = [cursor, cursor]
+            return patch
+        with measure(application, 'dashboard.replay_chart'):
             chart = go.Figure()
             dark_figure(chart, 240, xaxis_title='Frame-ID', yaxis_title='Winkel',
                         yaxis2=dict(overlaying='y', side='right', range=[0, 3], title='Linien'),
                         uirevision=f'{name}|{bounds}')
             if not records:
-                return None, 'Keine Frames', 'Kamera starten oder Session auswählen', chart
+                return chart
             ids = [record_frame_id(r) for r in records]
             if isinstance(records[0], dict):
                 def number(row, key):
@@ -870,7 +944,11 @@ def create_app(application):
                               marker={'size': 4})
             chart.add_scatter(x=ids, y=lanes, customdata=ids, mode='lines', name='Linienanzahl',
                               line={'shape': 'hv'}, yaxis='y2')
-            lo, hi = min(i for i in ids if i is not None), max(i for i in ids if i is not None)
+            # Trace 2 = Cursor; wird beim Blaettern per Patch verschoben.
+            chart.add_scatter(x=[cursor, cursor], y=[45, 135], mode='lines', name='Aktueller Frame',
+                              line={'color': '#4da3ff', 'width': 2}, hoverinfo='skip')
+            valid = [i for i in ids if i is not None]
+            lo, hi = (min(valid), max(valid)) if valid else (0, -1)
             for event in events:
                 try:
                     fid = int(event.get('frame_id'))
@@ -878,25 +956,36 @@ def create_app(application):
                     continue
                 if lo <= fid <= hi and event.get('code') not in ('LANES_DETECTED', 'STEERING_COMPUTED'):
                     chart.add_vline(x=fid, line_width=1, line_dash='dot', line_color='#f0ad4e')
-            position = max(0, min(int(index or 0), len(records) - 1))
-            record = records[position]
-            chart.add_vline(x=record_frame_id(record), line_width=2, line_color='#4da3ff')
+            return chart
+
+    @app.callback(Output('main-tabs', 'active_tab'), Output('replay-studio-msg', 'children'),
+                  Output('ab-source', 'children'),
+                  Input('replay-to-studio', 'n_clicks'),
+                  State('session-choice', 'value'), State('replay-bounds', 'data'),
+                  State('replay-index', 'value'), prevent_initial_call=True)
+    def replay_to_studio(_, name, bounds, index):
+        """Uebergibt Rohbild + damalige Parameter als Referenz A an das A/B-Labor."""
+        try:
+            _, _, path, record = replay_record_at(name, bounds, index)
+            if record is None:
+                raise ValueError('Kein Frame ausgewählt')
             if isinstance(record, dict):
-                filename = (path / record.get('image_filename', '')).resolve()
-                if not filename.is_relative_to(path) or not filename.is_file():
-                    return None, 'Bild fehlt', f"Frame {record.get('frame_id')}", chart
-                image = draw_hud(cv2.imread(str(filename)), record)
-                details = (f"Status {record.get('data_status')} · Stellwert {record.get('steering_angle_car') or '–'} · "
-                           f"Soll {record.get('requested_angle') or '–'} · Roh {record.get('steering_angle') or '–'} · "
-                           f"Speed {record.get('speed') or '–'} · Linien {record.get('lane_count') or '–'} · "
-                           f"Ereignisse {record.get('event_codes') or '–'}")
-                return uri(image, 80), f"Frame #{record.get('frame_id')}", details, chart
-            image = (render_overlay(record.camera, record.driving) if record.driving
-                     else render_calibration_overlay(record.camera))
-            info = (f'Frame {record.camera.frame_id} · '
-                    + (f'Stellwert {fmt(record.driving.steering_angle_car)} · Roh {fmt(record.driving.steering_angle)} · '
-                       f'Speed {fmt(record.driving.speed)}' if record.driving else 'Keine zugeordnete Fahrentscheidung'))
-            return uri(image, 80), f'Frame #{record.camera.frame_id}', info, chart
+                image = load_session_image(path, record)
+                params = parameters_from_record(record.get('processing_parameters_json'))
+                processor = processor_key(record.get('processor_name'))
+                frame_id = record.get('frame_id')
+            else:
+                image = record.camera.raw_image
+                params = parameters_from_record(record.camera.processing_parameters)
+                processor = processor_key(record.camera.processor_name)
+                frame_id = record.camera.frame_id
+            ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id), params, processor)
+        except (ValueError, TypeError, OSError, cv2.error) as exc:
+            return no_update, f'Übergabe nicht möglich: {exc}', no_update
+        source = 'Live-Ringbuffer' if name in (None, LIVE) else name
+        return ('pipeline', f'Frame {frame_id} an das Pipeline Studio übergeben',
+                f'Referenz A = Frame {frame_id} aus {source} mit den damaligen Parametern. '
+                '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).')
 
     @app.callback(Output('replay-download', 'data'), Input('replay-export', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),

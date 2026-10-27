@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from time import monotonic
+from time import monotonic, monotonic_ns
 
 import Driving
 from CameraCar import CameraCar
@@ -50,10 +50,12 @@ class CarApplication:
         self._last_state_id = None
         # VERALTET: zweite Ereignisliste; Anzeige nutzt nur noch self.health.
         self._events = deque(maxlen=60)
+        # PAKET-C: Startzeit des Fahrmodus (monoton) fuer den Recorder
+        self._mode_started_ns = None
         self.health = DrivingHealthMonitor()
         # Ein einziger Recorder (Session-Format v2). SaveData_4_AI ist veraltet.
         self.recorder = recorder if recorder is not None else SessionRecorder(
-            self.car, event_source=self.health.events, is_driving=self.running)
+            self.car, event_source=self.health.events, is_driving=self.running, driving_since=self._driving_since)
         self.recovery = RecoveryControl(self.car, self.running)
         self.timings = DurationStats()
         self._requested_stop = False
@@ -95,9 +97,13 @@ class CarApplication:
             self._requested_stop = False
             camera = self.car.camera_data
             self.health.mark_start(key, getattr(camera, 'frame_id', None))
+            self._mode_started_ns = monotonic_ns()
             self.modes[key].start()
             self.active_mode = key
 
+    def _driving_since(self):
+        """PAKET-C: Startzeit des laufenden Fahrmodus (monoton) oder None."""
+        return self._mode_started_ns if self.running() else None
     def stop_modes(self):
         """STOP: synchron, damit der Stoppbefehl sofort an das Fahrzeug geht."""
         with self._lock:

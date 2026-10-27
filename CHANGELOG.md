@@ -1,4 +1,16 @@
 # Changelog
+## 6.1 – Paket C (PAKET-C)
+
+* **Replay-Bugfix:** Beim Abspielen gespeicherter Sessions lief der Slider, das Bild stand.
+  Ursache: Takt und Index loesen im selben Zyklus aus; `ctx.triggered_id` meldete nur den Takt.
+  Bild und Diagramm sind getrennt; das Diagramm wird nur bei Session-/Bereichswechsel neu
+  gebaut, beim Blaettern wandert nur der Cursor (`Patch`).
+* **missing_decision korrigiert:** Ringbuffer-Vorlauf vor dem Fahrmodusstart wird als
+  `no_driving_state` gespeichert (`driving_since`). Session 15:07: alle 51 „fehlenden“
+  Entscheidungen waren Frames 96–146 vor `CONTROLLER_STARTED` (Frame 147).
+* **Replay → Pipeline Studio:** Rohbild + damalige Parameter als Referenz A; B = aktuelle Slider.
+* **Thread-CPU** je Thread in der Telemetrie (Messgrundlage fuer Threading-Entscheidungen).
+* `requirements-c2c.txt` mit den direkten Abhaengigkeiten.
 
 ## 6.0 – Architektur-Konsolidierung (27.10.2026)
 

@@ -42,7 +42,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_abhaengigkeiten(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 21)
+        self.assertEqual(len(deps), 23)  # PAKET-C
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1

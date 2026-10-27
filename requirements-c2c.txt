@@ -1,0 +1,9 @@
+# Direkte Abhaengigkeiten des Control Centers (Stand Pi, 27.10.2026).
+# Hardware-/Systempakete (picamera2, RPi.GPIO, smbus) kommen aus apt.
+dash==4.3.0
+dash-bootstrap-components==2.0.4
+plotly==6.8.0
+psutil==7.0.0
+numpy==2.2.4
+# Achtung: im venv sind opencv-python 5.0.0.93 (pip, wird geladen) und opencv 4.10 (apt) vorhanden.
+opencv-python==5.0.0.93
