@@ -160,6 +160,43 @@ class CarApplication:
         self.set_pipeline(config)
         save(config)
 
+    # ------------------------------------------------------------ Einstellungen (PAKET-G)
+    @staticmethod
+    def _fresh_hz(counter, max_age_s=2.0):
+        """Frequenz nur, wenn der letzte Tick juenger als ``max_age_s`` ist (sonst 0).
+
+        Fehler vorher: Nach einem Stopp wurde die letzte Entscheidungsrate im
+        Frequenzverlauf weiter fortgeschrieben.
+        """
+        if counter is None:
+            return 0
+        age = counter.age_seconds
+        return counter.hz if age is not None and age < max_age_s else 0
+
+    def speed_policy(self):
+        """Aktuelle Geschwindigkeitsstrategie des CameraMode (oder None)."""
+        return getattr(self.modes.get('camera'), 'speed_policy', None)
+
+    def set_speed_policy(self, policy):
+        """Setzt die Geschwindigkeitsstrategie; nur im Stillstand."""
+        with self._lock:
+            if self.running():
+                raise RuntimeError('Geschwindigkeit nur im Stillstand ändern')
+            mode = self.modes.get('camera')
+            if mode is None or not hasattr(mode, 'speed_policy'):
+                raise RuntimeError('CameraMode ohne Geschwindigkeitsstrategie')
+            mode.speed_policy = policy
+            self.health.record('SPEED_POLICY', policy.describe())
+
+    def set_jpeg_quality(self, quality):
+        """JPEG-Qualitaet der naechsten Aufnahme (nur ohne laufende Aufzeichnung)."""
+        quality = int(quality)
+        if not 50 <= quality <= 100:
+            raise ValueError('JPEG-Qualität 50–100')
+        with self._lock:
+            if self.recorder.is_running():
+                raise RuntimeError('Bildqualität nur ohne laufende Aufzeichnung ändern')
+            self.recorder.jpeg_quality = quality
     # ------------------------------------------------------------ Aufzeichnung
     def toggle_recording(self):
         with self._lock:
@@ -217,8 +254,8 @@ class CarApplication:
                     self._events.append((state.frame_id, 'Keine Linien erkannt'))
             metrics = getattr(self.car, 'thread_metrics', {})
             self._freq_history.append((monotonic(),
-                metrics['camera'].hz if 'camera' in metrics else 0,
-                metrics['controller'].hz if 'controller' in metrics else 0))
+                self._fresh_hz(metrics.get('camera')),  # PAKET-G: veraltete Werte = 0
+                self._fresh_hz(metrics.get('controller'))))
 
     def sample(self):
         """Liefert eine unveraenderliche Momentaufnahme der Historie."""

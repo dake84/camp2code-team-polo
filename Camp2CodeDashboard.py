@@ -46,6 +46,7 @@ from pipeline_processors import CopilotLaneProcessor
 from replay_studio import load_session_image, parameters_from_record, processor_key
 from telemetry.thread_stats import ThreadCpuSampler
 from pipeline_config import list_presets, load, load_preset, save_preset
+from help_texts import info, label as help_label  # PAKET-G
 from replay_hud import draw_hud
 from replay_selection import event_window, record_frame_id, select_records, selected_bounds
 from session_recorder import (export_live_records, export_session_range, list_sessions,
@@ -162,13 +163,67 @@ def plain_figure(traces, height=260, **layout):
 def thin(rows, limit=240):
     step = max(1, -(-len(rows) // limit))
     return list(rows)[::step]
+# --------------------------------------------------------------------- PAKET-G Hilfen
+def parse_jump(hash_value):
+    """``#jump/<session>/<frame>/<nonce>`` -> (session, frame) oder None."""
+    if not isinstance(hash_value, str) or not hash_value.startswith('#jump/'):
+        return None
+    parts = hash_value[len('#jump/'):].split('/')
+    if len(parts) < 2 or not parts[0]:
+        return None
+    try:
+        return parts[0], int(parts[1])
+    except ValueError:
+        return None
+
+
+def fs_button(target):
+    """Vollbild-Schalter (assets/fullscreen.js)."""
+    return html.Button('⛶ Vollbild', type='button', className='c2c-fs btn btn-sm btn-outline-info ms-2',
+                       **{'data-target': target})
+
+
+def live_hud_row(camera, driving):
+    """Zeile im Format von frames.csv fuer draw_hud aus Live-Daten (keine neue Erkennung)."""
+    from replay_hud import encode_lanes
+    lanes = driving.lanes if driving is not None and driving.lanes is not None else camera.lanes
+    top, bottom = camera.roi_rows()
+    row = {'frame_id': camera.frame_id, 'roi_top_px': top, 'roi_bottom_px': bottom,
+           'lanes_json': encode_lanes(lanes), 'event_codes': '',
+           'data_status': 'complete' if driving is not None else 'live · ohne Fahrentscheidung'}
+    if driving is not None:
+        row.update(steering_angle_car=driving.steering_angle_car, requested_angle=driving.requested_angle,
+                   steering_angle=driving.steering_angle, speed=driving.speed)
+    return row
+
+
+def lane_quality(records):
+    """Anteil plausibler Linienpaare im Ringbuffer (None ohne Bilder)."""
+    from sim_engine import lanes_plausible
+    good = total = 0
+    for record in records:
+        camera = record.camera
+        raw = camera.raw_image
+        if raw is None or not getattr(raw, 'size', 0) or camera.frame_id < 0:
+            continue
+        top, bottom = camera.roi_rows(raw.shape[0])
+        total += 1
+        good += lanes_plausible(camera.lanes, raw.shape[1], max(1, bottom - top))
+    return good / total if total else None
+
+
+def kpi(text, level):
+    return html.Span(text, className={'ok': 'text-success', 'warn': 'text-warning',
+                                      'bad': 'text-danger'}.get(level, 'text-secondary'))
 def card(title, content, **kwargs):
     return dbc.Card([dbc.CardHeader(title), dbc.CardBody(content)], className='h-100', **kwargs)
 
 
 def slider(label, key, low, high, value, step=1, pair=False):
     component = dcc.RangeSlider if pair else dcc.Slider
-    return html.Div([html.Label(label, className='small'),
+    help_key = key if key in ('crop', 'hue', 'sat', 'val', 'blur', 'morph', 'canny') else None  # PAKET-G
+    return html.Div([html.Label([label, ' ', *(info(help_key, dbc, html) if help_key else [])],
+                                className='small'),
                      component(id=f'cfg-{key}', min=low, max=high, step=step, value=value,
                                marks=None, tooltip={'placement': 'bottom'})],
                     className='mb-2')
@@ -231,25 +286,29 @@ def build_layout(cfg):
     cockpit = dbc.Row([
         dbc.Col(card('Live Vision · Lane Overlay', [
             html.Div([dbc.Badge(id='drive-frame-badge', color='dark', className='me-2'),
-                      html.Span(id='drive-age', className='small text-secondary')], className='mb-2'),
+                      html.Span(id='drive-age', className='small text-secondary'),
+                      fs_button('drive-overlay'),  # PAKET-G
+                      dbc.Checklist(id='cockpit-hud', options=[{'label': 'HUD', 'value': 'on'}],
+                                    value=[], switch=True, inline=True, className='d-inline-block ms-3 small'),
+                      *info('hud', dbc, html)], className='mb-2'),
             html.Img(id='drive-overlay', style={**IMAGE_STYLE, 'maxHeight': '68vh'}),
             html.Div('Grün/Gelb: erkannte Linien · Magenta: Reglerrichtung aus den Linien · '
                      'Instrument: Fahrzeug-Stellwert · Rohbild bleibt unverändert',
                      className='text-secondary small mt-2')]), lg=8),
         dbc.Col(card('Fahrzustand', [
             dbc.Row([
-                dbc.Col([html.Div('Stellwert (Fahrzeug)', className='c2c-kpi-label'),
+                dbc.Col([help_label('Stellwert (Fahrzeug)', 'stell', dbc, html),
                          html.Div(id='drive-angle', className='c2c-kpi')], width=6),
-                dbc.Col([html.Div('Speed-Steuerwert', className='c2c-kpi-label'),
+                dbc.Col([help_label('Speed-Steuerwert', 'speed', dbc, html),
                          html.Div(id='drive-speed', className='c2c-kpi')], width=6),
-                dbc.Col([html.Div('Sollwinkel (Regler)', className='c2c-kpi-label'),
+                dbc.Col([help_label('Sollwinkel (Regler)', 'soll', dbc, html),
                          html.Div(id='drive-requested', className='c2c-kpi-small')], width=6),
-                dbc.Col([html.Div('Rohwinkel (Linien)', className='c2c-kpi-label'),
+                dbc.Col([help_label('Rohwinkel (Linien)', 'roh', dbc, html),
                          html.Div(id='drive-raw', className='c2c-kpi-small')], width=6),
             ], className='g-2'),
             html.Hr(),
             html.Div(id='drive-mode-status', className='mb-2'),
-            html.Div('Controllerdiagnose', className='c2c-kpi-label'),
+            help_label('Controllerdiagnose', 'diag', dbc, html),
             html.Div(id='drive-diagnostic', className='small'),
         ]), lg=4),
     ], className='g-3')
@@ -270,7 +329,8 @@ def build_layout(cfg):
             className='g-3'),
         dbc.Row([
             dbc.Col(card('Pipeline Inspector', [
-                html.Div(id='inspect-title', className='fw-semibold mb-2'),
+                html.Div([html.Span(id='inspect-title', className='fw-semibold'),
+                          fs_button('inspect-image')], className='mb-2'),  # PAKET-G
                 html.Img(id='inspect-image', style={**IMAGE_STYLE, 'maxHeight': '430px'}),
                 html.Div('Zeigt das veröffentlichte Zwischenbild. Keine zweite Bildverarbeitung.',
                          className='text-secondary small mt-2')]), lg=7),
@@ -311,10 +371,10 @@ def build_layout(cfg):
 
     telemetry = dbc.Row([
         dbc.Col(card('Live · Mini-Preview', html.Img(id='telemetry-preview', style=IMAGE_STYLE)), md=4),
-        dbc.Col(card('Soll / Ist Frequenz', dcc.Graph(id='freq-bars', config={'displayModeBar': False})), md=8),
-        dbc.Col(card('Frequenzverlauf (letzte 60 s)', dcc.Graph(id='freq-history', config={'displayModeBar': False})), md=12),
-        dbc.Col(card('Lenkwinkel / Speed / Linienanzahl', dcc.Graph(id='drive-history', config={'displayModeBar': False})), md=12),
-        dbc.Col(card('Datenalter · Latenzen · System', [html.Div(id='data-age'),
+        dbc.Col(card(['Soll / Ist Frequenz', *info('freq', dbc, html)], dcc.Graph(id='freq-bars', config={'displayModeBar': False})), md=8),
+        dbc.Col(card(['Frequenzverlauf (letzte 60 s)', *info('freqhist', dbc, html)], dcc.Graph(id='freq-history', config={'displayModeBar': False})), md=12),
+        dbc.Col(card(['Lenkwinkel / Speed / Linienanzahl', *info('drivehist', dbc, html)], dcc.Graph(id='drive-history', config={'displayModeBar': False})), md=12),
+        dbc.Col(card(['Datenalter · Latenzen · System', *info('dataage', dbc, html)], [html.Div(id='data-age'),
                                                       html.Div(id='system-stats', className='small text-secondary mt-2')]), md=12),
     ], className='g-3')
 
@@ -338,7 +398,8 @@ def build_layout(cfg):
         ], className='g-2 mb-2', align='center'),
         dbc.Row([
             dbc.Col(card('Frame Inspector · Replay-HUD', [
-                html.Div(id='replay-frame-label', className='fw-semibold mb-2'),
+                html.Div([html.Span(id='replay-frame-label', className='fw-semibold'),
+                          fs_button('replay-image')], className='mb-2'),  # PAKET-G
                 html.Img(id='replay-image', style={**IMAGE_STYLE, 'maxHeight': '60vh'}),
                 html.Div(id='replay-details', className='small mt-2')]), lg=8),
             dbc.Col(card('Replay-Steuerung', [
@@ -372,17 +433,52 @@ def build_layout(cfg):
                      className='small text-secondary')]), md=12)], className='mt-3'),
     ])
 
+    # PAKET-G: Settings-Reiter
+    settings = dbc.Row([
+        dbc.Col(card('Geschwindigkeit · CameraMode', [
+            help_label('Modus', 'speedmode', dbc, html, 'small'),
+            dbc.RadioItems(id='set-speed-mode', value='fixed', inline=True, options=[
+                {'label': 'fest', 'value': 'fixed'}, {'label': 'adaptiv (Kurve langsamer)', 'value': 'adaptive'}]),
+            dbc.Row([
+                dbc.Col([help_label('fest', 'speedfixed', dbc, html, 'small'),
+                         dcc.Input(id='set-speed-fixed', type='number', min=30, max=60, step=1, value=30,
+                                   className='form-control form-control-sm')]),
+                dbc.Col([help_label('v_min (Kurve)', 'speedvmin', dbc, html, 'small'),
+                         dcc.Input(id='set-speed-vmin', type='number', min=30, max=60, step=1, value=30,
+                                   className='form-control form-control-sm')]),
+                dbc.Col([help_label('v_max (Gerade)', 'speedvmax', dbc, html, 'small'),
+                         dcc.Input(id='set-speed-vmax', type='number', min=30, max=60, step=1, value=45,
+                                   className='form-control form-control-sm')]),
+            ], className='g-2 mt-1'),
+            html.Div('Nur im Stillstand · gilt bis zum Neustart · Werte sind Steuerwerte (PWM).',
+                     className='small text-secondary mt-2')]), md=6),
+        dbc.Col(card('Aufzeichnung', [
+            help_label('JPEG-Qualität', 'recq', dbc, html, 'small'),
+            dcc.Dropdown(id='set-rec-quality', className='c2c-dropdown', clearable=False, value=95, options=[
+                {'label': '70 · klein', 'value': 70}, {'label': '85 · mittel', 'value': 85},
+                {'label': '95 · hoch (Standard)', 'value': 95}, {'label': '100 · maximal', 'value': 100}]),
+            html.Div('Auflösung = Kamera (cam_sensor.width/height in config.json), Neustart nötig.',
+                     className='small text-secondary mt-2')]), md=6),
+        dbc.Col([dbc.Button('Übernehmen', id='settings-apply', color='primary', size='sm'),
+                 html.Div(id='settings-msg', className='small mt-2')], md=12),
+    ], className='g-3')
     return dbc.Container([
         html.H2('Camp2Code · Control Center', className='mt-3 mb-2'),
         control_bar,
+        dbc.Row([dbc.Col([help_label('Regelrate', 'rate', dbc, html), html.Div(id='kpi-rate', className='c2c-kpi-small')]),
+                 dbc.Col([help_label('Reaktionszeit', 'lat', dbc, html), html.Div(id='kpi-lat', className='c2c-kpi-small')]),
+                 dbc.Col([help_label('Spurqualität', 'qual', dbc, html), html.Div(id='kpi-qual', className='c2c-kpi-small')])],
+                className='g-2 mb-2 c2c-kpibar'),  # PAKET-G
         html.Div(id='global-action-message', className='small mb-2'),
         recovery_panel,
         dbc.Tabs([dbc.Tab(cockpit, label='Driving Cockpit', tab_id='drive'),
                   dbc.Tab(pipeline, label='Pipeline Studio', tab_id='pipeline'),
                   dbc.Tab(telemetry, label='Telemetrie & Performance', tab_id='telemetry'),
                   dbc.Tab(recording, label='Recording & Events', tab_id='record'),
-                  dbc.Tab(replay, label='Replay Lab', tab_id='replay')],
+                  dbc.Tab(replay, label='Replay Lab', tab_id='replay'),
+                  dbc.Tab(settings, label='Settings', tab_id='settings')],  # PAKET-G
                  id='main-tabs', active_tab='drive', className='mb-3'),
+        dcc.Location(id='jump-url', refresh=False),  # PAKET-G: Sprung aus dem Ereignisprotokoll
         dcc.Store(id='last-action', data=None, storage_type='memory'),
         dcc.Store(id='recovery-keys', data={'deadman': False}, storage_type='memory'),
         dcc.Store(id='replay-playing', data=False, storage_type='memory'),
@@ -412,6 +508,53 @@ def create_app(application):
     app.layout = build_layout(cfg)
     car = application.car
     sim.register(app)  # PAKET-F
+    # ------------------------------------------------ PAKET-G: Kennzahlen-Leiste und Settings
+    @app.callback(Output('kpi-rate', 'children'), Output('kpi-lat', 'children'), Output('kpi-qual', 'children'),
+                  Input('refresh', 'n_intervals'))
+    def kpi_bar(_):
+        metrics = getattr(car, 'thread_metrics', {})
+        counter = metrics.get('controller')
+        rate = counter.hz if counter is not None and counter.age_seconds is not None and counter.age_seconds < 2 else 0
+        target = float(getattr(application.sensor, 'scan_frequency', 0) or 0)
+        share = rate / target if target else 0
+        rate_view = kpi(f'{rate:.0f} / {target:.0f} Hz',
+                        'ok' if share >= .8 else 'warn' if share >= .5 else 'bad') if application.running() \
+            else kpi(f'– / {target:.0f} Hz', 'off')
+        record = car.frame_history.latest_complete()
+        lat_view = kpi('–', 'off')
+        if record is not None and record.driving.monotonic_ns and record.camera.monotonic_ns:
+            ms = (record.driving.monotonic_ns - record.camera.monotonic_ns) / 1e6
+            lat_view = kpi(f'{ms:.0f} ms', 'ok' if ms < 80 else 'warn' if ms < 150 else 'bad')
+        quality = lane_quality(car.frame_history.snapshot())
+        qual_view = kpi('–', 'off') if quality is None else kpi(
+            f'{quality * 100:.0f} %', 'ok' if quality >= .9 else 'warn' if quality >= .7 else 'bad')
+        return rate_view, lat_view, qual_view
+
+    @app.callback(Output('settings-msg', 'children'), Input('settings-apply', 'n_clicks'),
+                  State('set-speed-mode', 'value'), State('set-speed-fixed', 'value'),
+                  State('set-speed-vmin', 'value'), State('set-speed-vmax', 'value'),
+                  State('set-rec-quality', 'value'), prevent_initial_call=True)
+    def settings_apply(_n, mode, fixed, vmin, vmax, quality):
+        from speed_policy import SpeedPolicy
+        messages = []
+        try:
+            policy = SpeedPolicy.from_values(mode, fixed, vmin, vmax)
+            setter = getattr(application, 'set_speed_policy', None)
+            if setter is None:
+                raise RuntimeError('Anwendung ohne Geschwindigkeitseinstellung')
+            setter(policy)
+            messages.append(html.Div(f'✔ Geschwindigkeit: {policy.describe()}', className='text-success'))
+        except (ValueError, RuntimeError) as exc:
+            messages.append(html.Div(f'✖ Geschwindigkeit: {exc}', className='text-warning'))
+        try:
+            setter = getattr(application, 'set_jpeg_quality', None)
+            if setter is None:
+                raise RuntimeError('Anwendung ohne Aufnahme')
+            setter(quality)
+            messages.append(html.Div(f'✔ JPEG-Qualität {quality} ab der nächsten Aufnahme', className='text-success'))
+        except (ValueError, RuntimeError, TypeError) as exc:
+            messages.append(html.Div(f'✖ Aufnahme: {exc}', className='text-warning'))
+        return messages
 
     # ------------------------------------------------ Aktionen (ein Callback)
     @app.callback(Output('last-action', 'data'),
@@ -517,8 +660,8 @@ def create_app(application):
                   Output('drive-mode-status', 'children'), Output('drive-diagnostic', 'children'),
                   Output('drive-frame-badge', 'children'), Output('drive-age', 'children'),
                   Input('tick-drive', 'n_intervals'), Input('main-tabs', 'active_tab'),
-                  State('drive-rendered', 'data'))
-    def cockpit_view(_, tab, rendered):
+                  State('drive-rendered', 'data'), State('cockpit-hud', 'value'))
+    def cockpit_view(_, tab, rendered, hud=None):
         if tab != 'drive':
             return (no_update,) * 10
         with measure(application, 'dashboard.cockpit'):
@@ -528,16 +671,20 @@ def create_app(application):
             stop_reason = application.stop_reason() if hasattr(application, 'stop_reason') else None
             record = car.frame_history.latest_complete() if running else None
             if record is not None:
-                key = f'drive:{record.camera.frame_id}'
+                key = f'drive:{record.camera.frame_id}' + (':hud' if hud and 'on' in hud else '')
                 shown = record.camera
             else:
-                key = f'cal:{getattr(camera, "frame_id", None)}'
+                key = f'cal:{getattr(camera, "frame_id", None)}' + (':hud' if hud and 'on' in hud else '')
                 shown = camera
             image = no_update
             if key != rendered and shown is not None and shown.frame_id >= 0:
-                overlay = (render_overlay(record.camera, record.driving) if record is not None
-                           else render_calibration_overlay(camera))
-                image = uri(draw_steering_overlay(overlay, car.steering_angle))
+                if hud and 'on' in hud:  # PAKET-G: Replay-HUD-Stil fuer das Livebild
+                    image = uri(draw_hud(shown.raw_image, live_hud_row(
+                        shown, record.driving if record is not None else None)))
+                else:
+                    overlay = (render_overlay(record.camera, record.driving) if record is not None
+                               else render_calibration_overlay(camera))
+                    image = uri(draw_steering_overlay(overlay, car.steering_angle))
             else:
                 key = rendered
             age = '–'
@@ -834,10 +981,31 @@ def create_app(application):
                    f"{stats.get('path') or 'keine Session'} · {stats.get('error') or 'kein Fehler'}")
         now = time.monotonic_ns()
         events = list(application.health.events())[-25:][::-1]
+        # PAKET-G: Frame-Nummer verlinkt ins Replay Lab (Session oder Live-Ringbuffer)
+        ring_ids = {r.camera.frame_id for r in car.frame_history.snapshot()}
+        session_name, session_ids = None, set()
+        session_path = getattr(recorder, 'path', None)
+        if session_path:
+            try:
+                session_name = Path(str(session_path)).name
+                _path, session_rows = load_session(session_name, str(Path(str(session_path)).parent))
+                session_ids = {int(r['frame_id']) for r in session_rows if str(r.get('frame_id', '')).isdigit()}
+            except (ValueError, OSError):
+                session_name = None
+
+        def frame_cell(e):
+            if e.frame_id is None or e.frame_id < 0:
+                return html.Span('Frame –', className='me-2 text-secondary')
+            target = session_name if e.frame_id in session_ids else (LIVE if e.frame_id in ring_ids else None)
+            if target is None:
+                return html.Span(f'Frame {e.frame_id}', className='me-2 text-secondary',
+                                 title='Weder in der Session noch im Ringbuffer')
+            return dcc.Link(f'Frame {e.frame_id}', href=f'#jump/{target}/{e.frame_id}/{e.timestamp_ns}',
+                            className='me-2 c2c-link', title='Im Replay Lab öffnen')
         colors = {'STOP_REASON': 'text-danger', 'CONTROLLER_STOPPED': 'text-warning',
                   'LANE_LOST': 'text-warning', 'RECORDER_FRAME_GAP': 'text-danger'}
         items = [html.Div([html.Span(f'vor {(now - e.timestamp_ns) / 1e9:5.1f} s', className='text-secondary me-2'),
-                           html.Span(f'Frame {e.frame_id}' if e.frame_id is not None else 'Frame –', className='me-2'),
+                           frame_cell(e),  # PAKET-G
                            html.Strong(e.code, className=colors.get(e.code, '') + ' me-2'),
                            html.Span(e.detail, className='small')]) for e in events] or 'Keine Ereignisse'
         camera = car.camera_data
@@ -892,12 +1060,22 @@ def create_app(application):
                   State('replay-index', 'value'), State('replay-playing', 'data'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),
                   State('replay-pre', 'value'), State('replay-post', 'value'),
-                  State('main-tabs', 'active_tab'))
+                  State('main-tabs', 'active_tab'), Input('jump-url', 'hash'))
     def seek(_prev, _next, click, relayout, event_frame, _reset, _tick, index, playing, name, bounds,
-             pre, post, tab):
+             pre, post, tab, jump=None):
         trigger = ctx.triggered_id
         if tab != 'replay' and trigger == 'tick-replay':
             return no_update, no_update
+        if trigger == 'jump-url':  # PAKET-G: Sprung mit Vor-/Nachlauf, Session aus dem Link
+            target = parse_jump(jump)
+            if target is None:
+                return no_update, no_update
+            session, frame = target
+            window = event_window(frame, pre, post)
+            records, _, _ = replay_records(session, window)
+            ids = [record_frame_id(r) for r in records]
+            position = next((i for i, fid in enumerate(ids) if fid is not None and fid >= frame), 0)
+            return position, list(window)
         if trigger == 'replay-range-reset':
             return 0, None
         if trigger == 'replay-chart' and ctx.triggered and ctx.triggered[0]['prop_id'].endswith('relayoutData'):
@@ -1058,9 +1236,14 @@ def create_app(application):
                   Output('session-choice', 'value'),
                   Input('replay-to-studio', 'n_clicks'), Input('record-open-replay', 'n_clicks'),
                   State('session-choice', 'value'), State('replay-bounds', 'data'),
-                  State('replay-index', 'value'), prevent_initial_call=True)
-    def replay_to_studio(_, _open, name, bounds, index):
+                  State('replay-index', 'value'), Input('jump-url', 'hash'), prevent_initial_call=True)
+    def replay_to_studio(_, _open, name, bounds, index, jump=None):
         """Uebergibt Rohbild + damalige Parameter als Referenz A an das A/B-Labor."""
+        if ctx.triggered_id == 'jump-url':  # PAKET-G: Link im Ereignisprotokoll
+            target = parse_jump(jump)
+            if target is None:
+                return (no_update,) * 5
+            return 'replay', no_update, no_update, no_update, target[0]
         if ctx.triggered_id == 'record-open-replay':  # PAKET-E: letzte Session im Replay
             path = getattr(application.recorder, 'path', None)
             if not path:

@@ -42,7 +42,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_abhaengigkeiten(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 28)  # PAKET-F  # PAKET-C
+        self.assertEqual(len(deps), 30)  # PAKET-G  # PAKET-F  # PAKET-C
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1
@@ -84,13 +84,15 @@ class RealDashTests(unittest.TestCase):
                    ('drive-mode-status', 'children'), ('drive-diagnostic', 'children'),
                    ('drive-frame-badge', 'children'), ('drive-age', 'children')]
         response = self.post(outputs, [('refresh', 'n_intervals', 1)],
-                             [('main-tabs', 'active_tab', 'drive'), ('drive-rendered', 'data', None)],
+                             [('main-tabs', 'active_tab', 'drive'), ('drive-rendered', 'data', None),
+                              ('cockpit-hud', 'value', [])],  # PAKET-G
                              ['refresh.n_intervals'])
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
         self.assertIn('data:image', response.get_data(as_text=True))
         # Anderer Tab: keine Aktualisierung, es werden keine Bilddaten uebertragen.
         response = self.post(outputs, [('refresh', 'n_intervals', 2)],
-                             [('main-tabs', 'active_tab', 'telemetry'), ('drive-rendered', 'data', None)],
+                             [('main-tabs', 'active_tab', 'telemetry'), ('drive-rendered', 'data', None),
+                              ('cockpit-hud', 'value', [])],
                              ['refresh.n_intervals'])
         self.assertIn(response.status_code, (200, 204))
         self.assertNotIn('data:image', response.get_data(as_text=True))

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Optional
 import ConfigReader
 from LenkwinkelKalkulator import steering_angle_from_lanes
 from models import DrivingState
+from speed_policy import SpeedPolicy  # PAKET-G
 
 from .base import DrivingMode
 
@@ -69,6 +70,9 @@ class CameraMode(DrivingMode):
             self._frequency = self.DEFAULT_POLL_HZ
         # Driving-Mode-Kennung fuer DrivingState/Recorder.
         self.mode_key = 'camera'
+        # PAKET-G: Geschwindigkeitsstrategie (Standard: fest 30 = bisheriges Verhalten).
+        # CarApplication.set_speed_policy() ersetzt das Objekt im Stillstand.
+        self.speed_policy = SpeedPolicy(fixed_speed=self.SPEED_CONTROL_VALUE)
 
     @property
     def poll_frequency(self) -> int:
@@ -160,7 +164,8 @@ class CameraMode(DrivingMode):
             driving_parameter = self.driving_parameter(steering_angle_raw)
             steering_gain = self._cfg.get_float('steering_gain', 2.0)
             steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
-            speed = driving_parameter[1]
+            speed = self.speed_policy.speed_for(  # PAKET-G: fest oder adaptiv
+                steering_angle, diagnostic['held_previous_angle'])
             self._cameracar.drive(speed, steering_angle)
             actual_angle = self._car.steering_angle
             actual_speed = self._car.speed

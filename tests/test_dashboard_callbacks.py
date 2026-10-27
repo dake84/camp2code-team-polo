@@ -178,7 +178,7 @@ class DashboardStructureTests(unittest.TestCase):
         expected = {'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
                     'recording_view', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
-                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_seek', 'sim_play_toggle', 'sim_render'}  # PAKET-F  # PAKET-C
+                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_seek', 'sim_play_toggle', 'sim_render', 'kpi_bar', 'settings_apply'}  # PAKET-G  # PAKET-F  # PAKET-C
         self.assertEqual(set(self.callbacks), expected)
 
     def test_aktionen_und_zustand(self):
@@ -288,7 +288,7 @@ class DashboardStructureTests(unittest.TestCase):
         self.assertEqual(self.callbacks['tab_intervals']('telemetry', True), (True,) * 5)
         per_tick = Counter(i.component_id for cb in self.callbacks.values() for i in cb.inputs
                            if i.component_property == 'n_intervals')
-        self.assertEqual(per_tick['refresh'], 1)         # nur die globale Statusleiste
+        self.assertEqual(per_tick['refresh'], 2)         # Statusleiste + Kennzahlen (PAKET-G)
         self.assertLessEqual(max(per_tick[f'tick-{t}'] for t in ('drive', 'pipeline', 'telemetry', 'record', 'replay')), 3)
 
     def test_ereignisliste(self):

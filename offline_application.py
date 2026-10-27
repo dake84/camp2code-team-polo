@@ -75,6 +75,8 @@ class OfflineApplication:
                                         stats=lambda: {'frames': 0, 'path': None, 'error': OFFLINE_MESSAGE})
         self.active_mode = None
         self.controller_poll_hz = 0.0
+        from speed_policy import SpeedPolicy  # PAKET-G
+        self._speed_policy = SpeedPolicy()
         self.health.record('OFFLINE', 'Dashboard ohne Hardware gestartet')
 
     @staticmethod
@@ -106,6 +108,14 @@ class OfflineApplication:
     def disable_recovery(self):
         return None
 
+    def speed_policy(self):  # PAKET-G
+        return self._speed_policy
+
+    def set_speed_policy(self, policy):
+        self._speed_policy = policy
+
+    def set_jpeg_quality(self, quality):
+        self._refuse()
     def toggle_recording(self):
         self._refuse()
 

@@ -34,3 +34,11 @@ input[type=text],input[type=number],.form-control{background:var(--c2c-input)!im
 .c2c-dropdown [class*="dropdown"]{background-color:var(--c2c-input)}
 .c2c-dropdown [class*="option"]:hover{background-color:#24406b}
 @media(max-width:700px){.card-body{padding:10px!important}.container-fluid{padding:6px!important}h2{font-size:1.4rem!important}.c2c-kpi{font-size:1.6rem}}
+
+/* PAKET-G: Info-Buttons, Kennzahlen-Leiste, Links, Vollbild */
+.c2c-info{cursor:pointer;color:#7fb3ff;font-size:.85em;margin-left:2px;user-select:none}
+.c2c-info:focus-visible{outline:2px solid #4da3ff;border-radius:50%}
+.popover{max-width:360px}
+.c2c-kpibar{background:var(--c2c-card);border:1px solid var(--c2c-line);border-radius:10px;padding:6px 10px}
+.c2c-link{color:#7fb3ff;text-decoration:underline}
+img:fullscreen{object-fit:contain;background:#000;max-height:none!important}

@@ -1,4 +1,14 @@
 # Changelog
+## 6.5 – Paket G (PAKET-G)
+
+* **Settings-Reiter:** Geschwindigkeit fest/adaptiv (v_min 30 … v_max), JPEG-Qualität der Aufnahme.
+* **Adaptive Geschwindigkeit** (`speed_policy.py`): v_max auf Geraden, linear bis v_min bei vollem
+  Einschlag, v_min bei gehaltenem Vorwert. Standard bleibt fest 30. Änderung nur im Stillstand.
+* **Kennzahlen-Leiste:** Regelrate, Reaktionszeit, Spurqualität (immer sichtbar).
+* **Ereignisprotokoll:** Frame-Nummern verlinken ins Replay Lab (Session oder Ringbuffer, ±Vor-/Nachlauf).
+* **Cockpit:** HUD-Darstellung schaltbar; Vollbild für Cockpit, Replay und Inspector.
+* **Info-Buttons (ⓘ)** an Kennzahlen, Telemetrie-Karten, Pipeline-Slidern und Settings (`help_texts.py`).
+* **Fix Frequenzverlauf:** veraltete Werte werden als 0 statt als letzter Wert geschrieben.
 ## 6.4 – Paket F: Simulation (PAKET-F)
 
 * **Zentrales Prozessor-Verzeichnis** (`processor_registry.py`): CameraSensor, Pipeline Studio,
