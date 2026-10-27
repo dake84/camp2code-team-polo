@@ -105,7 +105,7 @@ class SaveData_4_AI:
             return
 
         # Alle Daten aus genau diesem Paket
-        image = camera_data_processed.process_image_lines
+        image = camera_data_processed.raw_image
         speed = camera_data_processed.speed
         steering_angle = camera_data_processed.steering_angle
         timestamp = camera_data_processed.timestamp

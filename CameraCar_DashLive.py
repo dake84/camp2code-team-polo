@@ -20,6 +20,10 @@ from Save_Data_AI import SaveData_4_AI
 from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
 
+from CameraCar import CameraCar, CameraData, CameraDataProcessed
+from CameraSensor import CameraSensor
+from DeepCar import DeepCar
+
 
 # Config
 DEFAULT_HSV = {'h': (100, 130), 's': (80, 255), 'v': (50, 255), 'crop': (0.2, 0.8), 'blur': 3, 'morph_kernel': 5}
@@ -280,12 +284,13 @@ def shutdown(modes, car, sensor, save_data, threads, stop_event):
 
 def main():
 
-    car = CameraCar()
+    car = DeepCar()  # DeepCar statt CameraCar: Kamera/Motoren nur EINMAL öffnen
     sensor = CameraSensor(car)
     save_data = SaveData_4_AI(car=car, frequency=5.0)
 
     modes = {
         'fahrmodus_1': Driving.CameraMode(car=car),
+        'fahrmodus_2': Driving.DeepCarMode(car=car),
         'fahrmodus_ps': Driving.PSControllerMode(car=car)
     }
 

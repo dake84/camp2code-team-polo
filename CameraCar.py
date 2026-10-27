@@ -30,8 +30,6 @@ class CameraDataProcessed:
     steering_angle_car: int = None # Winkel, der wirklich am Auto ankommt
     speed: int = 0 # Auf Dashboard
 
- 
- 
 class CameraCar(BaseCar):
     """Lässt das Auto mittels des Ultraschallsensor (Abstandmessung) fahren
  

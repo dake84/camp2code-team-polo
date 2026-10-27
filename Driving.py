@@ -16,6 +16,7 @@ import ConfigReader
 from SensorCar import SensorCar
 from SonicCar import SonicCar
 from LenkwinkelKalkulator import lenkwinkel_from_image
+from DeepCar import DeepCar
 
 # FÜr PS COntroller
 import select
@@ -922,6 +923,53 @@ class CameraMode(DrivingMode):
     
 
 
+class DeepCarMode(DrivingMode):
+
+    def __init__(self,
+                 name='DeepCarModus',
+                 car: Optional[DeepCar] = None,
+                 cfg: Optional[ConfigReader.ConfigReader] = None):
+
+        car = car if car is not None else DeepCar()
+        self._cameracar = car
+
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader(
+            'cameracar_controller'
+        )
+
+        logger = logging.getLogger(self.__class__.__name__)
+
+        super().__init__(name, car, logger, cfg)
+
+    def _pre_run(self) -> bool:
+        self._car.drive(0, 90)
+        return True
+
+    def _run(self) -> bool:
+
+        try:
+            # Geschwindigkeit und Lenkwinkel vom Netzwerk
+            speed, steering_angle_raw = self._cameracar.predict(
+                self._cameracar.camera_data.raw_image
+            )
+
+            if not np.isfinite([speed, steering_angle_raw]).all():
+                raise ValueError('Ungültige Netzwerkvorhersage.')
+
+            steering_angle = int(max(45, min(135, steering_angle_raw)))
+            speed = int(max(0, min(30, speed)))
+
+            self._cameracar.drive(speed, steering_angle)
+
+        except Exception:
+            self._car.drive(0, 90)
+            self._log.exception('Fehler in DeepCarMode._run()')
+            return False
+
+        return True
+
+    def _run_condition(self) -> bool:
+        return True
 
 
 
