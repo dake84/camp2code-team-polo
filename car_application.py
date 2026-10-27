@@ -9,6 +9,8 @@ from CameraSensor import CameraSensor
 from Save_Data_AI import SaveData_4_AI
 from pipeline_config import load, save
 import Driving
+from driving_health import DrivingHealthMonitor
+from recovery_control import RecoveryControl
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +35,9 @@ class CarApplication:
         self._history = deque(maxlen=240)
         self._last_state_id = None
         self._events = deque(maxlen=60)
+        self.health = DrivingHealthMonitor()
+        self.recovery = RecoveryControl(self.car, self.running)
+        self._requested_stop = False
         self._freq_history = deque(maxlen=240)
         if start_camera:
             self.start_camera()
@@ -61,11 +66,14 @@ class CarApplication:
                 raise ValueError('Unbekannter Fahrmodus')
             if self.running():
                 raise RuntimeError('Zuerst aktiven Fahrmodus stoppen')
+            self.recovery.disable()
+            self._requested_stop = False
             self.modes[key].start()
             self.active_mode = key
 
     def stop_modes(self):
         with self._lock:
+            self._requested_stop = True
             # Stop sendet selbst den sicheren Stoppbefehl an das Fahrzeug.
             for mode in self.modes.values():
                 if mode.is_running():
@@ -118,6 +126,11 @@ class CarApplication:
         """Erfasst Telemetrie unabhängig vom Browser in begrenzten Puffern."""
         with self._lock:
             state = self.car.driving_state
+            mode = self.modes.get('camera')
+            reason = ('Benutzer-STOP' if self._requested_stop else
+                      getattr(mode, 'last_stop_reason', None))
+            self.health.observe(self.car.camera_data, state, self.running(), reason,
+                                getattr(mode, 'last_diagnostic', None))
             if state is not None and state.frame_id != self._last_state_id:
                 self._last_state_id = state.frame_id
                 missing = not state.lanes
@@ -142,6 +155,7 @@ class CarApplication:
             self._closed = True
             self.stop_event.set()
         try:
+            self.recovery.shutdown()
             self.stop_modes()
         finally:
             try:

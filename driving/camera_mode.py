@@ -30,6 +30,8 @@ class CameraMode(DrivingMode):
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         self._last_steering_angle = 90
         self._lost_since = None
+        self.last_stop_reason = None
+        self.last_diagnostic = None
         self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
         logger = logging.getLogger(self.__class__.__name__)
 
@@ -39,12 +41,18 @@ class CameraMode(DrivingMode):
     def _pre_run(self) -> bool:
         self._last_steering_angle = 90
         self._lost_since = None
+        self.last_stop_reason = None
+        self.last_diagnostic = None
         self._car.drive(0, 90)
         return True
 
     def _run(self) -> bool:
 
         camera_data_transfer = self._cameracar.camera_data
+        if camera_data_transfer is None:
+            self.last_stop_reason = 'NO_CAMERA_DATA'
+            self._log.error('CameraMode beendet: kein Kameradatenpaket')
+            return False
 
         try:
             now = time.monotonic_ns()
@@ -61,11 +69,24 @@ class CameraMode(DrivingMode):
             )
 
 
+            # Diagnose wird unabhängig von der Fahrentscheidung veröffentlicht.
+            # Die beiden Linienwerte stammen ausschließlich aus CameraData.
+            self.last_diagnostic = {
+                'frame_id': camera_data_transfer.frame_id,
+                'lanes': tuple(lanes),
+                'raw_angle': steering_angle_raw,
+                'held_previous_angle': steering_angle_raw is None,
+                'previous_angle': self._last_steering_angle,
+                'stop_reason': None,
+            }
             if steering_angle_raw is None:
                 if self._lost_since is None:
                     self._lost_since = now
 
                 if now - self._lost_since > self._lost_timeout * 1e9:
+                    self.last_stop_reason = 'LANE_TIMEOUT'
+                    self.last_diagnostic['stop_reason'] = 'LANE_TIMEOUT'
+                    self._log.warning('CameraMode stoppt: LANE_TIMEOUT, Frame %s, letzte Lenkung %s', camera_data_transfer.frame_id, self._last_steering_angle)
                     self._log.info(f'Seit {self._lost_timeout}s keine zwei Linien – {self._name} wird beendet')
                     return False
 
@@ -83,6 +104,11 @@ class CameraMode(DrivingMode):
 
 
             self._cameracar.drive(speed, steering_angle)
+            self.last_diagnostic.update(
+                requested_angle=steering_angle,
+                actual_angle=self._car.steering_angle,
+                speed_control=self._car.speed,
+            )
 
 
             timestamp = time.time_ns()
@@ -117,6 +143,7 @@ class CameraMode(DrivingMode):
 
 
         except Exception:
+            self.last_stop_reason = 'CONTROLLER_EXCEPTION'
             self._log.exception('Fehler in CameraMode._run()')
             return False
 

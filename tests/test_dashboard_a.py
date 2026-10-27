@@ -13,6 +13,7 @@ class TestCarApplication(unittest.TestCase):
     def setUp(self):
         self.car = Mock()
         self.car.driving_state = None
+        self.car.camera_data = None
         self.car.thread_metrics = {}
         self.sensor = Mock()
         self.sensor.read_loop = Mock(side_effect=lambda event: event.wait())

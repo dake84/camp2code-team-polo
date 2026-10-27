@@ -228,3 +228,8 @@ new_config.json
 Driving copy.py
 *.jpg
 *.jpeg
+
+# Lieferpakete und Exporte
+*.zip
+camp2code-*.txt
+src-*.txt

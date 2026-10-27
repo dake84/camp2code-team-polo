@@ -43,7 +43,13 @@ class LaneProcessor:
                 if on('mask') else cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))
         blurred = (cv2.blur(mask, (max(1, int(blur)), max(1, int(blur))))
                    if on('blur') else mask)
-        binary = (blurred > 0).astype(np.uint8) * 255
+        # Beim Weichzeichnen entstehen schwache Grauwerte am Maskenrand.
+        # > 0 würde jeden Randpixel wieder vollweiß machen und die Linie
+        # künstlich verbreitern. Die Hälfte der Maskenintensität trennt
+        # Vordergrund und Hintergrund bei einer binären Eingangsmaske.
+        # Ohne Blur bleibt die bisherige Binärisierung unverändert.
+        threshold = 127 if on('blur') and on('mask') else 0
+        binary = (blurred > threshold).astype(np.uint8) * 255
         if on('morph'):
             kernel = np.ones((max(1, int(morph)), max(1, int(morph))), dtype=np.uint8)
             closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
