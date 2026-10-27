@@ -32,13 +32,16 @@ class FollowLine(SensorCarMode):
         self._previous_error = 0
         self._last_direction = 0
         self._last_lenkwinkel = 90
-        self._last_time = time.time()
+        self._last_time = time.monotonic()
     
     def _run_condition(self) -> bool:
         return self._is_on_line()
     
     def _pre_run(self) -> bool:
-        self._last_time = time.time()      
+        self._last_time = time.monotonic()
+        self._summe_integral = 0.0
+        self._previous_error = 0.0
+        self._last_lenkwinkel = 90
         return super()._pre_run()
 
     def _run(self) -> bool:
@@ -87,13 +90,15 @@ class FollowLine(SensorCarMode):
 
         self._log.debug(f"Starte Lenkwinkel-Berechnung mit Eingangsdaten: messwerte:{messwerte}, sensor_gewichtung:{sensor_gewichte}, slew_rate:{slew_rate}, korrektur_proportional:{korrektur_proportional}, korrektur_integral:{korrektur_integral}, summe_integral:{self._summe_integral}, korrektur_integral_boundary:{korrektur_integral_boundary}, korrektur_differential:{korrektur_differential}, previous_error:{self._previous_error}, last_time:{self._last_time}, last_lenkwinkel:{self._last_lenkwinkel}")
 
-        current_time_stamp = time.time()
+        current_time_stamp = time.monotonic()
 
         sum_messwerte = sum(messwerte)
         
         # Div/0 -> Lenkwinkel geradeaus
         if (sum_messwerte == 0):
-            self._last_time = time.time()
+            self._last_time = current_time_stamp
+            self._previous_error = 0.0
+            self._last_lenkwinkel = 90
             return 90
         
         error = sum(np.multiply(messwerte, sensor_gewichte))/sum_messwerte
@@ -145,6 +150,9 @@ class FollowLine(SensorCarMode):
 
 
         # last_time, summe_integral, last_error, lw
+        self._previous_error = error
+        self._last_time = current_time_stamp
+        self._last_lenkwinkel = lw
         return lw
 
     def _calc_speed_from_steering_angle(self, lenkwinkel:float) -> int:

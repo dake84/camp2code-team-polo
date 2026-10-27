@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 from BaseCar import BaseCar
@@ -18,6 +19,9 @@ class SonicCar(BaseCar):
         # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
         super().__init__(config=config)
         self._distance = 300
+        self._distance_valid = False
+        self._distance_timestamp_ns = None
+        self._distance_monotonic_ns = None
         self.__log = logging.getLogger(SonicCar.__name__)
 
 
@@ -34,6 +38,9 @@ class SonicCar(BaseCar):
         self.__log.debug(f"Schreibe Distanz mit Wert {distance}")
         with self._lock:
             self._distance = distance
+            self._distance_valid = distance is not None
+            self._distance_timestamp_ns = time.time_ns()
+            self._distance_monotonic_ns = time.monotonic_ns()
             self.__log.debug(f"Distanz schreiben erfolgreich mit Wert {distance}")
         
 

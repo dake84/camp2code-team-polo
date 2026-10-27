@@ -16,6 +16,8 @@ class CameraData:
     lanes: tuple[tuple[float, float], ...] = ()
     # Optionale Diagnosebilder, nur im CopilotLaneProcessor vorhanden.
     stages: dict[str, np.ndarray] = field(default_factory=dict)
+    processing_parameters: tuple | None = None
+    processor_name: str | None = None
 
 @dataclass
 class CameraDataProcessed:

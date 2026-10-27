@@ -43,15 +43,12 @@ class CameraMode(DrivingMode):
         return True
 
     def _run(self) -> bool:
-        print('1: _run START', flush=True)
 
         camera_data_transfer = self._cameracar.camera_data
-        print('2: camera_data gelesen', flush=True)
 
         try:
             now = time.monotonic_ns()
 
-            print('3: vor lenkwinkel_from_image', flush=True)
 
             # Der LaneDetector hat die Linien bereits fuer diesen Frame ermittelt.
             # Hier wird nur noch der Lenkwinkel aus den Linien berechnet.
@@ -63,7 +60,6 @@ class CameraMode(DrivingMode):
                 img_with_lines, lanes
             )
 
-            print('4: nach lenkwinkel_from_image', flush=True)
 
             if steering_angle_raw is None:
                 if self._lost_since is None:
@@ -85,16 +81,13 @@ class CameraMode(DrivingMode):
             steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
             speed = driving_parameter[1]
 
-            print('5: vor drive', flush=True)
 
             self._cameracar.drive(speed, steering_angle)
 
-            print('6: nach drive', flush=True)
 
             timestamp = time.time_ns()
 
             latenz = timestamp - camera_data_transfer.timestamp
-            print(f'7: Latenz = {latenz}', flush=True)
 
             camera_data_processed = CameraDataProcessed(
                 frame_id=camera_data_transfer.frame_id,
@@ -109,7 +102,6 @@ class CameraMode(DrivingMode):
                 lanes=lanes
             )
 
-            print('8: CameraDataProcessed erzeugt', flush=True)
 
             # Die Fahrentscheidung referenziert genau das verarbeitete Bild.
             self._cameracar.driving_state = DrivingState(
@@ -123,13 +115,11 @@ class CameraMode(DrivingMode):
             # Alter Datenvertrag bleibt fuer Dashboard/Recorder vorerst aktiv.
             self._cameracar.camera_data_processed = camera_data_processed
 
-            print('9: camera_data_processed gesetzt', flush=True)
 
         except Exception:
             self._log.exception('Fehler in CameraMode._run()')
             return False
 
-        print('10: _run ENDE', flush=True)
 
         return True
 

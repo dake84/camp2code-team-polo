@@ -82,7 +82,17 @@ class UltrasonicSensor(Ultrasonic):
         while (not stop_event.is_set()):
             try:
                 v = self.sensor_values
-                self._car.distance = self._normalize(v)
+                normalized = self._normalize(v)
+                if v >= 0:
+                    self._car.distance = normalized
+                else:
+                    # Für die Fahrlogik bleibt der bisherige Ersatzwert erhalten.
+                    # Die Telemetrie darf einen Fehler nicht als neue Messung ausgeben.
+                    with self._car._lock:
+                        self._car._distance = normalized
+                        self._car._distance_valid = False
+                        self._car._distance_timestamp_ns = None
+                        self._car._distance_monotonic_ns = None
             except Exception as e:
                 self._log.error(e)
             finally:

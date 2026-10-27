@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
  
-from BaseCar import BaseCar
+from SensorCar import SensorCar
 from ConfigReader import ConfigReader
  
 from models import CameraData, CameraDataProcessed, DrivingState
@@ -13,7 +13,7 @@ import os
 import cv2
  
  
-class CameraCar(BaseCar):
+class CameraCar(SensorCar):
     """Lässt das Auto mittels des Ultraschallsensor (Abstandmessung) fahren
  
     Args:

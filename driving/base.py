@@ -39,64 +39,43 @@ class DrivingMode(abc.ABC):
         self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
 
     def start(self):
+        """Startet höchstens einen Worker und setzt dessen Stop-Ereignis vorher."""
         with self._lock:
-            if self.is_running(): return
-            if self._thread.is_alive(): self._thread.join(timeout=2)  # alten Lauf sauber auslaufen lassen
-            self._thread = threading.Thread(target=self._drive, daemon=True, args=[self._update_cfg], name=self._name)
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop_event = threading.Event()
+            self._thread = threading.Thread(target=self._drive, daemon=True,
+                                            args=[self._update_cfg], name=self._name)
             self._thread.start()
 
-    def _drive(self, update_cfg:bool=False):
-        with self._lock:
-            if self.is_running():
-                raise RuntimeError("Mode is already running")
-
+    def _drive(self, update_cfg: bool = False):
+        event = self._stop_event
         try:
-            if (update_cfg):
-                self._log.warning(f"Reloading config files. This will cost some performance and is not advised in production environments")
-            
-            with self._lock:
-                self._stop_event = threading.Event()
-
-            self._log.info(f"Starte {self._name}")
-
-            if (self._pre_run()):
-                self._log.debug("Pre-Run actions absolved")
-            else:
-                raise RuntimeError("Pre-Run actions failed. Aborting.")
-
-            i = 0
-            running = True
-            
-            period = 1.0 / self._frequency
-            while (not self._stop_event.is_set() and self._run_condition() and running):
-                start_time = time.monotonic()
-                if (update_cfg):
+            if update_cfg:
+                self._log.warning("Konfiguration wird während der Fahrt neu geladen")
+            if not self._pre_run():
+                self._log.error("Vorbereitung des Fahrmodus fehlgeschlagen")
+                return
+            period = 1.0 / max(1, self._frequency)
+            while not event.is_set() and self._run_condition():
+                started = time.monotonic()
+                if update_cfg:
                     self._cfg._load_config_file()
                     self._car._update_config()
-
-                running = self._run()
-
-                elapsed_time = time.monotonic() - start_time
-
-                # self._stop_event.wait(
-                #     max(0.0, period - elapsed_time)
-                # )
-
-                time.sleep(max(0, period - elapsed_time))
-                i+=1
-                if (i%self._frequency == 5):
-                    self._log.debug(f"Running {self._name} in iteration #{i}")
-                
-        except Exception as e:
-            self._log.exception(e)
+                if not self._run():
+                    break
+                event.wait(max(0.0, period - (time.monotonic() - started)))
+        except Exception:
+            self._log.exception("Fehler im Fahrmodus %s", self._name)
         finally:
-            self.stop()
-            if (self._post_run()):
-                self._log.debug("Post-Run actions absolved")
-            else:
-                raise RuntimeError("Post-Run actions failed. Aborting.")                
+            event.set()
+            try:
+                self._post_run()
+            except Exception:
+                self._log.exception("Fehler beim Beenden des Fahrmodus")
             with self._lock:
-                self._stop_event = None
+                if self._stop_event is event:
+                    self._stop_event = None
 
     @abc.abstractmethod
     def _run_condition(self) -> bool:
@@ -115,15 +94,20 @@ class DrivingMode(abc.ABC):
         return True
 
     def is_running(self) -> bool:
-        return self._stop_event is not None
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive() and self._stop_event is not None and not self._stop_event.is_set()
 
-    def stop(self, reason:StopReason|int=0) -> bool:
-        if (self._stop_event is not None):
-            self._log.info(f"{self._name} beendet")
-            self._stop_event.set()
-            self._stop_car(reason)
-            return True
-        return False
+    def stop(self, reason: StopReason | int = 0) -> bool:
+        with self._lock:
+            event = self._stop_event
+            thread = self._thread
+            if event is None:
+                return False
+            event.set()
+        self._stop_car(reason)
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        return True
 
     def _stop_car(self, reason:StopReason|int=0):
         """_summary_

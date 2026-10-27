@@ -6,6 +6,7 @@ import numpy as np
 
 from ConfigReader import ConfigReader
 from SonicCar import SonicCar
+from models.sensor_snapshot import SensorSnapshot
 
 class SensorCar(SonicCar):
     """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
@@ -23,6 +24,9 @@ class SensorCar(SonicCar):
         """
         super().__init__(config=config)
         self._ir_sensor_values = [[0.,0.,0.,0.,0.]]
+        self._ir_valid = False
+        self._ir_timestamp_ns = None
+        self._ir_monotonic_ns = None
         self._ir_sensor_min_values = [0.,0.,0.,0.,0.]
         self._ir_sensor_max_values = [1.,1.,1.,1.,1.]
         self.__log = logging.getLogger(SensorCar.__name__)
@@ -32,6 +36,24 @@ class SensorCar(SonicCar):
 
         self._logged_lost_line = False
         
+
+    @property
+    def sensor_snapshot(self) -> SensorSnapshot:
+        """Liefert atomar die letzten Messwerte mit getrennten Messzeitpunkten."""
+        with self._lock:
+            ir = tuple(self._ir_sensor_values[-1]) if self._ir_valid else (None,) * 5
+            distance = self._distance if self._distance_valid else None
+            times = [t for t in (self._ir_monotonic_ns, self._distance_monotonic_ns) if t is not None]
+            newest = max(times) if times else None
+            wall = (self._ir_timestamp_ns if newest == self._ir_monotonic_ns else self._distance_timestamp_ns) if newest is not None else None
+            return SensorSnapshot(
+                infrared=ir, ultrasonic_cm=distance, timestamp_ns=wall,
+                monotonic_ns=newest,
+                infrared_timestamp_ns=self._ir_timestamp_ns,
+                infrared_monotonic_ns=self._ir_monotonic_ns,
+                ultrasonic_timestamp_ns=self._distance_timestamp_ns,
+                ultrasonic_monotonic_ns=self._distance_monotonic_ns,
+            )
 
     def ir_sensor_value_history(self, length:int=0, clear_history:bool=True):
         with self._lock:
@@ -57,7 +79,10 @@ class SensorCar(SonicCar):
     @ir_sensor_values.setter
     def ir_sensor_values(self, ir_sensor_values:list[float]):
         with self._lock:
-            self._ir_sensor_values.append(ir_sensor_values)
+            self._ir_sensor_values.append(list(ir_sensor_values))
+            self._ir_valid = True
+            self._ir_timestamp_ns = time.time_ns()
+            self._ir_monotonic_ns = time.monotonic_ns()
             for i in range(len(ir_sensor_values)):
                 ominv = self._ir_sensor_min_values[i]
                 omaxv = self._ir_sensor_max_values[i]

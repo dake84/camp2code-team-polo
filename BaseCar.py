@@ -135,7 +135,7 @@ class BaseCar(Loggable):
                 self.__log.info(f"Changed speed: {self._speed} -> {speed}")
 
             self.__log.debug(f"Set steering angle: {speed}")           
-            self._speed = speed
+            self._speed = abs(speed)
 
     # Direction (equals mode)
     # Live value (with lock)
@@ -145,7 +145,7 @@ class BaseCar(Loggable):
             return self._mode
 
     def drive(self, speed:Optional[int]=None, steering_angle:Optional[int]=None):
-        self.speed = speed if speed is not None else self._speed
+        self.speed = speed if speed is not None else self.speed
         self.steering_angle = steering_angle if steering_angle is not None else self._steering_angle
 
     def stop(self):

@@ -141,17 +141,20 @@ class ConfigReader:
             return str(self.get_config().get(attribut, dv))
 
     def get_bool(self, attribut: str, dv: bool) -> bool:
-                """
-                Gibt einen Bool-Wert aus der Konfiguration zurück.
-        
-                Args:
-                    attribut (str): Name des Parameters.
-                    dv (bool): Default-Wert, falls der Parameter nicht existiert.
-        
-                Returns:
-                    bool: Der gelesene Bool-Wert.
-                """
-                return bool(self.get_config().get(attribut, dv))
+        """Liest boolesche Werte und bekannte Textrepräsentationen eindeutig."""
+        value = self.get_config().get(attribut, dv)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("true", "1", "yes", "on"):
+                return True
+            if normalized in ("false", "0", "no", "off", ""):
+                return False
+            raise ValueError(f"Ungültiger boolescher Konfigurationswert: {value!r}")
+        if isinstance(value, (int, float)) and value in (0, 1):
+            return bool(value)
+        raise ValueError(f"Ungültiger boolescher Konfigurationswert: {value!r}")
 
     def get_float(self, attribut: str, dv: float) -> float:
         """

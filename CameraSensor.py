@@ -118,11 +118,11 @@ class CameraSensor(Camera):
                 self._log.debug(f'Read from camera-sensor')
 
                 image = self.get_frame()
-                # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
-                #FIXME
-                if self.save_image:
-                    cv2.imwrite('camera_test.jpg', image)
-
+                # Leere Frames werden nicht an die Verarbeitung weitergereicht.
+                if image is None or image.size == 0:
+                    self._log.warning('Leeres Kamerabild verworfen')
+                    stop_event.wait(0.1)
+                    continue
                 # Parameter fuer diesen Frame einmalig lesen.
                 parameters = self.processing_parameters
                 # Genau eine Verarbeitung je Frame, mit optionalen Diagnosebildern.
@@ -140,14 +140,18 @@ class CameraSensor(Camera):
                     lanes=result.lanes,
                     process_image=result.processed_image,
                     stages=result.stages,
+                    processing_parameters=parameters,
+                    processor_name=type(processor).__name__,
                 )
                 self._car.camera_data = cameradata
 
-                time.sleep(1/self.scan_frequency)
-        except Exception as e:
-            raise e
+                stop_event.wait(1/max(1, self.scan_frequency))
+        except Exception:
+            self._log.exception("Kameraschleife fehlgeschlagen")
+            raise
         finally:
             self._log.debug('Exit Camera loop')
+            self.release()
 
 if __name__ == '__main__':
 
