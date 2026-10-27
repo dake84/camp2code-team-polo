@@ -26,7 +26,9 @@ def manifest_entries():
 
 def project_files(include_deleted=False):
     deleted = manifest_entries()
-    for path in sorted(ROOT.rglob('*.py')):
+    for path in sorted(p for p in ROOT.rglob('*.py')
+                       if not {'.venv', 'venv', 'legacy', 'camp2code', '__pycache__', '.git'}
+                       & set(p.relative_to(ROOT).parts)):
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith(EXCLUDE_DIRS):
             continue
