@@ -177,3 +177,5 @@ class MockSensorCar(SensorCar):
 
                 return value
         return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self) # pyright: ignore[reportAttributeAccessIssue]
+
+

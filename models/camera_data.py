@@ -30,3 +30,5 @@ class CameraDataProcessed:
     steering_angle_car: int | None = None
     speed: int = 0
     frame_id: int = -1
+
+

@@ -1,4 +1,3 @@
-
 import logging
 import threading
 import time
@@ -159,3 +158,5 @@ class InfraredSensor(Infrared):
             raise e
         finally:
             self._log.debug("Exit Infrared-Sensor loop")
+
+

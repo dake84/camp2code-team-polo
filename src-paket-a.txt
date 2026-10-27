@@ -1,0 +1,2829 @@
+
+================================================================================
+FILE: BaseCar.py
+================================================================================
+
+
+from threading import RLock
+from typing import Any, Optional
+import logging
+
+from CarLogger import Loggable
+from ConfigReader import ConfigReader
+from basisklassen import BackWheels, FrontWheels
+import time
+
+class BaseCar(Loggable):
+
+    FORWARD_MODE = 1
+    BACKWARD_MODE = -1
+
+    _json_config = {}
+
+    def __init__(self, config:Optional[ConfigReader]=None):
+        self._steering_angle = 90
+        self._speed = 0
+        self._mode = self.FORWARD_MODE
+        self._cfg = config if config is not None else ConfigReader("car")
+        self._fw = FrontWheels(turning_offset=self.turning_offset)
+        self._bw = BackWheels(forward_A=self.forward_a, forward_B=self.forward_b)
+        self.__log = logging.getLogger(BaseCar.__name__)
+
+        self._lock = RLock()
+
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
+        with self._lock:
+            return {
+                "timestamp": time.time(),
+                "steering_angle": self.steering_angle,
+                "speed": self.speed,
+                "direction": self.direction
+            }
+
+
+    def get_car_properties(self) -> dict[str, Any]:
+        return {
+            "steering_angle": self._steering_angle,
+            "speed": self._speed
+        }
+
+    @property
+    def v_min(self) -> int:
+        return self._cfg.get_int("v_min", 20)
+
+    @property
+    def v_max(self) -> int:
+        return self._cfg.get_int("v_max", 100)
+
+
+    # self._config
+    def _save_config(self) -> bool:
+        return self._cfg._save_config()
+
+    # Legacy, use self._config.set_config() instead
+    def set_config(self, attribut: str, values = any, save_config=False) -> bool:
+        return self._cfg.set_config(attribut, values, save_config)
+
+    # Legacy, use self._config.get_config() instead
+    def get_config(self, file: str = "config.json", force_update = False) -> dict:
+        return self._cfg.get_config(force_update)
+    
+    # Legacy, use self._config._update_config() instead
+    def _update_config(self):
+        self._cfg._load_config_file()
+
+    # Value from cfg_file
+    @property
+    def turning_offset(self) -> int:
+        return self.get_config().get("turning_offset", 0)
+
+    # Value from cfg_file
+    @property
+    def forward_a(self) -> int:
+        return self.get_config().get("forward_A", 0)
+    
+    # Value from cfg_file
+    @property
+    def forward_b(self) -> int:
+        return self.get_config().get("forward_B", 0)
+
+    def test_wheels(self):
+        self._fw.test()
+        self._bw.test()
+
+    # Live value (with lock)
+    @property
+    def steering_angle(self):
+        with self._lock:
+            return self._steering_angle
+ 
+    # Live value (with lock)
+    @steering_angle.setter
+    def steering_angle(self, angle:int):
+        angle = min(135, max(45, angle))
+        self._fw.turn(angle)
+        with self._lock:
+            if (self._steering_angle != angle):
+                self.__log.info(f"Changed steering_angle: {self._steering_angle} -> {angle}")
+            self.__log.debug(f"Set steering angle: {angle}")
+            self._steering_angle = angle
+    
+    # Live value (with lock)
+    @property
+    def speed(self) -> int:
+        with self._lock:
+            return self._mode * self._speed
+
+    # Live value (with lock)
+    @speed.setter
+    def speed(self, speed:int): 
+          
+        vmin = self._cfg.get_int("v_min", 20)
+        vmax = self._cfg.get_int("v_max", 100)
+        speed = max(-100, min(100, speed))
+        self._mode = self.FORWARD_MODE if speed >= 0 else self.BACKWARD_MODE
+        if (speed == 0):
+            self._bw.speed = speed
+            self._mode = self.FORWARD_MODE
+            self._bw.forward()
+        elif (speed > 0):
+            speed = min(max(vmin, speed), vmax)
+            self._bw.speed = speed
+            self._mode = self.FORWARD_MODE
+            self._bw.forward()
+        else:
+            speed = max(-vmax, min(-vmin, speed))
+            self._bw.speed = abs(speed)
+            self._mode = self.BACKWARD_MODE
+            self._bw.backward()
+        with self._lock:
+            if (self._speed != speed):
+                self.__log.info(f"Changed speed: {self._speed} -> {speed}")
+
+            self.__log.debug(f"Set steering angle: {speed}")           
+            self._speed = speed
+
+    # Direction (equals mode)
+    # Live value (with lock)
+    @property
+    def direction(self):
+        with self._lock:
+            return self._mode
+
+    def drive(self, speed:Optional[int]=None, steering_angle:Optional[int]=None):
+        self.speed = speed if speed is not None else self._speed
+        self.steering_angle = steering_angle if steering_angle is not None else self._steering_angle
+
+    def stop(self):
+        self.drive(0,90)
+
+
+================================================================================
+END FILE: BaseCar.py
+================================================================================
+
+================================================================================
+FILE: SonicCar.py
+================================================================================
+
+import logging
+from typing import Optional
+
+from BaseCar import BaseCar
+from ConfigReader import ConfigReader
+
+class SonicCar(BaseCar):
+    """Lässt das Auto mittels des Ultraschallsensor (Abstandmessung) fahren
+
+    Args:
+        BaseCar (object): Basisklasse des Autos - Kann nur Lenkung und Geschwindigkeit einstellen
+    """
+
+    def __init__(self, config:Optional[ConfigReader]=None):
+        """Initiert das Object 'SonicCar' und über super-init die Methoden aus 'BaseCar'
+        """        
+
+        # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
+        super().__init__(config=config)
+        self._distance = 300
+        self.__log = logging.getLogger(SonicCar.__name__)
+
+
+    @property
+    def distance(self) -> int:
+        self.__log.debug(f"Distanz lesen vor Lock")
+        with self._lock:
+            d = self._distance
+            self.__log.debug(f"Distanz {d} gelesen im Lock")
+            return d
+
+    @distance.setter
+    def distance(self, distance:int):
+        self.__log.debug(f"Schreibe Distanz mit Wert {distance}")
+        with self._lock:
+            self._distance = distance
+            self.__log.debug(f"Distanz schreiben erfolgreich mit Wert {distance}")
+        
+
+================================================================================
+END FILE: SonicCar.py
+================================================================================
+
+================================================================================
+FILE: SensorCar.py
+================================================================================
+
+import logging
+import time
+from typing import Optional
+
+import numpy as np
+
+from ConfigReader import ConfigReader
+from SonicCar import SonicCar
+
+class SensorCar(SonicCar):
+    """Erstellung Klasse Sensor Car; Grundfunktionalitäten werden aus BaseCar geerbt und um Infrarotsensorik ergänzt, um Linien zu erkennen und entsprechend zu steuern.
+
+    """
+    def __init__(self, config:Optional[ConfigReader]=None):
+        """Initialisiert den Infrarotsensor und lädt oder kalibriert Referenzwerte.
+
+        Wenn keine Referenzen übergeben werden, führt das Objekt automatisch eine
+        Kalibrierung durch und speichert die ermittelten Referenzwerte intern.
+
+        Args:
+            references (list | None, optional): Liste der Referenzmesswerte.
+                Wenn None, werden die Referenzen automatisch kalibriert.
+        """
+        super().__init__(config=config)
+        self._ir_sensor_values = [[0.,0.,0.,0.,0.]]
+        self._ir_sensor_min_values = [0.,0.,0.,0.,0.]
+        self._ir_sensor_max_values = [1.,1.,1.,1.,1.]
+        self.__log = logging.getLogger(SensorCar.__name__)
+        self._p_wert = 0
+        self._i_wert = 0
+        self._d_wert = 0
+
+        self._logged_lost_line = False
+        
+
+    def ir_sensor_value_history(self, length:int=0, clear_history:bool=True):
+        with self._lock:
+            if not self._ir_sensor_values:
+                return []
+            
+            hist = self._ir_sensor_values[-length:] if (length > 0) else self._ir_sensor_values
+            
+            if (clear_history):
+                self._ir_sensor_values = [hist[-1]]
+            
+            hist_array = np.array(hist)
+            return np.mean(hist_array, axis=0).tolist() if (hist_array.ndim > 1) else hist_array.flatten().tolist()
+
+    @property
+    def ir_sensor_values(self) -> list[float]:
+        with self._lock:
+            self.__log.debug(f"Ausgabe der letzten gespeicherten Sensorwerte ({len(self._ir_sensor_values)} Messungen):")
+            for i in range(len(self._ir_sensor_values)):
+                self.__log.debug(f"({i}): {self._ir_sensor_values[i]}")
+            return self._ir_sensor_values[-1]
+    
+    @ir_sensor_values.setter
+    def ir_sensor_values(self, ir_sensor_values:list[float]):
+        with self._lock:
+            self._ir_sensor_values.append(ir_sensor_values)
+            for i in range(len(ir_sensor_values)):
+                ominv = self._ir_sensor_min_values[i]
+                omaxv = self._ir_sensor_max_values[i]
+                self._ir_sensor_min_values[i] = ominv if ominv > ir_sensor_values[i] else ir_sensor_values[i]
+                self._ir_sensor_max_values[i] = omaxv if omaxv < ir_sensor_values[i] else ir_sensor_values[i]
+
+    @property
+    def ir_sensor_min_values(self) -> list[float]:
+        with self._lock:
+            return self._ir_sensor_min_values
+
+    @property
+    def ir_sensor_max_values(self) -> list[float]:
+        with self._lock:
+            return self._ir_sensor_max_values
+
+
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
+        payload = super().get_logging_payload()
+        payload["ir_sensor_values"] = self.ir_sensor_value_history()
+        return payload
+    
+    @property
+    def p_wert(self) -> float:
+        with self._lock:
+            return self._p_wert
+
+    @p_wert.setter
+    def p_wert(self, p:float):
+        self.__log.info(f"P-Wert: {p}")
+        with self._lock:
+            self._p_wert = p
+
+    @property
+    def i_wert(self) -> float:
+        with self._lock:
+            return self._i_wert
+
+    @i_wert.setter
+    def i_wert(self, i:float):
+        self.__log.info(f"I-Wert: {i}")
+        with self._lock:
+            self._i_wert = i
+
+    @property
+    def d_wert(self) -> float:
+        with self._lock:
+            return self._d_wert
+
+    @d_wert.setter
+    def d_wert(self, d:float):
+        self.__log.info(f"D-Wert: {d}")
+        with self._lock:
+            self._d_wert = d
+
+    # Methode macht hier mehr Sinn (direkte Interpretation von Messdaten. Im Mode nur Reaktion auf Messdaten, keine Interpretation)
+    def is_on_line(self) -> bool:
+        minimum_line_contrast = self._cfg.get_float("minimum_line_contrast", 0.5)
+        messwerte = self.ir_sensor_values
+        
+        min_sensor = min(messwerte)
+        max_sensor = max(messwerte)
+
+        if (max_sensor == 0):
+            return True
+
+        self.__log.debug(f"Prüfung is_on_line mit min_sensor: {min_sensor:.2f}, max_sensor: {max_sensor:.2f}, line_threshold: {minimum_line_contrast}, min/max: {min_sensor/max_sensor:.2f}")
+        if (not (max_sensor-min_sensor > minimum_line_contrast)):
+            if (not self._logged_lost_line):
+                # Erzeugt eine Ausgabe wie: [0.12, 1.00,  0.05] (feste Abstände)
+                formatiert = ", ".join(f"{v:4.2f}" for v in messwerte)                
+                self.__log.info(f"Lost line with parameters: [{formatiert}] (max: {max_sensor:.3f}, min: {min_sensor:.3f}, delta: {max_sensor-min_sensor:.3f})")                
+                self._logged_lost_line = True
+            return False
+        
+        self._logged_lost_line = False
+        return True
+            
+
+class MockSensorCar(SensorCar):
+
+    def __init__(self, config: ConfigReader | None = None, feste_werte:Optional[list[list[float]]]=None, mockSensor=False, mockSpeed=False):
+        super().__init__(config)
+        self.__log = logging.getLogger(MockSensorCar.__name__)
+
+        self._sensor_werte = feste_werte if (feste_werte is not None) else [
+            [0.,1.,1.,1.,1.],
+            [1.,0.,1.,1.,1.],
+            [1.,1.,0.,1.,1.],
+            [1.,1.,1.,0.,1.],
+            [1.,1.,1.,1.,0.]
+        ]
+        self._sensor_count = 0
+        self._mockSensor = mockSensor
+        self._mockSpeed = mockSpeed
+    
+    @SensorCar.speed.setter
+    def speed(self, speed:int): 
+        if (self._mockSpeed):
+            speed = max(-100, min(100, speed))
+            self.__log.debug(f"Geschwindigkeit gesetzt: {speed}")
+            if (self._speed != speed):
+                self.__log.info(f"Changed speed: {self._speed} -> {speed}")
+            self._speed = speed
+        else:
+            super(MockSensorCar, type(self)).speed.__set__(self, speed) # pyright: ignore[reportAttributeAccessIssue]
+
+    @SensorCar.ir_sensor_values.getter
+    def ir_sensor_values(self) -> list[float]:
+        if (self._mockSensor):
+            with self._lock:
+                counter = self._sensor_count % len(self._sensor_werte)
+                value = self._sensor_werte[counter]
+                self._sensor_count +=1
+                self.__log.debug(f"Return sensor value #{counter}: {value}")
+                time.sleep(5)
+
+                return value
+        return super(MockSensorCar, type(self)).ir_sensor_values.__get__(self) # pyright: ignore[reportAttributeAccessIssue]
+
+
+================================================================================
+END FILE: SensorCar.py
+================================================================================
+
+================================================================================
+FILE: CameraCar.py
+================================================================================
+
+import logging
+from typing import Optional
+ 
+from BaseCar import BaseCar
+from ConfigReader import ConfigReader
+ 
+from models import CameraData, CameraDataProcessed, DrivingState
+from telemetry import FrameRingBuffer, FrequencyCounter
+ 
+import numpy as np
+import os
+ 
+import cv2
+ 
+ 
+class CameraCar(BaseCar):
+    """Lässt das Auto mittels des Ultraschallsensor (Abstandmessung) fahren
+ 
+    Args:
+        BaseCar (object): Basisklasse des Autos - Kann nur Lenkung und Geschwindigkeit einstellen
+    """
+    def __init__(self, config:Optional[ConfigReader]=None):
+        """Initiert das Object 'CameraCar' und über super-init die Methoden aus 'BaseCar'
+        """        
+ 
+        # Super init - Damit ein Object initiiert wird die auch BaseCar kennt (Methoden der BaseCar)
+        super().__init__(config=config)
+        #self._distance = 300
+        self._camera_data = CameraData(process_image=np.empty(0), raw_image=np.empty(0))
+        self._camera_data_processed = CameraDataProcessed(lanes=None, process_image=np.empty(0), raw_image=np.empty(0), process_image_lines=np.empty(0), line_data=np.empty(0))
+        # Der Ringbuffer enthaelt eine begrenzte Historie, keine neue Bildkopie.
+        self.frame_history = FrameRingBuffer(maxlen=60)
+        self.thread_metrics = {
+            "camera": FrequencyCounter(),
+            "controller": FrequencyCounter(),
+        }
+        self._driving_state: DrivingState | None = None
+        self.__log = logging.getLogger(CameraCar.__name__)
+ 
+    @property
+    def save_data(self) -> bool: # Lenkwinkel, Speed für AI imt Zeitstempel
+        with self._lock:
+            return self._cfg.get_bool("save_data", False)
+ 
+    @property
+    def camera_data(self) -> CameraData :
+        with self._lock:
+            return self._camera_data
+ 
+    @camera_data.setter
+    def camera_data(self, camera_data:CameraData):
+        with self._lock:
+            self._camera_data = camera_data
+            self.frame_history.add_camera(camera_data)
+            self.thread_metrics["camera"].tick()
+        #print(self._camera_data)
+ 
+    @property
+    def camera_data_processed(self) -> CameraDataProcessed :
+        with self._lock:
+            return self._camera_data_processed
+ 
+    @camera_data_processed.setter
+    def camera_data_processed(self, camera_data_processed:CameraDataProcessed):
+        with self._lock:
+            self._camera_data_processed = camera_data_processed
+        #print(self._camera_data_processed)
+
+    @property
+    def driving_state(self) -> DrivingState | None:
+        """Letzte Fahrentscheidung, unabhaengig vom Dashboard-Format."""
+        with self._lock:
+            return self._driving_state
+
+    @driving_state.setter
+    def driving_state(self, state: DrivingState):
+        with self._lock:
+            self._driving_state = state
+            self.frame_history.add_driving(state)
+            self.thread_metrics["controller"].tick()
+
+
+================================================================================
+END FILE: CameraCar.py
+================================================================================
+
+================================================================================
+FILE: CameraSensor.py
+================================================================================
+
+import logging
+import threading
+import time
+from typing import Optional
+import cv2
+
+from models import CameraData, CameraDataProcessed
+
+import numpy as np
+
+import ConfigReader
+from CameraCar import CameraCar
+
+from basisklassen_cam import Camera
+from pipeline_processors import LaneProcessor, CopilotLaneProcessor
+
+def blur_img(img, blur_value = (10,10)):
+    return cv2.blur(img,blur_value)
+
+def kanten_erkennung(img, minmaxVal = (20,250)):
+    return cv2.Canny(img,minmaxVal[0],minmaxVal[1])
+
+def morph_kernel_filter(img, morph_kernel=(5, 5)):
+
+    # Falls ein BGR-Bild übergeben wird, in Graustufen umwandeln
+    if img.ndim == 3:
+        mask_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        mask_gray = img
+
+    mask_bin = (mask_gray > 0).astype(np.uint8) * 255
+
+    kernel = np.ones(morph_kernel, dtype=np.uint8)
+
+    img_morph_kernel = cv2.morphologyEx(
+        mask_bin,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    return img_morph_kernel
+
+
+class CameraSensor(Camera):
+
+    def __init__(self, car:CameraCar, sensor_config:Optional[ConfigReader.ConfigReader]=None, logger:Optional[logging.Logger]=None) -> None:
+
+        self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
+        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader('cam_sensor', logger=self._log)
+        self._lock = threading.Lock()
+        self._debug_mode = False
+        self._car = car
+        # Der Prozessor ist austauschbar; die restliche Architektur bleibt gleich.
+        self._processor = CopilotLaneProcessor()
+        # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
+        self._frame_id = 0
+        # Gespeicherte Studio-Konfiguration auch ohne offenen Browser nutzen.
+        from pipeline_config import load as load_pipeline_config
+        settings = load_pipeline_config()
+        self._pack_processing_parameters = (
+            tuple(settings['hue']), tuple(settings['sat']), tuple(settings['val']),
+            tuple(settings['crop']), int(settings['blur']), int(settings['morph']),
+            tuple(settings['canny']), dict(settings['enabled']),
+        )
+        print(self._cfg.get('colormode'))
+        super().__init__ (colorspace=str(self._cfg.get_str('colormode','gray')),
+                          height=self._cfg.get_int('height',480),
+                          width=self._cfg.get_int('width',640))
+        
+        self.set_camera_controls({
+            "AeEnable": True,
+            "ExposureValue": 1.0,
+        })
+
+    @property
+    def scan_frequency(self) -> int:
+        with self._lock:
+            return self._cfg.get_int('scan_frequency', 25)
+
+    @property
+    def save_image(self) -> bool: # Mit Zeitstempel. -- In Dateiname: Zeitstempel; Lenkwinkel, Speed
+        # Hier einstellen (Auflösung, Pixel etc.)
+        with self._lock:
+            return self._cfg.get_bool('save_image', False)
+
+    @property
+    def processing_parameters(self):
+        with self._lock:
+            return self._pack_processing_parameters
+
+    @processing_parameters.setter
+    def processing_parameters(self,pack_processing_parameters):
+        with self._lock:
+            self._pack_processing_parameters = pack_processing_parameters
+
+    def set_processor(self, name: str):
+        """Wechselt zwischen Legacy und Diagnose-Prozessor.
+
+        Der Wechsel wird unter dem bestehenden Sensor-Lock vorgenommen.
+        """
+        if name not in ('legacy', 'copilot'):
+            raise ValueError('Unbekannter Prozessor')
+        with self._lock:
+            self._processor = LaneProcessor() if name == 'legacy' else CopilotLaneProcessor()
+
+    @property
+    def processor_name(self) -> str:
+        with self._lock:
+            return 'copilot' if isinstance(self._processor, CopilotLaneProcessor) else 'legacy'
+
+    def read_loop(self, stop_event:threading.Event):
+        try:
+            self._log.debug('Entering Camera-Sensor loop')
+            while (not stop_event.is_set()):
+                if (self._debug_mode):
+                    self._cfg._load_config_file()
+                #v = self.sensor_values
+                self._log.debug(f'Read from camera-sensor')
+
+                image = self.get_frame()
+                # cfg -> save_image -> FUNKTION: Checke Ordner fig_raw ja, nein
+                #FIXME
+                if self.save_image:
+                    cv2.imwrite('camera_test.jpg', image)
+
+                # Parameter fuer diesen Frame einmalig lesen.
+                parameters = self.processing_parameters
+                # Genau eine Verarbeitung je Frame, mit optionalen Diagnosebildern.
+                with self._lock:
+                    processor = self._processor
+                result = processor.process(image, parameters)
+                self._frame_id += 1
+                cameradata = CameraData(
+                    raw_image=image,
+                    timestamp=time.time_ns(),
+                    frame_id=self._frame_id,
+                    monotonic_ns=time.monotonic_ns(),
+                    crop=(tuple(parameters[3]) if len(parameters) < 8 or
+                          parameters[7].get("roi", True) else (0.0, 1.0)),
+                    lanes=result.lanes,
+                    process_image=result.processed_image,
+                    stages=result.stages,
+                )
+                self._car.camera_data = cameradata
+
+                time.sleep(1/self.scan_frequency)
+        except Exception as e:
+            raise e
+        finally:
+            self._log.debug('Exit Camera loop')
+
+if __name__ == '__main__':
+
+    print('This is the main.')
+
+
+================================================================================
+END FILE: CameraSensor.py
+================================================================================
+
+================================================================================
+FILE: InfraredSensor.py
+================================================================================
+
+
+import logging
+import threading
+import time
+from typing import Optional
+
+import numpy as np
+
+import ConfigReader
+from SensorCar import SensorCar
+from basisklassen import Infrared
+
+# Maybe later ;-P
+#class InfraredSensor(ConfigReader.Configurable, Infrared):
+class InfraredSensor(Infrared):
+
+    def __init__(self, car:SensorCar, sensor_config:Optional[ConfigReader.ConfigReader]=None, logger:Optional[logging.Logger]=None) -> None:
+        super().__init__()
+        self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
+        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("ir_sensors", logger=self._log)
+        self._lock = threading.Lock()
+
+        self._car = car 
+
+        self._sensor_min_values = self._cfg.get_list("sensor_min_values", [1000.,1000.,1000.,1000.,1000.])
+        self._sensor_max_values = self._cfg.get_list("sensor_max_values", [0.,0.,0.,0.,0.])
+
+        self._sum_decay_rate = np.zeros(len(self.sensor_values))
+
+        self._run = True
+
+        #update config regularly
+        self._debug_mode = True
+        if (self._debug_mode):
+            self._log.warning("Debug mode activated. This will cost some performance.")
+
+
+        for s in (("min", self._sensor_min_values), ("max", self._sensor_max_values)):
+            for i in range(len(s[1])):
+                self._log.info(f"S{i+1}_{s[0]} initially calibrated -> {s[1][i]:.3f}")
+
+    @property
+    def sensor_values(self) -> list[float]:
+        with self._lock:
+            return self.read_analog()
+
+    @property
+    def sensor_min_values(self):
+        with self._lock:
+            return self._sensor_min_values
+    
+    @property
+    def sensor_max_values(self):
+        """
+        Liefert die normierten Sensor_Max_Values
+        """
+        with self._lock:
+            return self._sensor_max_values
+    
+    @sensor_min_values.setter
+    def sensor_min_values(self, values:list[float]):
+        with self._lock:
+            self._log.debug(f"Set sensor_min_values: {values}")
+            self._sensor_min_values = values
+
+    @sensor_max_values.setter
+    def sensor_max_values(self, values:list[float]):
+        with self._lock:
+            self._log.debug(f"Set sensor_max_values: {values}")
+            self._sensor_max_values = values
+    
+    @property
+    def scan_frequency(self) -> int:
+        return self._cfg.get_int("scan_frequency", 50)
+
+    # Gibt Werte zwischen 0.0 und 1.0 zurück
+    def _normalize(self, sensors) -> list[float]:
+        normiert = list(
+            map(
+                lambda s,miv,mav: 0 if (mav==miv) else max(0.0, min(1.0, (s-miv) / (mav-miv))), 
+                sensors, 
+                self.sensor_min_values, 
+                self.sensor_max_values
+            )
+        )
+        self._log.debug(f"Normiere Sensorwerte. Messwerte: {sensors}, Kalibrierwerte: (min:{self._sensor_min_values}, max:{self._sensor_max_values}) -> Normiert: {normiert}")
+        return normiert
+
+    def _dynamic_calibration(self, sensors:list[float]):
+        learning_rate = self._cfg.get_float("learning_rate", 0.1)
+        calibration_log_threshold_rate = self._cfg.get_float("calibration_log_threshold_rate", 0.05)
+        calibration_decay_rate = self._cfg.get_float("calibration_decay_rate", 0.001)
+        minimum_contrast = self._cfg.get_int("minimum_contrast", 250)
+        self._log.debug(f"Calibrating IR-Sensors with learning_rate {learning_rate} dynamically...")
+
+        for i in range(len(sensors)):
+            min = self._sensor_min_values[i]
+            max = self._sensor_max_values[i]
+
+            if (sensors[i] < min):
+                self.sensor_min_values[i] = min - learning_rate * (min-sensors[i])
+                self._sum_decay_rate[i] = 0
+                self._log.debug(f"S{i}_min: {min:.3f} -> {self.sensor_min_values[i]:.3f}.")
+                if (sensors[i] < (1-calibration_log_threshold_rate)*min):
+                    self._log.info(f"S{i}_min calibrated. {min:.3f} -> {self.sensor_min_values[i]:.3f}.")
+                    if (self._sum_decay_rate[i] > 0.5*calibration_log_threshold_rate*self._sensor_min_values[i]):
+                        self._log.info(f"S{i}_min: Decay {self._sum_decay_rate[i]:.3f} was reset.")
+            elif (sensors[i] > max):
+                self.sensor_max_values[i] = max + learning_rate * (sensors[i] - max)
+                self._sum_decay_rate[i] = 0
+                self._log.debug(f"S{i}_max: ({max:.3f} -> {self.sensor_max_values[i]:.3f}.")
+                if (sensors[i] > (1+calibration_log_threshold_rate)*max):
+                    self._log.info(f"S{i}_max calibrated. {max:.3f} -> {self.sensor_max_values[i]:.3f}")
+                    if (self._sum_decay_rate[i] > 0.5*calibration_log_threshold_rate*self.sensor_max_values[i]):
+                        self._log.info(f"S{i}_max: Decay {self._sum_decay_rate[i]:.3f} was reset.")
+            
+            elif ((max-min)>minimum_contrast):
+                self.sensor_min_values[i] += calibration_decay_rate
+                self.sensor_max_values[i] -= calibration_decay_rate
+                self._sum_decay_rate[i] += calibration_decay_rate
+
+                self._log.debug(f"S{i} decaying, min: {min:.3f} -> {self.sensor_min_values[i]:.3f}, total decay from last calibration: {self._sum_decay_rate[i]:.3f}")
+                self._log.debug(f"S{i} decaying, max: {max:.3f} -> {self.sensor_max_values[i]:.3f}, total decay from last calibration: {-self._sum_decay_rate[i]:.3f}")
+                
+                if (self._sum_decay_rate[i] > 0.5*calibration_log_threshold_rate*self._sensor_min_values[i]):
+                    self._log.info(f"S{i} calibration decayed by {calibration_log_threshold_rate*100:.2f}% -> max: {max}, min: {min}")
+                    self._sum_decay_rate[i] = 0
+            else:
+                self._log.debug(f"S{i}: no further decay because we reached minimum contrast (max:{max}, min:{min}, minimum_contrast:{minimum_contrast})")
+        self._log.debug("Calibration ended")
+
+    def save_calibration(self):
+        self._log.info("Storing calibration data in configuration-file")
+        osminv = self._cfg.get("sensor_min_values")
+        osmaxv = self._cfg.get("sensor_max_values")
+        nsminv = self.sensor_min_values
+        nsmaxv = self.sensor_max_values
+        self._log.debug(f"sensor_min_values: {osminv} --> {nsminv}")
+        self._log.debug(f"sensor_max_values: {osmaxv} --> {nsmaxv}")
+        #self._cfg.set_config("old_sensor_min_values", osminv)
+        #self._cfg.set_config("old_sensor_max_values", osmaxv)
+        self._cfg.set_config("sensor_min_values", nsminv)
+        self._cfg.set_config("sensor_max_values", nsmaxv)
+        self._cfg._save_config()
+
+    def read_loop(self, stop_event:threading.Event):
+        try:
+            self._log.debug("Entering Infrared-Sensor loop")
+            while (not stop_event.is_set()):
+                if (self._debug_mode):
+                    self._cfg._load_config_file()
+                v = self.sensor_values
+                self._log.debug(f"Read value {v} from ir_sensors")
+                self._dynamic_calibration(v)
+                self._car.ir_sensor_values = self._normalize(v)
+                self._log.debug(f"Normalized value {v} --> {self._car.ir_sensor_values}")
+                time.sleep(1/self.scan_frequency)
+        except Exception as e:
+            raise e
+        finally:
+            self._log.debug("Exit Infrared-Sensor loop")
+
+
+================================================================================
+END FILE: InfraredSensor.py
+================================================================================
+
+================================================================================
+FILE: UltrasonicSensor.py
+================================================================================
+
+
+import threading
+import time
+from typing import Optional
+
+import ConfigReader
+from SensorCar import SensorCar
+from SonicCar import SonicCar
+from basisklassen import Ultrasonic
+
+import logging
+
+class UltrasonicSensor(Ultrasonic):
+
+    def __init__(self, car:SonicCar, sensor_config:Optional[ConfigReader.ConfigReader]=None) -> None:
+        super().__init__()
+
+        self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader("us_sensors")
+        self._car = car 
+
+        self._log = logging.getLogger(self.__class__.__name__)
+        logging.basicConfig(filename="ultrasensors.log", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+        self._min_distance = self._cfg.get_int("min_distance", 0)
+        self._max_distance = self._cfg.get_int("max_distance", 0)
+
+        self._scan_frequency = self._cfg.get_int("scan_frequency", 10)
+        self._log.debug(f"Auslesefrequenz: {self._scan_frequency}")
+
+        self._last_distance = self._max_distance
+        self._last_error = 0
+
+
+    @property
+    def sensor_values(self) -> int:
+        d = self.distance()
+        self._log.debug(f"Sensor-Wert ausgelesen: {d}")
+        return d
+
+    @property
+    def last_error(self) -> int:
+        return self._last_error
+
+    # Gibt die Distanz in cm zurück (int-Wert)
+    def _normalize(self, sensors:int) -> int:
+
+        min_d = self._cfg.get_int("min_distance", 0)
+        max_d = self._cfg.get_int("max_distance", 300)
+
+        my_distance = sensors
+        distance_clamped = my_distance     
+
+        self._log.debug(f"Normalisiere Sensor-Werte. Eingangsdaten: {my_distance}")
+        if my_distance == -1:
+            distance_clamped = self._last_distance
+            self._log.debug(f"Messwert-Fehler {my_distance}")
+            self._last_error = -1
+        elif my_distance == -2:
+            distance_clamped = self._last_distance
+            self._log.debug(f"Messwert-Fehler {my_distance}")
+            self._last_error = -2
+        elif my_distance == -3:
+            distance_clamped = self._last_distance
+            self._log.debug(f"Messwert-Fehler {my_distance}")
+            self._last_error = -3
+        elif my_distance == -4:
+            distance_clamped = self._last_distance
+            self._log.debug(f"Messwert-Fehler {my_distance}")
+            self._last_error = -4
+        # not(0 <= -4 <= 300) --> true
+        #   return max_d
+        elif not (min_d <= my_distance <= max_d):
+            distance_clamped = max_d
+        
+        self._last_distance = distance_clamped
+        self._log.debug(f"Normalisierter Wert: {distance_clamped}")
+
+        return distance_clamped
+
+
+
+    def read_loop(self, stop_event:threading.Event):
+        while (not stop_event.is_set()):
+            try:
+                v = self.sensor_values
+                self._car.distance = self._normalize(v)
+            except Exception as e:
+                self._log.error(e)
+            finally:
+                time.sleep(1/self._scan_frequency)
+
+
+
+if __name__ == '__main__':
+    sc = SonicCar()
+    us = UltrasonicSensor(sc)
+    stop_event = threading.Event()
+
+    while True:
+        us.read_loop(stop_event)
+        print(sc.distance)
+
+================================================================================
+END FILE: UltrasonicSensor.py
+================================================================================
+
+================================================================================
+FILE: Save_Data_AI.py
+================================================================================
+
+import csv
+import os
+import threading
+import time
+from datetime import datetime
+
+import cv2
+
+from CameraCar import CameraCar
+
+
+class SaveData_4_AI:
+
+    def __init__(self, car: CameraCar, frequency: float = 5.0):
+        self._car = car
+        self._frequency = frequency
+
+        self._stop_event = None
+        self._thread = None
+
+        self._data_dir = None
+        self._csv_file = None
+
+
+    def start(self):
+        if self.is_running():
+            return
+
+        # Hauptordner
+        main_dir = 'Data_AI'
+        os.makedirs(main_dir, exist_ok=True)
+
+        # Unterordner für diese Aufnahme
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        self._data_dir = os.path.join(main_dir, timestamp)
+        os.makedirs(self._data_dir, exist_ok=True)
+
+        # CSV-Datei
+        self._csv_file = os.path.join(
+            self._data_dir,
+            'data.csv'
+        )
+
+        with open(self._csv_file, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                'image',
+                'speed',
+                'steering_angle'
+            ])
+
+        self._stop_event = threading.Event()
+
+        self._thread = threading.Thread(
+            target=self._save_loop,
+            daemon=True,
+            name='SaveData'
+        )
+
+        self._thread.start()
+
+
+    def stop(self):
+        if self._stop_event is None:
+            return
+
+        self._stop_event.set()
+
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+
+        self._stop_event = None
+        self._thread = None
+
+
+    def is_running(self) -> bool:
+        return (
+            self._thread is not None
+            and self._thread.is_alive()
+        )
+
+
+    def _save_loop(self):
+        period = 1.0 / self._frequency
+
+        while not self._stop_event.is_set():
+
+            start_time = time.monotonic()
+
+            self._save_data()
+
+            elapsed_time = time.monotonic() - start_time
+
+            self._stop_event.wait(
+                max(0.0, period - elapsed_time)
+            )
+
+
+    def _save_data(self):
+
+        # Ein vollständiges zusammengehöriges Datenpaket holen
+        camera_data_processed = self._car.camera_data_processed
+
+        if camera_data_processed is None:
+            return
+
+        # Alle Daten aus genau diesem Paket
+        image = camera_data_processed.process_image_lines
+        speed = camera_data_processed.speed
+        steering_angle = camera_data_processed.steering_angle
+        timestamp = camera_data_processed.timestamp
+
+        if image is None or image.size == 0:
+            return
+
+        if speed is None or steering_angle is None:
+            return
+
+        # Timestamp des Datenpakets für eindeutigen Bildnamen verwenden
+        image_name = f'image_{timestamp}.jpg'
+
+        image_path = os.path.join(
+            self._data_dir,
+            image_name
+        )
+
+        # Bild speichern
+        success = cv2.imwrite(
+            image_path,
+            image
+        )
+
+        if not success:
+            return
+
+        # Daten desselben Pakets speichern
+        with open(self._csv_file, 'a', newline='') as file:
+            writer = csv.writer(file)
+
+            writer.writerow([
+                image_name,
+                speed,
+                steering_angle
+            ])
+
+================================================================================
+END FILE: Save_Data_AI.py
+================================================================================
+
+================================================================================
+FILE: ConfigReader.py
+================================================================================
+
+import json
+import threading
+import logging
+from typing import Any, Optional
+
+class ConfigReader:
+    """
+    Thread-sicherer JSON-Konfigurationsleser für Namespaced-Konfigurationen.
+
+    Diese Klasse lädt eine JSON-Datei, liest Werte aus einem angegebenen
+    Namespace und stellt Hilfsmethoden für verschiedene Datentypen bereit.
+    """
+
+    def __init__(self, cfg_namespace: str, config_file: str = "config.json", logger:Optional[logging.Logger]=None) -> None:
+        """
+        Initialisiert den ConfigReader und lädt die Konfigurationsdatei.
+
+        Args:
+            cfg_namespace (str): Der Namespace innerhalb der JSON-Datei,
+                aus dem Werte gelesen werden sollen.
+            config_file (str, optional): Pfad zur JSON-Konfigurationsdatei.
+                Defaults to "new_config.json".
+
+        Raises:
+            AttributeError: Wenn die Datei nicht geladen werden kann.
+        """
+        self._config_file = config_file
+        self._cfg_namespace = cfg_namespace
+        self._lock = threading.Lock()
+        self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
+        self._load_config_file()
+
+    def _load_config_file(self):
+        """
+        Lädt die JSON-Konfigurationsdatei in den Speicher.
+
+        Raises:
+            AttributeError: Wenn die Datei nicht existiert oder nicht lesbar ist.
+        """
+        self._log.debug(f"Lese Config-File {self._config_file}")
+        try:
+            with open(self._config_file, "r") as f:
+                self._json_config = json.load(f)
+                self._log.debug(f"Config-File gelesen {self._config_file}")
+        except OSError as e:
+            error = AttributeError(name=f"Datei {self._config_file} nicht verfügbar")
+            self._log.error(error)
+            raise error
+        except Exception as e:
+            self._log.error(e)
+            raise e
+
+    def get_config(self, force_update: bool = False) -> dict:
+        """
+        Gibt den Namespace-Abschnitt der Konfiguration zurück.
+
+        Args:
+            force_update (bool, optional): Wenn True, wird die Datei neu geladen.
+                Defaults to False.
+
+        Returns:
+            dict: Der Konfigurationsabschnitt des angegebenen Namespaces.
+        """
+        with self._lock:
+            if (force_update or self._json_config is None):
+                self._load_config_file()
+            return self._json_config.get(self._cfg_namespace, {})
+    
+    def set_config(self, attribut:str, values=any, save_config=False) -> bool:
+        """
+        Setzt einen Wert im Namespace und speichert optional die Datei.
+
+        Args:
+            attribut (str): Name des Konfigurationsparameters.
+            values (Any): Neuer Wert, der gesetzt werden soll.
+            save_config (bool, optional): Wenn True, wird die Datei gespeichert.
+                Defaults to False.
+
+        Returns:
+            bool: True bei Erfolg, False bei Fehlern beim Speichern.
+        """
+        with self._lock:
+            if (self._json_config is None):
+                self._load_config_file()
+            self._json_config.get(self._cfg_namespace, {})[attribut] = values
+            return True if (not save_config) else self._save_config()
+    
+    def get(self, attribut:str, dv=None) -> None|Any:
+        """
+        Gibt einen beliebigen Wert aus der Konfiguration zurück.
+
+        Args:
+            attribut (str): Name des Parameters.
+            dv (Any, optional): Default-Wert, falls der Parameter nicht existiert.
+                Defaults to None.
+
+        Returns:
+            Any: Der gelesene Wert oder der Default-Wert.
+        """      
+        return self.get_config().get(attribut, dv)
+
+    def get_list(self, attribut: str, default: Optional[list] = None) -> list:
+        """
+        Gibt eine Liste aus der Konfiguration zurück.
+
+        Args:
+            attribut (str): Name des Parameters.
+            default (list, optional): Default-Liste, falls der Parameter nicht existiert.
+                Defaults to None.
+
+        Returns:
+            list: Die gelesene Liste oder der Default-Wert.
+        """
+        dv = default if default is not None else []
+        return self.get_config().get(attribut, dv)
+
+    def get_int(self, attribut: str, dv: int) -> int:
+        """
+        Gibt einen Integer-Wert aus der Konfiguration zurück.
+
+        Args:
+            attribut (str): Name des Parameters.
+            dv (int): Default-Wert, falls der Parameter nicht existiert.
+
+        Returns:
+            int: Der gelesene Integer-Wert.
+        """
+        return int(self.get_config().get(attribut, dv))
+
+    def get_str(self, attribut: str, dv: str) -> str:
+            """
+            Gibt einen String-Wert aus der Konfiguration zurück.
+    
+            Args:
+                attribut (str): Name des Parameters.
+                dv (str): Default-Wert, falls der Parameter nicht existiert.
+    
+            Returns:
+                str: Der gelesene String-Wert.
+            """
+            return str(self.get_config().get(attribut, dv))
+
+    def get_bool(self, attribut: str, dv: bool) -> bool:
+                """
+                Gibt einen Bool-Wert aus der Konfiguration zurück.
+        
+                Args:
+                    attribut (str): Name des Parameters.
+                    dv (bool): Default-Wert, falls der Parameter nicht existiert.
+        
+                Returns:
+                    bool: Der gelesene Bool-Wert.
+                """
+                return bool(self.get_config().get(attribut, dv))
+
+    def get_float(self, attribut: str, dv: float) -> float:
+        """
+        Gibt einen Float-Wert aus der Konfiguration zurück.
+
+        Args:
+            attribut (str): Name des Parameters.
+            dv (float): Default-Wert, falls der Parameter nicht existiert.
+
+        Returns:
+            float: Der gelesene Float-Wert.
+        """
+        return float(self.get_config().get(attribut, dv))
+
+    def _save_config(self) -> bool:
+        """
+        Speichert die aktuelle Konfiguration zurück in die JSON-Datei.
+
+        Returns:
+            bool: True bei Erfolg, False bei Fehlern beim Schreiben.
+        """
+        try:
+            with open(self._config_file, "w", encoding="utf-8") as jf:
+                json.dump(self._json_config, jf, indent=4, ensure_ascii=True, sort_keys=True)
+            return True
+        except OSError as e:
+            error = AttributeError(name=f"Datei {self._config_file} nicht verfügbar")
+            self._log.error(error)
+            raise error
+        except Exception as e:
+            self._log.error(e)
+            raise e        
+
+
+class Configurable():
+    
+    def __init__(self, config_reader:Optional[ConfigReader]=None):
+        self._cfg = config_reader if config_reader is not None else ConfigReader("ir_sensors")
+
+
+================================================================================
+END FILE: ConfigReader.py
+================================================================================
+
+================================================================================
+FILE: basisklassen.py
+================================================================================
+
+'''
+    Information: Modules with base classes for project RPiCar
+    File name: basisklassen.py
+    Author: Robert Heise, Tobias Venn, Florian Edenhofner (FIDA)
+    Date created: 11/10/2021
+    Date last modified: 02/03/2022
+    Python Version: 3.7
+    Usage: Base classes U4I/FIDA "Autonomous driving" with Sunfounder PiCar-S project phase 1
+'''
+
+
+import click
+import time
+import numpy as np
+import math
+import RPi.GPIO as GPIO
+import smbus
+import json
+
+
+class Ultrasonic(object):
+    """A class for the SunFounder ultrasonic modules
+
+    Attributes:
+        CHANNEL (int): GPIO-Channel of the ultra sonic module. GPIO according to the Sunfounder setup
+        preparation_time (float): Waiting time in milliseconds before sending the ultrasound pulse.
+        impuls_length (float): Length of the ultrasound pulse.
+        timeout (float): waiting time before stopping the measurement in form of the maximum measurement duration.
+    """
+    CHANNEL = 20
+
+    def __init__(self, preparation_time: float = 0.01, impuls_length: float = 0.00001, timeout: float = 0.05) -> None:
+        """
+        Args:
+        preparation_time (float): Waiting time in milliseconds before sending the ultrasound pulse. Defaults to 0.01.
+        impuls_length (float): Length of the ultrasound pulse. Defaults to 0.00001.
+        timeout (float): waiting time before stopping the measurement in form of the maximum measurement duration. Defaults to 0.05.
+        """
+        self.preparation_time = preparation_time
+        self.implus_length = impuls_length
+        self.timeout = timeout
+        GPIO.setmode(GPIO.BCM)
+
+    def distance(self) -> int:
+        """Returns distance in cm or an error.
+        Error types:
+            -1: Low signal and timeout reached
+            -2: High signal and timeout reached
+            -3: Negative distance
+            -4: Error in time measurement
+
+        Returns:
+            [int]: Distance in cm for a single measurement. Negative values for errors.
+        """
+        pulse_end = 0
+        pulse_start = 0
+        GPIO.setup(self.CHANNEL, GPIO.OUT)
+        GPIO.output(self.CHANNEL, False)
+        time.sleep(self.preparation_time)
+        GPIO.output(self.CHANNEL, True)
+        time.sleep(self.implus_length)
+        GPIO.output(self.CHANNEL, False)
+        GPIO.setup(self.CHANNEL, GPIO.IN)
+
+        timeout_start = time.time()
+        while GPIO.input(self.CHANNEL) == 0:
+            pulse_start = time.time()          
+            if pulse_start - timeout_start > self.timeout:
+                return -1
+        while GPIO.input(self.CHANNEL) == 1:
+            pulse_end = time.time()          
+            if pulse_end - timeout_start > self.timeout:
+                return -2
+
+        if pulse_start != 0 and pulse_end != 0:
+            pulse_duration = pulse_end - pulse_start
+            distance = pulse_duration * 100 * 343.0 / 2
+            distance = int(distance)
+            if distance >= 0:              
+                return distance
+            else:              
+                return -3
+        else:          
+            return -4
+
+    def stop(self) -> None:
+        """Sets GPIO (channel) of the Raspberry to False and stops possible noise of the sensor (shutdown)
+        """
+        GPIO.setup(self.CHANNEL, GPIO.OUT)
+        GPIO.output(self.CHANNEL, False)
+
+    def test(self) -> None:
+        """Prints 10 measurements in 5 seconds, negative numbers for errors which can appear for large distances
+        """
+        for i in range(10):
+            distance = self.distance()
+            if distance < 0:
+                unit = 'Error'
+            else:
+                unit = 'cm'
+            print('{} : {} {}'.format(i, distance, unit))
+            time.sleep(.5)
+
+
+class Infrared(object):
+    """A class for the SunFounder infrared module.
+
+    Attributes:
+        ADDRESS (int): Address of the infrared module.
+        _bus (smbus): Bus of the infrared module.
+        _references (list): List of floats that serve as reference values.
+    Raises:
+        IOError: If the connection to the module cannot be established.
+    """
+    ADDRESS = 0x11
+
+    def __init__(self, references: list = [300, 300, 300, 300, 300]) -> None:
+        """Constructor of the class Infrared
+
+        Args:
+            references (list, optional): List of floats to use as references. Defaults to [300, 300, 300, 300].
+        """
+        self._bus = smbus.SMBus(1)
+        self._references = references
+
+    def _read_raw(self) -> list:
+        """Reads the value of the infrared module as raw values.
+
+        Returns:
+            [list]: List of bytes read in as raw values.
+        """
+        for _ in range(0, 5):
+            try:
+                raw_result = self._bus.read_i2c_block_data(self.ADDRESS, 0, 10)
+                Connection_OK = True
+                break
+            except:
+                Connection_OK = False
+        if Connection_OK:
+            return raw_result
+        else:
+            print("Error accessing Infrared Sensor at address".format(self.ADDRESS))
+            return False
+
+    def read_analog(self, trys: int = 5) -> list:
+        """Reads the value of the infrared module as analog.
+
+        Args:
+            trys (int): number of attempts to establish the connection to the module. Defaults to 5.
+
+        Raises:
+            IOError: If the connection to the module cannot be established.
+
+        Returns:
+            [list]: List of bytes of the measurement of each sensor read in as analog values. 
+        """
+        for _ in range(trys):
+            raw_result = self._read_raw()
+            if raw_result:
+                analog_result = [0, 0, 0, 0, 0]
+                for i in range(0, 5):
+                    high_byte = raw_result[i * 2] << 8
+                    low_byte = raw_result[i * 2 + 1]
+                    analog_result[i] = high_byte + low_byte
+                    if analog_result[i] > 1024:
+                        continue
+                return analog_result
+        else:
+            raise IOError("Line follower read error. Please check the wiring.")
+
+    def read_digital(self) -> list:
+        """Reads the value of the infrared module as digital.
+
+        Returns:
+            [list]: List of digitized measurement of the sensors using the reference as threshold.
+        """
+        analog = np.array(self.read_analog())
+        digital = np.where(analog < self._references, 1, 0)
+        return list(digital)
+
+    def get_average(self, mount: int = 10) -> list:
+        """Returns the mean value of the measurements.
+
+        Args:
+            mount (int): Number of measurements taken. Defaults to 10.
+
+        Returns:
+            [float]: List of measurement as mean of 'mount' individual measurements.
+        """
+        single_reads = []
+        for _ in range(mount):
+            single_reads.append(self.read_analog())
+        single_reads = np.array(single_reads)
+        return list(single_reads.mean(axis=0))
+
+    def set_references(self, ref: list) -> None:
+        """Sets the reference 'ref' as a list of float
+
+        Args:
+            ref (list): list of floats that are used as reference values.
+        """
+        self._references = ref
+
+    def cali_references(self) -> None:
+        """Recording the reference
+        """
+        input('Place on background:')
+        background = self.get_average(100)
+        print('measured background:', background)
+        input('Place on line:')
+        line = self.get_average(100)
+        print('measured line:', line)
+        self._references = (np.array(line) + np.array(background)) / 2
+        print('Reference:', self._references)
+
+    def test(self) -> None:
+        """Tests the connection to the infrared module. Prints 10 measurements in 5 seconds.
+        """
+        for i in range(10):
+            data = self.read_analog()
+            print('{} : {}'.format(i, data))
+            time.sleep(.5)
+
+
+class FrontWheels(object):
+    """A class for the SunFounder steering of the front wheels. It allows maximum steering angles of 45°
+
+    Attributes:
+        FRONT_WHEEL_CHANNEL (int): Address of the front wheel module. From Sunfounder!
+        MAX_TURNING_ANGLE (int): Maximum steering angle. In order to avoid damage.
+        BUS_NUMBER (int): Bus of the front wheel module. From Sunfounder!
+        _straight_angle (int): Angle set as straight.
+        _turning_offset (int): Offset used to calculate the angle.
+        _servo (object): An object of the class Servo with the parameters FRONT_WHEEL_CHANNEL, BUS_NUMBER and _turning_offset
+    """
+
+    FRONT_WHEEL_CHANNEL = 0
+    MAX_TURNING_ANGLE = 45
+    BUS_NUMBER = 1
+
+    def __init__(self, turning_offset: int = 0) -> None:
+        """Setup channels and basic stuff
+
+        Args:
+            turning_offset (int): Offset used to calculate the angle. Defaults to 0.
+        """
+        self._straight_angle = 90
+        self._turning_offset = turning_offset
+        self._servo = Servo(self.FRONT_WHEEL_CHANNEL,
+                            bus_number=self.BUS_NUMBER, offset=self._turning_offset)
+        self._servo.setup()
+        self._turning_max(self.MAX_TURNING_ANGLE)
+
+    def _turning_max(self, angle: int) -> None:
+        """Sets the maximum and minimum steering angle to 'angle'.
+
+        Args:
+            angle (int): maximum steering angle.
+        """
+        self._turning_max = angle
+        self._min_angle = self._straight_angle - angle
+        self._max_angle = self._straight_angle + angle
+        self._angles = {"left": self._min_angle,
+                        "straight": self._straight_angle, "right": self._max_angle}
+
+    def turn(self, angle: int) -> int:
+        """Turn the front wheels to the given angle. Sets steering angle 'angle' as Int in the interval of 45-135° (90° straight ahead).
+
+        Args:
+            angle (int): steering angle to be set.
+
+        Returns:
+            int: steering angle to be set
+        """
+        if angle == None:
+            angle = self._straight_angle
+        if angle < self._angles["left"]:
+            angle = self._angles["left"]
+        if angle > self._angles["right"]:
+            angle = self._angles["right"]
+        self._servo.write(angle)
+        return angle
+
+    def get_angles(self) -> dict:
+        """Returns the maximum steering angles.
+
+        Returns:
+            [dict]: Dictionary of maximum steering angles
+        """
+        return self._angles
+
+    def test(self) -> None:
+        """Tests the connection to the front wheel module. Prints 10 measurements in 5 seconds.
+        """
+        self.turn(90)
+        print('angle : {}'.format(90))
+        for a in range(self._angles['left'], self._angles['right'] + 1, 5):
+            time.sleep(.1)
+            self.turn(a)
+            print('angle : {}'.format(a))
+        time.sleep(.1)
+        self.turn(90)
+        print('angle : {}'.format(90))
+
+
+#import TB6612
+#import PCA9685
+class BackWheels(object):
+    """
+    A class for the SunFounder rear wheel drive.
+
+    Attributes:
+        MOTOR_A (int): address of the motor module for one side of the rear wheel.
+        MOTOR_B (int): Address of the motor module for the other side of the rear wheel.
+        PWM_A (int): Address of the PWM module for one side of the rear wheel.
+        PWM_B (int): Address of the PWM module for the other side of the rear wheel.
+        BUS_NUMBER (int): Bus number of the motor module.
+        forward_A (int): Direction of rotation for motor A.
+        forward_B (int): Direction of rotation for motor B.
+        left_wheel (object): An object of the class Motor
+        right_wheel (object): An object of the class Motor
+        speed (int): Speed of the motors.
+    """
+    MOTOR_A = 17
+    MOTOR_B = 27
+
+    PWM_A = 4
+    PWM_B = 5
+
+    BUS_NUMBER = 1
+
+    def __init__(self, forward_A: int = 0, forward_B: int = 0) -> None:
+        """Init the direction channel and pwm channel
+
+        Args:
+            forward_A (int): 0,1 (Configuration of the rotation direction of a motor). Defaults to 0.
+            forward_B (int): 0,1 (Configuration of the rotation direction of the other motor). Defaults to 0.
+        """
+        self.forward_A = forward_A
+        self.forward_B = forward_B
+
+        self.left_wheel = Motor(self.MOTOR_A, offset=self.forward_A)
+        self.right_wheel = Motor(self.MOTOR_B, offset=self.forward_B)
+        self.pwm = PWM(bus_number=self.BUS_NUMBER)
+
+        def _set_a_pwm(value) -> None:
+            """Sets the PWM values for motor A.
+
+            Args:
+                value (int): PWM value for motor A.
+            """
+            pulse_wide = int(self.pwm.map(value, 0, 100, 0, 4095))
+            self.pwm.write(self.PWM_A, 0, pulse_wide)
+
+        def _set_b_pwm(value) -> None:
+            """Sets the PWM values for motor B.
+
+            Args:
+                value (int): PWM value for motor B.
+            """
+            pulse_wide = int(self.pwm.map(value, 0, 100, 0, 4095))
+            self.pwm.write(self.PWM_B, 0, pulse_wide)
+
+        self.left_wheel.pwm = _set_a_pwm
+        self.right_wheel.pwm = _set_b_pwm
+        self._speed = 0
+
+    def forward(self) -> None:
+        """Sets drive mode to forward. Move both wheels forward        
+        """
+        self.left_wheel.forward()
+        self.right_wheel.forward()
+
+    def backward(self) -> None:
+        """Sets drive mode to forward. Move both wheels forward        
+        """
+        self.left_wheel.backward()
+        self.right_wheel.backward()
+
+    def stop(self) -> None:
+        """Sets the speed to 0.
+        """
+        self.speed = 0
+
+    @property
+    def speed(self):
+        """Gets the speed. 0-100. 0 is stop. 100 is max speed.
+
+        Use as getter: Int=BW.speed 
+
+        Returns:
+            int: speed of the motors.
+        """
+        return self._speed
+
+    @speed.setter
+    def speed(self, speed):
+        """Sets the speed. 0-100. 0 is stop. 100 is max speed. It also sets the speed of the left and right back wheels.
+
+        Use as setter: BW.speed=Int
+
+        Args:
+            speed (int): speed of the motors.
+        """
+        self._speed = speed
+        self.left_wheel.speed = self._speed
+        self.right_wheel.speed = self._speed
+
+    def test(self, t: int = 1) -> None:
+        """Tests setting the speed. Tests driving forward and backward for t seconds.
+
+        Args:
+            t (int): time in seconds to drive. Defaults to 1.
+        """
+        self.speed = 30
+        self.forward()
+        print('forward speed : {}'.format(self.speed))
+
+        time.sleep(t)
+        self.speed = 40
+        print('forward speed : {}'.format(self.speed))
+
+        time.sleep(t)
+        self.speed = 20
+        print('forward speed : {}'.format(self.speed))
+
+        time.sleep(t)
+        self.stop()
+        print('stop speed : {}'.format(self.speed))
+        time.sleep(t * 2)
+        self.speed = 20
+        print('forward speed : {}'.format(self.speed))
+
+        time.sleep(t)
+        self.backward()
+        print('now backward')
+        print('backward speed : {}'.format(self.speed))
+
+        time.sleep(t * 4)
+        self.speed = 0
+        print('stop speed : {}'.format(self.speed))
+
+
+"""
+The following lines contain the classes defined in Servo.py, TB6612.py, and PCA9698.py.
+These classes could be defined in one single file.
+"""
+
+'''
+taken from
+**********************************************************************
+* Filename    : Servo.py
+* Description : Driver module for servo, with PCA9685
+* Author      : Cavon
+* Brand       : SunFounder
+* E-mail      : service@sunfounder.com
+* Website     : www.sunfounder.com
+* Update      : Cavon    2016-09-13    New release
+*               Cavon    2016-09-21    Change channel from 1 to all
+**********************************************************************
+'''
+
+
+class Servo(object):
+    '''Servo driver class'''
+    _MIN_PULSE_WIDTH = 600
+    _MAX_PULSE_WIDTH = 2400
+    _DEFAULT_PULSE_WIDTH = 1500
+    _FREQUENCY = 60
+
+    _DEBUG = False
+    _DEBUG_INFO = 'DEBUG "Servo.py":'
+
+    def __init__(self, channel, offset=0, lock=True, bus_number=1, address=0x40):
+        ''' Init a servo on specific channel, this offset '''
+        if channel < 0 or channel > 16:
+            raise ValueError("Servo channel \"{0}\" is not in (0, 15).".format(channel))
+        self._debug_("Debug on")
+        self.channel = channel
+        self.offset = offset
+        self.lock = lock
+
+        self.pwm = PWM(bus_number=bus_number, address=address)
+        self.frequency = self._FREQUENCY
+        self.write(90)
+
+    def _debug_(self, message):
+        if self._DEBUG:
+            print(self._DEBUG_INFO, message)
+
+    def setup(self):
+        self.pwm.setup()
+
+    def _angle_to_analog(self, angle):
+        ''' Calculate 12-bit analog value from giving angle '''
+        pulse_wide = self.pwm.map(angle, 0, 180, self._MIN_PULSE_WIDTH, self._MAX_PULSE_WIDTH)
+        analog_value = int(float(pulse_wide) / 1000000 * self.frequency * 4096)
+        self._debug_('Angle %d equals Analog_value %d' % (angle, analog_value))
+        return analog_value
+
+    @property
+    def frequency(self):
+        return self._frequency
+
+    @frequency.setter
+    def frequency(self, value):
+        self._frequency = value
+        self.pwm.frequency = value
+
+    @property
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, value):
+        ''' Set offset for much user-friendly '''
+        self._offset = value
+        self._debug_('Set offset to %d' % self.offset)
+
+    def write(self, angle):
+        ''' Turn the servo with giving angle. '''
+        if self.lock:
+            if angle > 180:
+                angle = 180
+            if angle < 0:
+                angle = 0
+        else:
+            if angle < 0 or angle > 180:
+                raise ValueError("Servo \"{0}\" turn angle \"{1}\" is not in (0, 180).".format(self.channel, angle))
+        val = self._angle_to_analog(angle)
+        val += self.offset
+        self.pwm.write(self.channel, 0, val)
+        self._debug_('Turn angle = %d' % angle)
+
+    @property
+    def debug(self):
+        return self._DEBUG
+
+    @debug.setter
+    def debug(self, debug):
+        ''' Set if debug information shows '''
+        if debug in (True, False):
+            self._DEBUG = debug
+        else:
+            raise ValueError('debug must be "True" (Set debug on) or "False" (Set debug off), not "{0}"'.format(debug))
+
+        if self._DEBUG:
+            print(self._DEBUG_INFO, "Set debug on")
+        else:
+            print(self._DEBUG_INFO, "Set debug off")
+
+
+'''
+taken from
+**********************************************************************
+* Filename    : TB6612.py
+* Description : A driver module for TB6612
+* Author      : Cavon
+* Brand       : SunFounder
+* E-mail      : service@sunfounder.com
+* Website     : www.sunfounder.com
+* Update      : Cavon    2016-09-23    New release
+**********************************************************************
+'''
+#import RPi.GPIO as GPIO
+
+
+class Motor(object):
+    ''' Motor driver class
+        Set direction_channel to the GPIO channel which connect to MA, 
+        Set motor_B to the GPIO channel which connect to MB,
+        Both GPIO channel use BCM numbering;
+        Set pwm_channel to the PWM channel which connect to PWMA,
+        Set pwm_B to the PWM channel which connect to PWMB;
+        PWM channel using PCA9685, Set pwm_address to your address, if is not 0x40
+        Set debug to True to print out debug informations.
+    '''
+    _DEBUG = False
+    _DEBUG_INFO = 'DEBUG "TB6612.py":'
+
+    def __init__(self, direction_channel, pwm=None, offset=True):
+        '''Init a motor on giving dir. channel and PWM channel.'''
+        self._debug_("Debug on")
+        self.direction_channel = direction_channel
+        self._pwm = pwm
+        self._offset = offset
+        self.forward_offset = self._offset
+
+        self.backward_offset = not self.forward_offset
+        self._speed = 0
+
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+
+        self._debug_('setup motor direction channel at %s' % direction_channel)
+        self._debug_('setup motor pwm channel')  # self._debug_('setup motor pwm channel as %s ' % self._pwm.__name__)
+        GPIO.setup(self.direction_channel, GPIO.OUT)
+
+    def _debug_(self, message):
+        if self._DEBUG:
+            print(self._DEBUG_INFO, message)
+
+    @property
+    def speed(self):
+        return self._speed
+
+    @speed.setter
+    def speed(self, speed):
+        ''' Set Speed with giving value '''
+        if speed not in range(0, 101):
+            raise ValueError('speed ranges fron 0 to 100, not "{0}"'.format(speed))
+        if not callable(self._pwm):
+            raise ValueError('pwm is not callable, please set Motor.pwm to a pwm control function with only 1 veriable speed')
+        self._debug_('Set speed to: %s' % speed)
+        self._speed = speed
+        self._pwm(self._speed)
+
+    def forward(self):
+        ''' Set the motor direction to forward '''
+        GPIO.output(self.direction_channel, self.forward_offset)
+        self.speed = self._speed
+        self._debug_('Motor moving forward (%s)' % str(self.forward_offset))
+
+    def backward(self):
+        ''' Set the motor direction to backward '''
+        GPIO.output(self.direction_channel, self.backward_offset)
+        self.speed = self._speed
+        self._debug_('Motor moving backward (%s)' % str(self.backward_offset))
+
+    def stop(self):
+        ''' Stop the motor by giving a 0 speed '''
+        self._debug_('Motor stop')
+        self.speed = 0
+
+    @property
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, value):
+        ''' Set offset for much user-friendly '''
+        if value not in (True, False):
+            raise ValueError('offset value must be Bool value, not"{0}"'.format(value))
+        self.forward_offset = value
+        self.backward_offset = not self.forward_offset
+        self._debug_('Set offset to %d' % self._offset)
+
+    @property
+    def debug(self, debug):
+        return self._DEBUG
+
+    @debug.setter
+    def debug(self, debug):
+        ''' Set if debug information shows '''
+        if debug in (True, False):
+            self._DEBUG = debug
+        else:
+            raise ValueError('debug must be "True" (Set debug on) or "False" (Set debug off), not "{0}"'.format(debug))
+
+        if self._DEBUG:
+            print(self._DEBUG_INFO, "Set debug on")
+        else:
+            print(self._DEBUG_INFO, "Set debug off")
+
+    @property
+    def pwm(self):
+        return self._pwm
+
+    @pwm.setter
+    def pwm(self, pwm):
+        self._debug_('pwm set')
+        self._pwm = pwm
+
+
+'''
+taken from
+**********************************************************************
+* Filename    : PCA9685.py
+* Description : A driver module for PCA9685
+* Author      : Cavon
+* Brand       : SunFounder
+* E-mail      : service@sunfounder.com
+* Website     : www.sunfounder.com
+* Version     : v2.0.0
+**********************************************************************
+'''
+#import smbus
+#import time
+#import math
+
+
+class PWM(object):
+    """A PWM control class for PCA9685."""
+    _MODE1 = 0x00
+    _MODE2 = 0x01
+    _SUBADR1 = 0x02
+    _SUBADR2 = 0x03
+    _SUBADR3 = 0x04
+    _PRESCALE = 0xFE
+    _LED0_ON_L = 0x06
+    _LED0_ON_H = 0x07
+    _LED0_OFF_L = 0x08
+    _LED0_OFF_H = 0x09
+    _ALL_LED_ON_L = 0xFA
+    _ALL_LED_ON_H = 0xFB
+    _ALL_LED_OFF_L = 0xFC
+    _ALL_LED_OFF_H = 0xFD
+
+    _RESTART = 0x80
+    _SLEEP = 0x10
+    _ALLCALL = 0x01
+    _INVRT = 0x10
+    _OUTDRV = 0x04
+
+    _DEBUG = False
+    _DEBUG_INFO = 'DEBUG "PCA9685.py":'
+
+    def __init__(self, bus_number=1, address=0x40):
+        self.address = address
+        self.bus_number = bus_number
+        self.bus = smbus.SMBus(self.bus_number)
+
+    def _debug_(self, message):
+        if self._DEBUG:
+            print(self._DEBUG_INFO, message)
+
+    def setup(self):
+        '''Init the class with bus_number and address'''
+        self._debug_('Reseting PCA9685 MODE1 (without SLEEP) and MODE2')
+        self.write_all_value(0, 0)
+        self._write_byte_data(self._MODE2, self._OUTDRV)
+        self._write_byte_data(self._MODE1, self._ALLCALL)
+        time.sleep(0.005)
+
+        mode1 = self._read_byte_data(self._MODE1)
+        mode1 = mode1 & ~self._SLEEP
+        self._write_byte_data(self._MODE1, mode1)
+        time.sleep(0.005)
+        self._frequency = 60
+
+    def _write_byte_data(self, reg, value):
+        '''Write data to I2C with self.address'''
+        self._debug_('Writing value %2X to %2X' % (value, reg))
+        try:
+            self.bus.write_byte_data(self.address, reg, value)
+        except Exception as i:
+            print(i)
+            self._check_i2c()
+
+    def _read_byte_data(self, reg):
+        '''Read data from I2C with self.address'''
+        self._debug_('Reading value from %2X' % reg)
+        try:
+            results = self.bus.read_byte_data(self.address, reg)
+            return results
+        except Exception as i:
+            print(i)
+            self._check_i2c()
+
+    def _run_command(self, cmd):
+        import subprocess
+        p = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        result = p.stdout.read().decode('utf-8')
+        status = p.poll()
+        # print(result)
+        # print(status)
+        return status, result
+
+    def _check_i2c(self):
+        from os import listdir
+        print("I2C bus number is: %s" % self.bus_number)
+        print("Checking I2C device:")
+        devices = listdir("/dev/")
+        if "i2c-%d" % self.bus_number in devices:
+            print("I2C device exist.")
+        else:
+            print("Seems like I2C have not been set, run 'sudo raspi-config' to enable I2C")
+        cmd = "i2cdetect -y %s" % self.bus_number
+        _, output = self._run_command(cmd)
+        print("Your PCA9685 address is set to 0x%02X" % self.address)
+        print("i2cdetect output:")
+        print(output)
+        outputs = output.split('\n')[1:]
+        addresses = []
+        for tmp_addresses in outputs:
+            tmp_addresses = tmp_addresses.split(':')
+            if len(tmp_addresses) < 2:
+                continue
+            else:
+                tmp_addresses = tmp_addresses[1]
+            tmp_addresses = tmp_addresses.strip().split(' ')
+            for address in tmp_addresses:
+                if address != '--':
+                    addresses.append(address)
+        print("Conneceted i2c device:")
+        if addresses == []:
+            print("None")
+        else:
+            for address in addresses:
+                print("  0x%s" % address)
+        if "%02X" % self.address in addresses:
+            print("Wierd, I2C device is connected, Try to run the program again, If problem stills, email this information to support@sunfounder.com")
+        else:
+            print("Device is missing.")
+            print("Check the address or wiring of PCA9685 Server driver, or email this information to support@sunfounder.com")
+            quit()
+
+    @property
+    def frequency(self):
+        return self._frequency
+
+    @frequency.setter
+    def frequency(self, freq):
+        '''Set PWM frequency'''
+        self._debug_('Set frequency to %d' % freq)
+        self._frequency = freq
+        prescale_value = 25000000.0
+        prescale_value /= 4096.0
+        prescale_value /= float(freq)
+        prescale_value -= 1.0
+        self._debug_('Setting PWM frequency to %d Hz' % freq)
+        self._debug_('Estimated pre-scale: %d' % prescale_value)
+        prescale = math.floor(prescale_value + 0.5)
+        self._debug_('Final pre-scale: %d' % prescale)
+
+        old_mode = self._read_byte_data(self._MODE1)
+        new_mode = (old_mode & 0x7F) | 0x10
+        self._write_byte_data(self._MODE1, new_mode)
+        self._write_byte_data(self._PRESCALE, int(math.floor(prescale)))
+        self._write_byte_data(self._MODE1, old_mode)
+        time.sleep(0.005)
+        self._write_byte_data(self._MODE1, old_mode | 0x80)
+
+    def write(self, channel, on, off):
+        '''Set on and off value on specific channel'''
+        self._debug_('Set channel "%d" to value "%d"' % (channel, off))
+        self._write_byte_data(self._LED0_ON_L + 4 * channel, on & 0xFF)
+        self._write_byte_data(self._LED0_ON_H + 4 * channel, on >> 8)
+        self._write_byte_data(self._LED0_OFF_L + 4 * channel, off & 0xFF)
+        self._write_byte_data(self._LED0_OFF_H + 4 * channel, off >> 8)
+
+    def write_all_value(self, on, off):
+        '''Set on and off value on all channel'''
+        self._debug_('Set all channel to value "%d"' % (off))
+        self._write_byte_data(self._ALL_LED_ON_L, on & 0xFF)
+        self._write_byte_data(self._ALL_LED_ON_H, on >> 8)
+        self._write_byte_data(self._ALL_LED_OFF_L, off & 0xFF)
+        self._write_byte_data(self._ALL_LED_OFF_H, off >> 8)
+
+    def map(self, x, in_min, in_max, out_min, out_max):
+        '''To map the value from arange to another'''
+        return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+
+    @property
+    def debug(self):
+        return self._DEBUG
+
+    @debug.setter
+    def debug(self, debug):
+        '''Set if debug information shows'''
+        if debug in (True, False):
+            self._DEBUG = debug
+        else:
+            raise ValueError('debug must be "True" (Set debug on) or "False" (Set debug off), not "{0}"'.format(debug))
+
+        if self._DEBUG:
+            print(self._DEBUG_INFO, "Set debug on")
+        else:
+            print(self._DEBUG_INFO, "Set debug off")
+
+
+@click.command()
+@click.option('--modus', '--m', type=int, default=None, help="Startet Test für Klasse direkt.")
+def main(modus):
+    """Function for testing the base classes
+
+
+    Args:
+        modus (int): The mode that can be choosen by the user
+    """
+    print('-- DEMO BASISKLASSEN--------------------')
+    modi = {
+        0: 'Ausrichtung der Servo der Lenkung auf Geradeaus',
+        1: 'Test Hinterräder - Antrieb / Klasse: Back_Wheels',
+        2: 'Test Vorderräder - Lenkung / Klasse: Front_Wheels',
+        3: 'Test Ultraschallmodul / Klasse: Ultrasonic',
+        4: 'Test Infrarotmodul / Klasse: Infrared',
+        5: 'Test Hinter- und Vorderräder unter Verwendung der Konfigurationen in config.json',
+    }
+
+    if modus == None:
+        print('--' * 20)
+        print('Auswahl:')
+        for m in modi.keys():
+            print('{i} - {name}'.format(i=m, name=modi[m]))
+        print('--' * 20)
+
+    while modus == None:
+        try:
+            modus_list = list(modi.keys())
+            modus = int(input('Wähle  (Andere Taste für Abbruch): ? '))
+            modus = modus_list[modus]
+            break
+        except:
+            print('Getroffene Auswahl nicht möglich.')
+            quit()
+
+    if modus == 0:
+        print('Der Servomotor wird nach rechts und links bewegt und dann auf geradeus ausgerichtet.')
+        fw = FrontWheels()
+        fw.turn(45)
+        time.sleep(.5)
+        fw.turn(135)
+        time.sleep(.5)
+        fw.turn(90)
+        x=input('Servo der Lenkung auf 90 Grad/geradeaus ausgerichtet! (ENTER zum beenden)')
+
+    if modus == 1:
+        x = input('ACHTUNG! Das Auto wird ein Stück fahren!\n Drücken Sie ENTER zum Start.')
+        print('Test Hinterräder')
+        if x == '':
+            bw = BackWheels()
+            bw.test()
+        else:
+            print('Abbruch.')
+
+    if modus == 2:
+        print('Test Vorderräder')
+        fw = FrontWheels()
+        fw.test()
+
+    if modus == 3:
+        print('Test Ultrasonic')
+        usm = Ultrasonic()
+        usm.test()
+
+    if modus == 4:
+        print('Test Infrared')
+        irm = Infrared()
+        irm.test()
+    
+    if modus == 5:
+        try:
+            with open("config.json", "r") as f:
+                data = json.load(f)
+                turning_offset = data["turning_offset"]
+                forward_A = data["forward_A"]
+                forward_B = data["forward_B"]
+                print("Daten in config.json:")
+                print(" - Turning Offset: ", turning_offset)
+                print(" - Forward A: ", forward_A)
+                print(" - Forward B: ", forward_B)
+        except:
+            print("Keine geeignete Datei config.json gefunden!")
+        else:
+            print("Test der Vorderräder:")
+            x = input(' Drücken Sie ENTER zum Start.')
+            fw = FrontWheels(turning_offset=turning_offset)
+            fw.test()
+            time.sleep(1)
+            print("Test der Hinterräder:")
+            x = input(' ACHTUNG! Das Auto wird ein Stück fahren!\n Drücken Sie ENTER zum Start.')
+            bw = BackWheels(forward_A=forward_A, forward_B=forward_B)
+            bw.test()
+
+if __name__ == '__main__':
+    main()
+
+
+================================================================================
+END FILE: basisklassen.py
+================================================================================
+
+================================================================================
+FILE: CarLogger.py
+================================================================================
+
+
+from abc import ABC, abstractmethod
+import logging
+import threading
+import time
+  
+class Loggable(ABC):
+
+    @abstractmethod
+    def get_logging_payload(self, log_level:int=logging.INFO) -> dict:
+        pass
+        
+
+
+class CarLogger():
+
+    def __init__(self, log_object:Loggable, logfile="car_log.json", log_name="CarLogger", log_level=logging.INFO):
+        self._lastTime = 0
+        self._car = log_object
+
+        # 1. Logger erstellen
+        self._logger = logging.getLogger(log_name)
+        self._logger.setLevel(log_level)
+
+        # 2. Datei-Handler hinzufügen (Schreibt in die JSON-Datei)
+        file_handler = logging.FileHandler(logfile)
+        file_handler.setLevel(log_level)
+        
+        # Einfaches Format für die Datei (Zeit - Nachricht)
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        #formatter = jsonlogger.JsonFormatter(
+        #    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+        #    rename_fields={"asctime": "timestamp", "levelname": "level"}
+        #)
+        file_handler.setFormatter(formatter)
+        
+        # Handler an den Logger hängen
+        self._logger.addHandler(file_handler)
+
+        self._log_level = log_level
+
+    @property
+    def logger(self):
+        return self._logger
+
+    def debug(self, msg):
+        return self.logger.debug(msg)
+    
+    def error(self, msg):
+        return self.logger.error(msg)
+    
+    def run(self, stop_event:threading.Event):
+        while not stop_event.is_set():
+            self.log_car_state()
+            time.sleep(0.1)
+       
+    def log_car_state(self):
+        self._logger.log(self._log_level, self._car.get_logging_payload())
+
+================================================================================
+END FILE: CarLogger.py
+================================================================================
+
+================================================================================
+FILE: driving/base.py
+================================================================================
+
+from __future__ import annotations
+
+# Gemeinsame Bibliotheken aus der bisherigen Driving.py.
+# Die Fahrlogik bleibt bei dieser reinen Modulaufteilung unveraendert.
+import abc
+import curses
+import random
+import threading
+import time
+from datetime import datetime
+from typing import Optional, Tuple
+import logging
+import cv2
+import numpy as np
+from BaseCar import BaseCar
+from CameraCar import CameraCar, CameraDataProcessed, CameraData
+from CarLogger import Loggable
+import ConfigReader
+from SensorCar import SensorCar
+from SonicCar import SonicCar
+from LenkwinkelKalkulator import lenkwinkel_from_image
+import select
+from evdev import InputDevice, ecodes
+
+from .stop_reason import StopReason
+
+class DrivingMode(abc.ABC):
+
+    def __init__(self, name:str, car:BaseCar, logger:logging.Logger, config:ConfigReader.ConfigReader, update_cfg:bool=False, frequency:int=500) -> None:
+        super().__init__()
+        self._stop_event = None
+        self._name = name
+        self._car = car
+        self._log = logger
+        self._cfg = config
+        self._frequency = self._cfg.get_int("scan_frequency", frequency)
+        self._lock = threading.RLock()
+        self._update_cfg = update_cfg
+        self._thread = threading.Thread(target=self._drive, daemon=True, args=[update_cfg])
+
+    def start(self):
+        with self._lock:
+            if self.is_running(): return
+            if self._thread.is_alive(): self._thread.join(timeout=2)  # alten Lauf sauber auslaufen lassen
+            self._thread = threading.Thread(target=self._drive, daemon=True, args=[self._update_cfg], name=self._name)
+            self._thread.start()
+
+    def _drive(self, update_cfg:bool=False):
+        with self._lock:
+            if self.is_running():
+                raise RuntimeError("Mode is already running")
+
+        try:
+            if (update_cfg):
+                self._log.warning(f"Reloading config files. This will cost some performance and is not advised in production environments")
+            
+            with self._lock:
+                self._stop_event = threading.Event()
+
+            self._log.info(f"Starte {self._name}")
+
+            if (self._pre_run()):
+                self._log.debug("Pre-Run actions absolved")
+            else:
+                raise RuntimeError("Pre-Run actions failed. Aborting.")
+
+            i = 0
+            running = True
+            
+            period = 1.0 / self._frequency
+            while (not self._stop_event.is_set() and self._run_condition() and running):
+                start_time = time.monotonic()
+                if (update_cfg):
+                    self._cfg._load_config_file()
+                    self._car._update_config()
+
+                running = self._run()
+
+                elapsed_time = time.monotonic() - start_time
+
+                # self._stop_event.wait(
+                #     max(0.0, period - elapsed_time)
+                # )
+
+                time.sleep(max(0, period - elapsed_time))
+                i+=1
+                if (i%self._frequency == 5):
+                    self._log.debug(f"Running {self._name} in iteration #{i}")
+                
+        except Exception as e:
+            self._log.exception(e)
+        finally:
+            self.stop()
+            if (self._post_run()):
+                self._log.debug("Post-Run actions absolved")
+            else:
+                raise RuntimeError("Post-Run actions failed. Aborting.")                
+            with self._lock:
+                self._stop_event = None
+
+    @abc.abstractmethod
+    def _run_condition(self) -> bool:
+        pass
+
+    def _pre_run(self) -> bool:
+        self._car.drive(0,90)
+        return True
+
+    @abc.abstractmethod
+    def _run(self) -> bool:
+        pass
+
+    def _post_run(self) -> bool:
+        self._car.drive(0,90)
+        return True
+
+    def is_running(self) -> bool:
+        return self._stop_event is not None
+
+    def stop(self, reason:StopReason|int=0) -> bool:
+        if (self._stop_event is not None):
+            self._log.info(f"{self._name} beendet")
+            self._stop_event.set()
+            self._stop_car(reason)
+            return True
+        return False
+
+    def _stop_car(self, reason:StopReason|int=0):
+        """_summary_
+
+        Args:
+            reason (StopReason | int, optional): _description_. Defaults to 0.
+        """
+        self._log.info(f"Car stopped for {reason}")
+        self._car.stop()    
+
+
+
+================================================================================
+END FILE: driving/base.py
+================================================================================
+
+================================================================================
+FILE: driving/camera_mode.py
+================================================================================
+
+from __future__ import annotations
+import abc
+import curses
+import random
+import threading
+import time
+from datetime import datetime
+from typing import Optional, Tuple
+import logging
+import cv2
+import numpy as np
+from BaseCar import BaseCar
+from CameraCar import CameraCar
+from models import CameraDataProcessed, CameraData, DrivingState
+from CarLogger import Loggable
+import ConfigReader
+from SensorCar import SensorCar
+from SonicCar import SonicCar
+from LenkwinkelKalkulator import (
+    put_steering_lines_into_image, cals_drive_parameter_from_lanes
+)
+import select
+from evdev import InputDevice, ecodes
+from .base import DrivingMode
+class CameraMode(DrivingMode):
+
+    def __init__(self, name='CameraModus', car:Optional[CameraCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None):
+        car = car if car is not None else CameraCar()
+        self._cameracar = car
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
+        self._last_steering_angle = 90
+        self._lost_since = None
+        self._lost_timeout = cfg.get_float('lost_line_timeout', 1)
+        logger = logging.getLogger(self.__class__.__name__)
+
+        super().__init__(name, car, logger, cfg)
+
+    # Werte aus dem vorherigen run
+    def _pre_run(self) -> bool:
+        self._last_steering_angle = 90
+        self._lost_since = None
+        self._car.drive(0, 90)
+        return True
+
+    def _run(self) -> bool:
+        print('1: _run START', flush=True)
+
+        camera_data_transfer = self._cameracar.camera_data
+        print('2: camera_data gelesen', flush=True)
+
+        try:
+            now = time.monotonic_ns()
+
+            print('3: vor lenkwinkel_from_image', flush=True)
+
+            # Der LaneDetector hat die Linien bereits fuer diesen Frame ermittelt.
+            # Hier wird nur noch der Lenkwinkel aus den Linien berechnet.
+            lanes = list(camera_data_transfer.lanes)
+            img_with_lines = put_steering_lines_into_image(
+                camera_data_transfer.process_image, lanes
+            )
+            steering_angle_raw, processed_img_areas = cals_drive_parameter_from_lanes(
+                img_with_lines, lanes
+            )
+
+            print('4: nach lenkwinkel_from_image', flush=True)
+
+            if steering_angle_raw is None:
+                if self._lost_since is None:
+                    self._lost_since = now
+
+                if now - self._lost_since > self._lost_timeout * 1e9:
+                    self._log.info(f'Seit {self._lost_timeout}s keine zwei Linien – {self._name} wird beendet')
+                    return False
+
+                steering_angle_raw = self._last_steering_angle
+
+            else:
+                self._lost_since = None
+                self._last_steering_angle = steering_angle_raw
+
+            driving_parameter = self.driving_parameter(steering_angle_raw)
+
+            steering_gain = self._cfg.get_float('steering_gain', 2.0)
+            steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
+            speed = driving_parameter[1]
+
+            print('5: vor drive', flush=True)
+
+            self._cameracar.drive(speed, steering_angle)
+
+            print('6: nach drive', flush=True)
+
+            timestamp = time.time_ns()
+
+            latenz = timestamp - camera_data_transfer.timestamp
+            print(f'7: Latenz = {latenz}', flush=True)
+
+            camera_data_processed = CameraDataProcessed(
+                frame_id=camera_data_transfer.frame_id,
+                raw_image=camera_data_transfer.raw_image,
+                timestamp=timestamp,
+                process_image=camera_data_transfer.process_image,
+                process_image_lines=processed_img_areas,
+                steering_angle=steering_angle_raw,
+                steering_angle_car=self._car.steering_angle,
+                line_data=np.empty(0),
+                speed=self._car.speed,
+                lanes=lanes
+            )
+
+            print('8: CameraDataProcessed erzeugt', flush=True)
+
+            # Die Fahrentscheidung referenziert genau das verarbeitete Bild.
+            self._cameracar.driving_state = DrivingState(
+                frame_id=camera_data_transfer.frame_id,
+                timestamp_ns=timestamp,
+                steering_angle=camera_data_processed.steering_angle,
+                speed=camera_data_processed.speed,
+                lanes=camera_data_processed.lanes,
+                steering_angle_car=camera_data_processed.steering_angle_car,
+            )
+            # Alter Datenvertrag bleibt fuer Dashboard/Recorder vorerst aktiv.
+            self._cameracar.camera_data_processed = camera_data_processed
+
+            print('9: camera_data_processed gesetzt', flush=True)
+
+        except Exception:
+            self._log.exception('Fehler in CameraMode._run()')
+            return False
+
+        print('10: _run ENDE', flush=True)
+
+        return True
+
+
+    def _run_condition(self) -> bool:
+        return True    
+    # def: Linienwerte bekommen, Aus den Linien lenkwinkel bearbeiten
+
+
+    def driving_parameter (self, steering_angle_raw: int ) -> tuple[int, int]:
+        steering_angle = steering_angle_raw  # Replace with actual calculation
+        speed = 30           # Replace with actual calculation
+
+        return steering_angle, speed
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+================================================================================
+END FILE: driving/camera_mode.py
+================================================================================
+
+================================================================================
+FILE: models/__init__.py
+================================================================================
+
+from .camera_data import CameraData, CameraDataProcessed
+from .driving_state import DrivingState
+
+
+================================================================================
+END FILE: models/__init__.py
+================================================================================
+
+================================================================================
+FILE: models/camera_data.py
+================================================================================
+
+"""Gemeinsame Kameradaten ohne Abhaengigkeit von der Fahrzeugklasse."""
+from dataclasses import dataclass, field
+import numpy as np
+
+@dataclass
+class CameraData:
+    # Vorhandene Felder bleiben fuer die alten Verbraucher erhalten.
+    process_image: np.ndarray
+    raw_image: np.ndarray
+    timestamp: int = 0
+    frame_id: int = -1
+    # Der Zeitstempel fuer Laufzeitmessungen ist unabhaengig von der Systemuhr.
+    monotonic_ns: int = 0
+    crop: tuple[float, float] = (0.1, 0.9)
+    # Bereits erkannte Linien, einmal pro Frame ermittelt.
+    lanes: tuple[tuple[float, float], ...] = ()
+    # Optionale Diagnosebilder, nur im CopilotLaneProcessor vorhanden.
+    stages: dict[str, np.ndarray] = field(default_factory=dict)
+
+@dataclass
+class CameraDataProcessed:
+    # Uebergangsmodell: Dashboard und Recorder lesen diese Felder noch.
+    process_image: np.ndarray
+    process_image_lines: np.ndarray
+    raw_image: np.ndarray
+    line_data: np.ndarray
+    lanes: list
+    timestamp: int = 0
+    steering_angle: int = 90
+    steering_angle_car: int | None = None
+    speed: int = 0
+    frame_id: int = -1
+
+
+================================================================================
+END FILE: models/camera_data.py
+================================================================================
+
+================================================================================
+FILE: models/driving_state.py
+================================================================================
+
+"""Fahrentscheidung mit Referenz auf das zugehoerige Kamerabild."""
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass(frozen=True)
+class DrivingState:
+    frame_id: int
+    timestamp_ns: int
+    steering_angle: float
+    speed: float
+    # Originale Linienrepraesentation vorerst beibehalten; kein Algorithmus-Umbau.
+    lanes: Any = None
+    steering_angle_car: float | None = None
+
+
+================================================================================
+END FILE: models/driving_state.py
+================================================================================
+
+================================================================================
+FILE: telemetry/__init__.py
+================================================================================
+
+from .ring_buffer import FrameRingBuffer, FrameRecord
+from .frequency_counter import FrequencyCounter
+
+
+================================================================================
+END FILE: telemetry/__init__.py
+================================================================================
+
+================================================================================
+FILE: telemetry/ring_buffer.py
+================================================================================
+
+"""Begrenzte Historie der zuletzt veroeffentlichten Kameraframes."""
+from collections import deque
+from dataclasses import dataclass
+from threading import RLock
+from models import CameraData, DrivingState
+
+@dataclass(frozen=True)
+class FrameRecord:
+    camera: CameraData
+    driving: DrivingState | None = None
+
+class FrameRingBuffer:
+    def __init__(self, maxlen: int = 60):
+        if maxlen < 1:
+            raise ValueError("maxlen muss positiv sein")
+        self._items = deque(maxlen=maxlen)
+        self._lock = RLock()
+
+    def add_camera(self, data: CameraData) -> None:
+        # Nur Referenzen speichern. Bereits publizierte Bilder nicht veraendern!
+        with self._lock:
+            self._items.append(FrameRecord(camera=data))
+
+    def add_driving(self, state: DrivingState) -> bool:
+        with self._lock:
+            for index in range(len(self._items) - 1, -1, -1):
+                record = self._items[index]
+                if record.camera.frame_id == state.frame_id:
+                    self._items[index] = FrameRecord(record.camera, state)
+                    return True
+        return False
+
+    def snapshot(self) -> tuple[FrameRecord, ...]:
+        # Kopie der Referenzliste, damit Leser den Lock nicht lange halten.
+        with self._lock:
+            return tuple(self._items)
+
+
+================================================================================
+END FILE: telemetry/ring_buffer.py
+================================================================================
+
+================================================================================
+FILE: telemetry/frequency_counter.py
+================================================================================
+
+"""Misst die tatsaechliche Zyklusfrequenz in einem gleitenden Fenster."""
+from collections import deque
+from threading import Lock
+from time import monotonic
+
+class FrequencyCounter:
+    def __init__(self, window: int = 30):
+        if window < 2:
+            raise ValueError("window muss mindestens 2 sein")
+        self._times = deque(maxlen=window)
+        self._lock = Lock()
+
+    def tick(self) -> None:
+        with self._lock:
+            self._times.append(monotonic())
+
+    @property
+    def hz(self) -> float:
+        with self._lock:
+            if len(self._times) < 2:
+                return 0.0
+            delta = self._times[-1] - self._times[0]
+            return (len(self._times) - 1) / delta if delta > 0 else 0.0
+
+    @property
+    def age_seconds(self) -> float | None:
+        with self._lock:
+            return monotonic() - self._times[-1] if self._times else None
+
+
+================================================================================
+END FILE: telemetry/frequency_counter.py
+================================================================================

@@ -26,3 +26,5 @@ class FrequencyCounter:
     def age_seconds(self) -> float | None:
         with self._lock:
             return monotonic() - self._times[-1] if self._times else None
+
+

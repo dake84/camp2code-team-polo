@@ -1,4 +1,3 @@
-
 import threading
 import time
 from typing import Optional
@@ -99,3 +98,4 @@ if __name__ == '__main__':
     while True:
         us.read_loop(stop_event)
         print(sc.distance)
+

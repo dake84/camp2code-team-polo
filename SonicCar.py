@@ -36,3 +36,4 @@ class SonicCar(BaseCar):
             self._distance = distance
             self.__log.debug(f"Distanz schreiben erfolgreich mit Wert {distance}")
         
+

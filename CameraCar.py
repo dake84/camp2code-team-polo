@@ -78,3 +78,5 @@ class CameraCar(BaseCar):
             self._driving_state = state
             self.frame_history.add_driving(state)
             self.thread_metrics["controller"].tick()
+
+

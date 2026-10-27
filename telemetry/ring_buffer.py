@@ -34,3 +34,5 @@ class FrameRingBuffer:
         # Kopie der Referenzliste, damit Leser den Lock nicht lange halten.
         with self._lock:
             return tuple(self._items)
+
+

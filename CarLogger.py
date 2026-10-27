@@ -1,4 +1,3 @@
-
 from abc import ABC, abstractmethod
 import logging
 import threading
@@ -56,3 +55,4 @@ class CarLogger():
        
     def log_car_state(self):
         self._logger.log(self._log_level, self._car.get_logging_payload())
+

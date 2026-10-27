@@ -11,3 +11,5 @@ class DrivingState:
     # Originale Linienrepraesentation vorerst beibehalten; kein Algorithmus-Umbau.
     lanes: Any = None
     steering_angle_car: float | None = None
+
+
