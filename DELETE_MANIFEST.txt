@@ -1,0 +1,38 @@
+# DELETE_MANIFEST.txt - ausschliesslich nachweislich obsolete Dateien (Version 6.0)
+# Format: ein Pfad relativ zum Repository-Root je Zeile, Kommentare mit '#'.
+# Ausfuehren NUR ueber scripts/cleanup_obsolete.sh (Vorschau, Git-Pruefung, Backup).
+# Begruendung je Datei: siehe CLEANUP_REPORT.md, Abschnitt "DELETE".
+
+# --- Nicht lauffaehiger Code (Referenz auf entfernte API) ---
+run_mock_sensor_car.py                         # nutzt Driving.DriveController / DrivingMode.ADVANCED_FOLLOW_LINE (existieren nicht)
+
+# --- Ersetztes eigenstaendiges Dashboard ---
+dash_live.py                                   # eigene zweite Bildverarbeitung, startet CameraMode ohne Benutzeraktion, Port 8050
+
+# --- Uebertragungs-/Build-Artefakte (aus dem Code erzeugbar, nicht importiert) ---
+sourcecode.txt
+src-paket-a.txt
+scripts/src-paket-b.txt
+src-dashboard-v52.txt
+camp2code-full-source.txt
+camp2code_paket_a_dashboard_konsolidiert.zip
+camp2code_paket_ab_integrated.zip
+camp2code_blur_hotfix.zip
+camp2code_dashboard_diagnostics_v5_1.zip
+camp2code_dashboard_studio_v2.zip
+camp2code_dashboard_studio_v3.zip
+camp2code_dashboard_studio_v4.zip
+camp2code_dashboard_studio_v5.zip
+camp2code_dashboard_v54.zip
+camp2code_dashboard_v55.zip
+camp2code_driving_cockpit_dropin.zip
+camp2code_replay_v53.zip
+
+# --- Debug-Bilder ohne Verwender im Code ---
+Dash-Frame-Processed.jpg
+camera_test_processed.jpg
+
+# --- Versions-READMEs, Inhalt vollstaendig in CHANGELOG.md uebernommen ---
+README_REPLAY_V53.md
+README_V54.md
+README_V55.md

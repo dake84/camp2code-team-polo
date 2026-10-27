@@ -1,0 +1,7 @@
+assets/recovery_keys.js
+assets/studio.css
+camp2code/Software/config.json
+config.json
+pipeline_studio.json
+pyproject.toml
+requirements.txt

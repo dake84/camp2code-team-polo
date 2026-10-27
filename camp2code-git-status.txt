@@ -1,0 +1,47 @@
+ M Camp2CodeDashboard.py
+ M README.md
+ M car_application.py
+ M driving/camera_mode.py
+R  CameraCar_DashLive.py -> legacy/dashboards/CameraCar_DashLive.py
+R  CoPilotDrivingDashboard.py -> legacy/dashboards/CoPilotDrivingDashboard.py
+R  CoPilotPipelineDashboard.py -> legacy/dashboards/CoPilotPipelineDashboard.py
+ M pipeline_processors.py
+ M scripts/pack-files.sh
+ M tests/test_dashboard_a.py
+?? Data_AI/2026-10-27_09-47-50-281549/
+?? Data_AI/2026-10-27_10-10-58-663087/
+?? Data_AI/2026-10-27_10-36-02-135366/
+?? Data_AI/2026-10-27_11-58-26-023010/
+?? Data_AI/2026-10-27_12-12-51-405256/
+?? Data_AI/sessions/
+?? README_REPLAY_V53.md
+?? README_V54.md
+?? README_V55.md
+?? assets/
+?? camp2code-full-source.txt
+?? camp2code_blur_hotfix.zip
+?? camp2code_dashboard_diagnostics_v5_1.zip
+?? camp2code_dashboard_studio_v2.zip
+?? camp2code_dashboard_studio_v3.zip
+?? camp2code_dashboard_studio_v4.zip
+?? camp2code_dashboard_studio_v5.zip
+?? camp2code_dashboard_v54.zip
+?? camp2code_dashboard_v55.zip
+?? camp2code_driving_cockpit_dropin.zip
+?? camp2code_replay_v53.zip
+?? dashboard_steering.py
+?? driving_health.py
+?? pipeline_ab.py
+?? recovery_control.py
+?? replay_hud.py
+?? replay_selection.py
+?? session_recorder.py
+?? src-dashboard-v52.txt
+?? tests/test_blur_mask.py
+?? tests/test_dashboard_steering.py
+?? tests/test_diagnostics.py
+?? tests/test_pipeline_ab.py
+?? tests/test_replay_hud.py
+?? tests/test_replay_selection.py
+?? tests/test_session_recorder.py
+?? tests/test_v5.py
