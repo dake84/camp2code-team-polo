@@ -957,7 +957,9 @@ class DeepCarMode(DrivingMode):
                 raise ValueError('Ungültige Netzwerkvorhersage.')
 
             steering_angle = int(max(45, min(135, steering_angle_raw)))
-            speed = int(max(0, min(30, speed)))
+            speed = 30 # int(max(0, min(30, speed)))
+
+            print(f'Speed: {speed:.0f} \nLenkwinkel: {steering_angle:.0f}\n----------')
 
             self._cameracar.drive(speed, steering_angle)
 
@@ -970,6 +972,8 @@ class DeepCarMode(DrivingMode):
 
     def _run_condition(self) -> bool:
         return True
+
+
 
 
 
