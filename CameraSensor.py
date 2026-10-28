@@ -101,12 +101,11 @@ class CameraSensor(Camera):
                 upper_boundary = np.array([self.processing_parameters[0][1],self.processing_parameters[1][1],self.processing_parameters[2][1]])
                 mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
 
-
                 # evtl noch blur zB mask_blur = cv2.blur(image_gray,(4,4))
                 blur = max(1, int(self.processing_parameters[4]))
                 img_blur = blur_img(mask, blur_value = (blur,blur))
-                gray = cv2.cvtColor(img_blur, cv2.COLOR_HSV2GRAY)
-                binary = cv2.adaptiveThreshold(gray,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,2)
+                
+                binary = cv2.adaptiveThreshold(img_blur,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,2)
 
                 morph_kernel_parameter = ((self.processing_parameters[5],self.processing_parameters[5]))
                 img_morph_kernel = morph_kernel_filter(binary, morph_kernel=morph_kernel_parameter)
