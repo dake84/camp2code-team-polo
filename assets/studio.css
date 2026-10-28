@@ -50,3 +50,10 @@ img:fullscreen{object-fit:contain;background:#000;max-height:none!important}
 .c2c-chart-box:fullscreen{background:var(--c2c-bg)}
 .c2c-chart-box:fullscreen .c2c-graph{height:calc(100vh - 64px)!important}
 .c2c-hud-legend summary{cursor:pointer}
+/* PAKET-H1B: Frame-Balken (assets/framebar.js) als Element ueber dem Diagramm */
+.c2c-graph{position:relative}
+.c2c-framebar{position:absolute;width:14px;z-index:5;cursor:ew-resize;touch-action:none;user-select:none;display:none}
+.c2c-framebar-line{position:absolute;left:6px;width:2px;top:0;bottom:0;background:#4da3ff;box-shadow:0 0 4px #4da3ff99}
+.c2c-framebar-grip{position:absolute;left:1px;top:0;width:12px;height:9px;border-radius:0 0 3px 3px;background:#4da3ff}
+.c2c-framebar-tag{position:absolute;left:16px;top:10px;padding:0 4px;border-radius:3px;background:#172235;color:#e9f1ff;font-size:.72rem;white-space:nowrap}
+.c2c-framebar:hover .c2c-framebar-line,.c2c-framebar.c2c-dragging .c2c-framebar-line{left:5px;width:4px;background:#8cc4ff}

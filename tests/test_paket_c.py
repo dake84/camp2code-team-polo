@@ -88,7 +88,7 @@ class ReplayCallbackTests(unittest.TestCase):
             camera.processor_name = 'CopilotLaneProcessor'
         self.ctx.set('session-choice', 'value')
         figure = self.callbacks['replay_chart']('__live__', None, 1, 'replay')
-        self.assertEqual(len(figure.data), 3)                    # Stellwert, Linien, Cursor
+        self.assertEqual(len(figure.data), 2)                    # Stellwert, Linien (PAKET-H1B: Balken = DOM)
         tab, message, source, _token, _s = self.callbacks['replay_to_studio'](1, None, '__live__', None, 1)  # PAKET-E
         self.assertEqual(tab, 'pipeline')
         self.assertIn('Referenz A', source)

@@ -13,7 +13,8 @@ from types import SimpleNamespace
 import cv2
 
 from replay_hud import draw_hud, row_from_camera
-from replay_selection import event_window, record_frame_id, select_records, selected_bounds
+from replay_selection import (event_window, nearest_position, record_frame_id, select_records,
+                              selected_bounds)  # PAKET-H1B
 from replay_studio import load_session_image, parameters_from_record, processor_key
 from session_recorder import (export_live_records, export_session_range, list_sessions, load_events,
                               load_session)
@@ -76,8 +77,9 @@ class ReplayTab(DashboardTab):
                     html.Div(id='replay-studio-msg', className='small mt-1')]), lg=4),
             ], className='g-3'),
             dbc.Row([dbc.Col(c.card('Zeitliche Navigation', [
-                c.chart_block('replay-chart', 260, 'Noch keine Daten',
-                              note='Klick auf Messpunkt = Frame wählen · Ziehen oder Mausrad = Bereich wählen · '
+                c.chart_block('replay-chart', 260, 'Noch keine Daten', frame_bar='replay-bar',
+                              note='Blauen Balken ziehen oder Klick auf Messpunkt = Frame wählen · '
+                                   'Ziehen im Diagramm oder Mausrad = Bereich wählen · '
                                    'Doppelklick = alles · Legende: Klick = Kurve ein/aus')]), md=12)],
                     className='mt-3'),
             dcc.Store(id='replay-playing', data=False, storage_type='memory'),
@@ -143,9 +145,9 @@ class ReplayTab(DashboardTab):
                       State('replay-index', 'value'), State('replay-playing', 'data'),
                       State('session-choice', 'value'), State('replay-bounds', 'data'),
                       State('replay-pre', 'value'), State('replay-post', 'value'),
-                      State('main-tabs', 'active_tab'), Input('jump-url', 'hash'))
+                      State('main-tabs', 'active_tab'), Input('jump-url', 'hash'), Input('replay-bar', 'data'))
         def seek(_prev, _next, click, relayout, event_frame, _reset, _tick, index, playing, name, bounds,
-                 pre, post, tab, jump=None):
+                 pre, post, tab, jump=None, bar=None):
             trigger = ctx.triggered_id
             if tab != self.tab_id and trigger == self.tick_id:
                 return no_update, no_update
@@ -159,6 +161,11 @@ class ReplayTab(DashboardTab):
                 ids = [record_frame_id(r) for r in records]
                 position = next((i for i, fid in enumerate(ids) if fid is not None and fid >= frame), 0)
                 return position, list(window)
+            if trigger == 'replay-bar':  # PAKET-H1B: Frame-Balken gezogen (assets/framebar.js), kein Neuaufbau des Diagramms
+                records, _, _ = records_for(name, bounds)
+                position = nearest_position([record_frame_id(r) for r in records], (bar or {}).get('frame'))
+                return (position, no_update) if position is not None else (no_update, no_update)
+
             if trigger == 'replay-range-reset':
                 return 0, None
             if trigger == 'replay-chart' and ctx.triggered and ctx.triggered[0]['prop_id'].endswith('relayoutData'):
@@ -186,6 +193,12 @@ class ReplayTab(DashboardTab):
             if trigger == self.tick_id and playing:
                 return min(len(records) - 1, index + 1), no_update
             return no_update, no_update
+
+        # PAKET-H1B: Frame-Balken (assets/framebar.js) folgt dem Index clientseitig, auch bei Wiedergabe
+        if c.ClientsideFunction is not None and hasattr(app, 'clientside_callback'):
+            app.clientside_callback(c.ClientsideFunction('c2c_framebar', 'move'), Output('replay-chart-barsync', 'data'),
+                                    Input('replay-index', 'value'), Input('replay-chart', 'figure'),
+                                    State('replay-chart-box', 'id'))
 
         @app.callback(Output('replay-index', 'max'), Output('replay-range', 'children'),
                       Input('replay-bounds', 'data'), Input('session-choice', 'value'),
@@ -248,22 +261,21 @@ class ReplayTab(DashboardTab):
 
         @app.callback(Output('replay-chart', 'figure'),
                       Input('session-choice', 'value'), Input('replay-bounds', 'data'),
-                      Input('replay-index', 'value'), State('main-tabs', 'active_tab'))
+                      Input('replay-index', 'value'), Input('main-tabs', 'active_tab'))  # PAKET-H1B
         def replay_chart(name, bounds, index, tab):
-            """Diagramm nur bei Session-/Bereichswechsel neu; sonst wandert nur der Cursor."""
+            """Diagramm nur bei Session-/Bereichswechsel (und im Live-Ringbuffer) neu aufbauen.
+
+            PAKET-H1B: Der Frame-Balken ist ein eigenes, clientseitig bewegtes Element (assets/framebar.js); ein
+            Indexwechsel baut das Diagramm einer gespeicherten Session daher nicht mehr neu und patcht auch keine Kurve.
+            """
             if tab != self.tab_id:
                 return no_update
             props = c.triggered_ids()
             live = name in (None, LIVE)
-            structural = live or not props or bool(props & {'session-choice', 'replay-bounds', ''})
-            if not structural and 'replay-index' not in props:
+            structural = live or not props or bool(props & {'session-choice', 'replay-bounds', 'main-tabs', ''})
+            if not structural:
                 return no_update
             records, events, _path, record = record_at(name, bounds, index)
-            cursor = record_frame_id(record) if record is not None else None
-            if not structural and Patch is not None and cursor is not None:
-                patch = Patch()
-                patch['data'][2]['x'] = [cursor, cursor]
-                return patch
             with c.measure('dashboard.replay_chart'):
                 chart = go.Figure()
                 # Keine layout.height; der Legendenzustand haengt an layout.uirevision (je Quelle), die
@@ -292,9 +304,6 @@ class ReplayTab(DashboardTab):
                                   marker={'size': 4})
                 chart.add_scatter(x=ids, y=lanes, customdata=ids, mode='lines', name='Linienanzahl',
                                   line={'shape': 'hv'}, yaxis='y2')
-                # Trace 2 = Cursor; wird beim Blaettern per Patch verschoben.
-                chart.add_scatter(x=[cursor, cursor], y=[45, 135], mode='lines', name='Aktueller Frame',
-                                  line={'color': '#4da3ff', 'width': 2}, hoverinfo='skip')
                 valid = [i for i in ids if i is not None]
                 lo, hi = (min(valid), max(valid)) if valid else (0, -1)
                 for event in events:

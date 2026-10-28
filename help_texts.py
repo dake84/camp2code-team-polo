@@ -92,6 +92,25 @@ HELP = {
     'simmode': ('Echtzeit / Jeder Frame', 'Einstellung',
                 'Echtzeit hält das Tempo nach den Zeitstempeln und überspringt Anzeigeframes, Jeder Frame '
                 'überspringt nichts und läuft langsamer, wenn die Anzeige nicht hinterherkommt.'),
+    # PAKET-H1B: Kamera, Regler und Fahrzeug (Settings)
+    'camfreq': ('Kamera-Abtastung', 'Einstellung',
+                'Soll-Bildrate der Kameraschleife in Hertz, die nur erreicht wird, wenn Aufnahme und Bildverarbeitung '
+                'schnell genug sind, und die unter 5 Hz die Kamera-Überwachung des Reglers auslösen kann.'),
+    'ctlfreq': ('Regler-Abtastung', 'Einstellung',
+                'Wie oft der CameraMode pro Sekunde nach einem neuen Kamerabild schaut, wobei nur neue Bilder '
+                'ausgewertet werden und die Entscheidungsrate daher nie über der Kamerarate liegt.'),
+    'losttimeout': ('Linien-Timeout', 'Einstellung',
+                    'Sekunden ohne zwei erkannte Linien oder ohne neues Kamerabild, nach denen der Regler stoppt '
+                    '(LANE_TIMEOUT beziehungsweise CAMERA_STALE), wobei kleine Werte früher abbrechen.'),
+    'steergain': ('Lenkverstärkung', 'Einstellung',
+                  'Faktor, mit dem die Abweichung des Rohwinkels von 90 Grad in den Sollwinkel übersetzt wird '
+                  '(Standard 2,0), wobei größere Werte stärker lenken und der Stellwert auf 45 bis 135 Grad begrenzt bleibt.'),
+    'vmin': ('Minimaler Steuerwert', 'Einstellung',
+             'Untergrenze des PWM-Steuerwerts für jede Fahrt (Standard 20), auf die kleinere Werte angehoben werden, '
+             'wobei das Auto laut Erfahrung erst ab etwa 30 anfährt.'),
+    'vmax': ('Maximaler Steuerwert', 'Einstellung',
+             'Obergrenze des PWM-Steuerwerts für jede Fahrt (Standard 100), die auch die adaptive Geschwindigkeit '
+             'und die Bergung begrenzt und nicht kleiner als der minimale Steuerwert sein darf.'),
     'simrate': ('Anzeigerate', 'gemessen',
                 'Vom Server ausgelieferte Anzeigeframes pro Sekunde, begrenzt durch den Anzeigetakt von 150 ms '
                 '(höchstens etwa 6 bis 7 pro Sekunde) sowie Bildkodierung und Übertragung, ohne Messung der '

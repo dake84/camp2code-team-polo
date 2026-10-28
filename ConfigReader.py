@@ -125,7 +125,12 @@ class ConfigReader:
         Returns:
             int: Der gelesene Integer-Wert.
         """
-        return int(self.get_config().get(attribut, dv))
+        value = self.get_config().get(attribut, dv)
+        try:  # PAKET-H1B: ungueltige Werte ergeben den Standardwert statt eines Startabbruchs
+            return int(value)
+        except (TypeError, ValueError):
+            self._log.warning(f"Ungültiger Wert {value!r} für {self._cfg_namespace}.{attribut}, Standardwert {dv}")
+            return int(dv)
 
     def get_str(self, attribut: str, dv: str) -> str:
             """
@@ -167,7 +172,23 @@ class ConfigReader:
         Returns:
             float: Der gelesene Float-Wert.
         """
-        return float(self.get_config().get(attribut, dv))
+        value = self.get_config().get(attribut, dv)
+        try:  # PAKET-H1B: ungueltige Werte ergeben den Standardwert statt eines Startabbruchs
+            return float(value)
+        except (TypeError, ValueError):
+            self._log.warning(f"Ungültiger Wert {value!r} für {self._cfg_namespace}.{attribut}, Standardwert {dv}")
+            return float(dv)
+
+    def set_value(self, attribut: str, value) -> bool:
+        """PAKET-H1B: setzt einen Wert nur im Speicher (legt den Namespace bei Bedarf an) und speichert nicht.
+
+        ``set_config`` verwirft den Wert still, wenn der Namespace in der Datei fehlt.
+        """
+        with self._lock:
+            if self._json_config is None:
+                self._load_config_file()
+            self._json_config.setdefault(self._cfg_namespace, {})[attribut] = value
+        return True
 
     def _save_config(self) -> bool:
         """

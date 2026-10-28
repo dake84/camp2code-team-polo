@@ -41,7 +41,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_abhaengigkeiten(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 31)  # 30 bisherige + rebuild_stage_cards (Pipeline Studio dynamisch)
+        self.assertEqual(len(deps), 34)  # PAKET-H1B: + rt_settings, + 2 clientseitige Frame-Balken  # 30 bisherige + rebuild_stage_cards (Pipeline Studio dynamisch)
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1

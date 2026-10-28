@@ -1,4 +1,5 @@
 """Tab "Settings": Geschwindigkeit (CameraMode) und Aufzeichnung (JPEG-Qualitaet)."""
+import runtime_settings  # PAKET-H1B
 from ..helpers import saved_note
 from .base import DashboardTab
 
@@ -39,9 +40,40 @@ class SettingsTab(DashboardTab):
                              options=QUALITY_OPTIONS),
                 html.Div('Auflösung = Kamera (cam_sensor.width/height in config.json), Neustart nötig.',
                          className='small text-secondary mt-2')]), md=6),
+            dbc.Col(self.runtime_card(), md=12),  # PAKET-H1B
             dbc.Col([dbc.Button('Übernehmen', id='settings-apply', color='primary', size='sm'),
                      html.Div(id='settings-msg', className='small mt-2')], md=12),
         ], className='g-3')
+
+    def runtime_card(self):
+        """PAKET-H1B: Kamera, Regler und Fahrzeug (runtime_settings.py); nur im Stillstand, dauerhaft gespeichert."""
+        c = self.ctx
+        dbc, dcc, html = c.dbc, c.dcc, c.html
+        rows, group = [], None
+        for setting in runtime_settings.SETTINGS:
+            if setting.group != group:
+                group = setting.group
+                rows.append(html.Div(group, className='fw-semibold text-info mt-3 mb-1'))
+            title = setting.label + (f' ({setting.unit})' if setting.unit else '')
+            marker = [dbc.Badge('verhaltensrelevant', color='warning', text_color='dark', className='ms-1')] \
+                if setting.behavior else []
+            rows.append(dbc.Row([
+                dbc.Col(html.Div([c.help_label(title, setting.help_key, 'small d-inline-block'), *marker]), md=4),
+                dbc.Col(dcc.Input(id=f'rt-{setting.key}', type='number', min=setting.minimum, max=setting.maximum,
+                                  step=setting.step, value=setting.default, className='form-control form-control-sm'),
+                        md=2),
+                dbc.Col(html.Div(id=f'rt-status-{setting.key}', className='small text-secondary'), md=6),
+            ], className='g-2 align-items-center mb-1'))
+        return c.card('Kamera & Regler', [
+            html.Div('Nur im Stillstand · wirkt sofort · wird dauerhaft in config.json gespeichert · Bereiche: '
+                     + ' · '.join(f'{s.label} {runtime_settings.number_text(s.minimum)}–'
+                                  f'{runtime_settings.number_text(s.maximum)}' for s in runtime_settings.SETTINGS),
+                     className='small text-secondary'),
+            *rows,
+            dbc.Alert('Verhaltensrelevante Werte ändern die Fahrregelung beziehungsweise die Steuerwerte aller Fahrmodi; '
+                      'nach einer Änderung zuerst aufgebockt prüfen.', color='warning', className='small mt-3 mb-2 py-2'),
+            dbc.Button('Übernehmen (Kamera & Regler)', id='rt-apply', color='primary', size='sm'),
+            html.Div(id='rt-msg', className='small mt-2')])
 
     def register_callbacks(self, app):
         c = self.ctx
@@ -75,6 +107,47 @@ class SettingsTab(DashboardTab):
             except (ValueError, RuntimeError, TypeError) as exc:
                 messages.append(html.Div(f'✖ Aufnahme: {exc}', className='text-warning'))
             return messages
+
+        # PAKET-H1B: Kamera & Regler (ein Callback fuer Anzeige beim Oeffnen und Uebernehmen)
+        setting_keys = [s.key for s in runtime_settings.SETTINGS]
+        level_class = {'ok': 'text-success', 'warn': 'text-warning', 'off': 'text-secondary'}
+
+        @app.callback(*[Output(f'rt-{key}', 'value') for key in setting_keys],
+                      *[Output(f'rt-status-{key}', 'children') for key in setting_keys], Output('rt-msg', 'children'),
+                      Input('main-tabs', 'active_tab'), Input('rt-apply', 'n_clicks'),
+                      *[State(f'rt-{key}', 'value') for key in setting_keys])
+        def rt_settings(tab, _n, *values):
+            """Zeigt aktive und gespeicherte Werte beim Oeffnen des Reiters; uebernimmt und speichert bei Klick."""
+            count = len(setting_keys)
+            getter = getattr(application, 'runtime_settings', None)
+            message = no_update
+            fill = [no_update] * count
+            if c.ctx.triggered_id == 'rt-apply':
+                try:
+                    result = application.set_runtime_settings(dict(zip(setting_keys, values)))
+                    late = [runtime_settings.BY_KEY[k].label for k, live in result['applied'].items() if not live]
+                    message = [html.Div('✔ Kamera- und Reglerwerte übernommen' + saved_note(result['saved']),
+                                        className='text-success')]
+                    if late:
+                        message.append(html.Div('Gilt erst ab dem nächsten Start: ' + ', '.join(late),
+                                                className='text-warning'))
+                except (ValueError, RuntimeError, AttributeError) as exc:
+                    message = html.Div(f'✖ {exc}', className='text-warning')
+            elif tab != self.tab_id:
+                return (no_update,) * (2 * count + 1)
+            else:
+                snap = getter() if getter is not None else None
+                if snap is not None:
+                    fill = [next((v for v in (snap[k]['active'], snap[k]['stored']) if v is not None),
+                                 runtime_settings.BY_KEY[k].default) for k in setting_keys]
+            snap = getter() if getter is not None else None
+            status = [no_update] * count
+            if snap is not None:
+                status = []
+                for key in setting_keys:
+                    text, level = runtime_settings.describe(runtime_settings.BY_KEY[key], snap[key])
+                    status.append(html.Span(text, className=level_class[level]))
+            return (*fill, *status, message)
 
         @app.callback(Output('set-speed-mode', 'value'), Output('set-speed-fixed', 'value'),
                       Output('set-speed-vmin', 'value'), Output('set-speed-vmax', 'value'),

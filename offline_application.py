@@ -11,6 +11,7 @@ import logging
 from types import SimpleNamespace
 
 import config_store  # PAKET-H1
+import runtime_settings  # PAKET-H1B
 from driving_health import DrivingHealthMonitor
 from pipeline_config import load, save
 from processor_registry import create_processor, is_live_processor, key_for_class
@@ -65,6 +66,7 @@ class OfflineSensor:
 
 class OfflineApplication:
     offline = True
+    settings_revision = 0  # PAKET-H1B
 
     def __init__(self):
         self.car = OfflineCar()
@@ -122,6 +124,23 @@ class OfflineApplication:
 
     def set_jpeg_quality(self, quality):
         self._refuse()
+    def runtime_settings(self):  # PAKET-H1B
+        """Offline sind Kamera und Regler nicht aktiv; angezeigt werden nur die gespeicherten Werte."""
+        snapshot = runtime_settings.snapshot(self)
+        for entry in snapshot.values():
+            entry['active'] = None
+        return snapshot
+
+    def set_runtime_settings(self, values):
+        """Offline wird nur gespeichert (falls config.json vorhanden ist); nichts ist live aktiv."""
+        values = runtime_settings.validate(values)
+        try:
+            runtime_settings.save(values)
+            saved = True
+        except (config_store.ConfigStoreError, OSError, ValueError):
+            saved = False
+        return {'saved': saved, 'applied': {key: False for key in values}, 'values': values}
+
     def toggle_recording(self):
         self._refuse()
 

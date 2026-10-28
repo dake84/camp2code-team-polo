@@ -22,6 +22,7 @@ import Driving
 from CameraCar import CameraCar
 from CameraSensor import CameraSensor
 import config_store  # PAKET-H1
+import runtime_settings  # PAKET-H1B
 from driving_health import DrivingHealthMonitor
 from pipeline_config import save
 from recovery_control import RecoveryControl
@@ -64,6 +65,8 @@ class CarApplication:
         # PAKET-H1: Fahrzeugzustand fuer die Kamera (Aufnahmemoment) und gespeicherte Einstellungen
         self._attach_vehicle_mode()
         self._apply_stored_settings()
+        self.settings_revision = 0  # PAKET-H1B: zaehlt Aenderungen (Simulation liest danach neu)
+        self._apply_stored_runtime_settings()
         if start_camera:
             self.start_camera()
         self._telemetry_thread = threading.Thread(target=self._sample_loop,
@@ -206,11 +209,39 @@ class CarApplication:
         """PAKET-H1: dauerhaft speichern. False (mit Protokoll), wenn nicht moeglich - der Wert gilt dann bis zum Neustart."""
         try:
             action()
+            self.health.record('CONFIG_SAVED', f'{what} dauerhaft gespeichert')  # PAKET-H1B
             return True
         except (config_store.ConfigStoreError, OSError, ValueError) as exc:
             log.warning('%s nicht dauerhaft gespeichert: %s', what, exc)
             self.health.record('CONFIG_NOT_SAVED', f'{what}: {exc}')
             return False
+
+    # ------------------------------------------------------------ Kamera- und Reglereinstellungen (PAKET-H1B)
+    def runtime_settings(self):
+        """Je Einstellung aktiver und gespeicherter Wert (siehe runtime_settings.snapshot)."""
+        return runtime_settings.snapshot(self)
+
+    def set_runtime_settings(self, values):
+        """Validiert, uebernimmt live und speichert dauerhaft; nur im Stillstand (kein Fahrmodus, keine Bergung).
+
+        Liefert {'saved': True|False, 'applied': {schluessel: live uebernommen}, 'values': normalisierte Werte}.
+        ``ValueError`` bei ungueltigen Werten, ``RuntimeError`` bei laufender Fahrt; dann wurde nichts veraendert.
+        """
+        with self._lock:
+            if self.running() or self.recovery.enabled:
+                raise RuntimeError('Kamera- und Reglereinstellungen nur im Stillstand ändern')
+            values = runtime_settings.validate(values)
+            applied = runtime_settings.apply_live(self, values)
+            self.settings_revision += 1
+        saved = self._persist(lambda: runtime_settings.save(values), 'Kamera- und Reglereinstellungen')
+        return {'saved': saved, 'applied': applied, 'values': values}
+
+    def _apply_stored_runtime_settings(self):
+        """PAKET-H1B: gespeicherte Kamera-/Reglerwerte anwenden; Fehler duerfen den Start nie verhindern."""
+        try:
+            runtime_settings.apply_live(self, runtime_settings.startup_values())
+        except Exception:
+            log.exception('Gespeicherte Kamera-/Reglereinstellungen nicht anwendbar - Standardwerte bleiben')
 
     # ------------------------------------------------------------ Einstellungen (PAKET-G)
     @staticmethod

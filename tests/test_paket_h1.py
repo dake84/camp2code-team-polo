@@ -566,7 +566,7 @@ class DashboardChartTests(unittest.TestCase):
         self.ctx.set('session-choice', 'value')
         figure = self.cb['replay_chart']('__live__', None, 1, 'replay')
         self.assertNotIn('height', figure.layout)
-        self.assertEqual(len(figure.data), 3)                                    # Stellwert, Linien, Cursor
+        self.assertEqual(len(figure.data), 2)                                    # Stellwert, Linien (PAKET-H1B)
         self.assertEqual(figure.layout['uirevision'], '__live__')                # Legendenzustand je Quelle
         bounded = self.cb['replay_chart']('__live__', [30, 32], 1, 'replay')
         self.assertEqual(bounded.layout['xaxis']['uirevision'], '__live__|[30, 32]')   # Achsen je Bereich
@@ -696,7 +696,7 @@ class RealDashChartTests(unittest.TestCase):
         figure = response.get_json()['response']['replay-chart']['figure']
         self.assertNotIn('height', figure['layout'])
         self.assertEqual(figure['layout']['xaxis']['uirevision'], '__live__|[70, 72]')
-        self.assertEqual(len(figure['data']), 3)
+        self.assertEqual(len(figure['data']), 2)  # PAKET-H1B: Frame-Balken ist ein DOM-Element
 
     def test_telemetrie_und_settings_ueber_http(self):
         outputs = [('freq-bars', 'figure'), ('freq-history', 'figure'), ('drive-history', 'figure'),

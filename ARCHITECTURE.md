@@ -168,6 +168,12 @@ dashboard/
   `replay_to_studio` (Navigation Replay/Recording → Pipeline Studio, Besitzer: `ReplayTab`).
 * Die Layout-Funktion wird je Seitenaufruf neu ausgeführt; ein Neuladen zeigt die wirksamen Studio-Einstellungen.
 
+### 7.1b Frame-Balken (PAKET-H1B)
+Diagramme mit `frame_bar=<Store-ID>` (`chart_kit.chart_block`) tragen `data-framebar`; `assets/framebar.js` legt ein
+DOM-Element über das Plotly-Diagramm. Index → Balken: clientseitiger Callback `c2c_framebar.move` (x-Wert =
+`data[0].x[index]`); Balken → Server: `dcc.Store` `{frame, nonce}` (gedrosselt), ausgewertet in `seek` (Replay) und
+`sim_playback` (Simulation) über `replay_selection.nearest_position`.
+
 ### 7.2 Pipeline Studio: Stufen kommen aus dem Prozessor
 
 Das Studio kennt keine Stufen mehr fest. Jeder Prozessor beschreibt sie in `dashboard_stages()`

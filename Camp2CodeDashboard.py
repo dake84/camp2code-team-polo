@@ -29,6 +29,10 @@ try:  # Teilaktualisierung des Diagramms (Dash >= 2.9)
     from dash import Patch
 except ImportError:  # Dash-Attrappe in den Tests
     Patch = None
+try:  # PAKET-H1B: clientseitige Callbacks (Frame-Balken)
+    from dash import ClientsideFunction
+except ImportError:  # Dash-Attrappe ohne diese Klasse
+    ClientsideFunction = None
 
 try:  # ohne Raspberry-Pi-Bibliotheken (Laptop) nur mit --offline
     from car_application import CarApplication
@@ -45,7 +49,8 @@ log = logging.getLogger(__name__)
 # Dash-Bausteine fuer die Tabs. Das Paket ``dashboard`` importiert Dash nie selbst; so laeuft es mit echtem
 # Dash und mit der Test-Attrappe (tests/dash_stub.py).
 COMPONENTS = SimpleNamespace(Dash=Dash, dbc=dbc, dcc=dcc, html=html, go=go, Input=Input, Output=Output,
-                             State=State, ALL=ALL, ctx=ctx, no_update=no_update, Patch=Patch)
+                             State=State, ALL=ALL, ctx=ctx, no_update=no_update, Patch=Patch,
+                             ClientsideFunction=ClientsideFunction)
 
 
 def create_app(application, tabs=None):

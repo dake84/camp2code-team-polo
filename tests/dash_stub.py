@@ -80,6 +80,10 @@ class _NoUpdate:
 no_update = _NoUpdate()
 
 
+class ClientsideFunction(namedtuple('ClientsideFunction', 'namespace function_name')):  # PAKET-H1B
+    pass
+
+
 class CallbackContext:
     def __init__(self):
         self.triggered_id = None
@@ -115,12 +119,16 @@ class Dash:
         self.kwargs = kwargs
         self.layout = None
         self.callbacks = {}
+        self.clientside = []  # PAKET-H1B: (Funktion, Abhaengigkeiten) clientseitiger Callbacks
 
     def callback(self, *deps, **kwargs):
         def decorator(func):
             self.callbacks[func.__name__] = Callback(func, deps, kwargs)
             return func
         return decorator
+
+    def clientside_callback(self, function, *deps):  # PAKET-H1B
+        self.clientside.append((function, deps))
 
     def run(self, *args, **kwargs):  # pragma: no cover - nie im Test gestartet
         raise RuntimeError('Attrappe: kein Server')
@@ -151,6 +159,7 @@ def modules():
     dcc = _component_module('dash.dcc', {'send_file': lambda path: {'path': path}})
     dash.Dash, dash.Input, dash.Output, dash.State = Dash, Input, Output, State
     dash.ALL, dash.MATCH = ALL, MATCH
+    dash.ClientsideFunction = ClientsideFunction  # PAKET-H1B
     dash.ctx, dash.no_update, dash.html, dash.dcc = ctx, no_update, html, dcc
     dbc = _component_module('dash_bootstrap_components', {'themes': types.SimpleNamespace(DARKLY='darkly')})
     plotly = types.ModuleType('plotly')

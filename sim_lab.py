@@ -174,7 +174,9 @@ class SimLab:
         compare = card('Vergleich', [html.Div(id='sim-compare'), html.Hr(), html.Div(id='sim-stats')])
         chart = card('Stellwert und Linienanzahl · damals vs. jetzt', [
             chart_kit.chart_block(dcc, html, 'sim-chart', 280, 'Noch keine Simulation berechnet',
-                                  note='Klick auf einen Punkt = Frame anzeigen · grau = Vorlauf (nicht in den Kennzahlen) · '
+                                  frame_bar='sim-bar',
+                                  note='Blauen Balken ziehen oder Klick auf einen Punkt = Frame anzeigen · '
+                                       'grau = Vorlauf (nicht in den Kennzahlen) · '
                                        'rote Rauten = Regler-Stopp · Mausrad = Zoom · Legende: Klick = Kurve ein/aus')])
         return html.Div([
             dbc.Row([dbc.Col(settings, md=12)], className='g-3 mb-3'),
@@ -198,9 +200,11 @@ class SimLab:
         return tuple(params)
 
     def _get_engine(self):
-        if self._engine is None:
+        revision = getattr(self.application, 'settings_revision', 0)  # PAKET-H1B: nach Settings neu lesen
+        if self._engine is None or getattr(self, '_engine_revision', None) != revision:
             from sim_engine import SimEngine
             self._engine = SimEngine()
+            self._engine_revision = revision
         return self._engine
 
     def simulate(self, name, processor, param_mode, lo, hi, warmup):
@@ -285,7 +289,7 @@ class SimLab:
                 play['index'] = index
         return index, index >= last
 
-    def playback(self, trigger, token, speed, timing, index, paused, click=None, now=None):
+    def playback(self, trigger, token, speed, timing, index, paused, click=None, now=None, bar=None):
         """Logik des Wiedergabe-Callbacks: (Index, Takt pausiert, Play-Beschriftung).
 
         Play ist nur mit gueltigem (berechnetem) Ergebnis moeglich; ein neues oder verworfenes Ergebnis
@@ -312,6 +316,11 @@ class SimLab:
                 return max(0, index - 1), keep, keep
             if trigger == 'sim-next':
                 return min(last, index + 1), keep, keep
+            if trigger == 'sim-bar':  # PAKET-H1B: Frame-Balken gezogen; bei laufender Wiedergabe verankert advance() die Uhr neu
+                from replay_selection import nearest_position
+                position = nearest_position([frame.frame_id for frame in frames], (bar or {}).get('frame'))
+                return (position, keep, keep) if position is not None else (keep, keep, keep)
+
             if trigger == 'sim-chart':
                 points = (click or {}).get('points') or [{}]
                 value = points[0].get('customdata')
@@ -515,10 +524,11 @@ class SimLab:
                       Input('sim-prev', 'n_clicks'), Input('sim-next', 'n_clicks'), Input('sim-play', 'n_clicks'),
                       Input('sim-play-tick', 'n_intervals'), Input('sim-chart', 'clickData'),
                       Input('sim-result-token', 'data'), Input('sim-speed', 'value'), Input('sim-timing', 'value'),
-                      State('sim-index', 'value'), State('sim-play-tick', 'disabled'), prevent_initial_call=True)
-        def sim_playback(_prev, _next, _play, _tick, click, token, speed, timing, index, paused):
-            """Schritte, Sprung ins Diagramm und Wiedergabe nach den aufgezeichneten Zeitstempeln."""
-            return self.playback(ui.ctx.triggered_id, token, speed, timing, index, paused, click)
+                      State('sim-index', 'value'), State('sim-play-tick', 'disabled'), Input('sim-bar', 'data'),
+                      prevent_initial_call=True)
+        def sim_playback(_prev, _next, _play, _tick, click, token, speed, timing, index, paused, bar=None):
+            """Schritte, Sprung ins Diagramm (Klick oder Frame-Balken) und Wiedergabe nach den Zeitstempeln."""
+            return self.playback(ui.ctx.triggered_id, token, speed, timing, index, paused, click, bar=bar)
 
         @app.callback(Output('sim-img-then', 'src'), Output('sim-img-now', 'src'),
                       Output('sim-compare', 'children'), Output('sim-frame-label', 'children'),
@@ -548,5 +558,11 @@ class SimLab:
             if frame.stop_reason:
                 label += f' · STOPP {frame.stop_reason}'
             return self.uri(then), self.uri(now), self.frame_table(frame), html.Span(label), rate
+
+        clientside = getattr(ui, 'ClientsideFunction', None)
+        if clientside is not None and hasattr(app, 'clientside_callback'):  # PAKET-H1B: Frame-Balken (assets/framebar.js)
+            app.clientside_callback(clientside('c2c_framebar', 'move'), Output('sim-chart-barsync', 'data'),
+                                    Input('sim-index', 'value'), Input('sim-chart', 'figure'),
+                                    State('sim-chart-box', 'id'))
 
         return self.CALLBACKS

@@ -54,16 +54,25 @@ def fullscreen_button(html, target):
                        **{'data-target': target})
 
 
-def chart_block(dcc, html, graph_id, height=260, hint='Noch keine Daten', note=None):
+def chart_block(dcc, html, graph_id, height=260, hint='Noch keine Daten', note=None, frame_bar=None):
     """Diagramm mit fester Hoehe; ueber dem Diagramm eine Leiste mit Hinweis und Vollbild-Schalter.
 
     Die Leiste ist Geschwister des ``dcc.Graph`` (nicht darin). Das Vollbild gilt fuer den
     ganzen Block (``<graph_id>-box``), die Leiste bleibt dabei sichtbar.
+
+    PAKET-H1B: ``frame_bar`` = ID eines ``dcc.Store``. Dann traegt der Block ``data-framebar`` und
+    assets/framebar.js legt einen ziehbaren Frame-Balken ueber das Diagramm; beim Ziehen meldet er
+    ``{frame, nonce}`` an diesen Store. ``<graph_id>-barsync`` ist der Ausgang des clientseitigen Callbacks,
+    der den Balken dem Index folgen laesst (ohne Serveranfrage).
     """
     box = f'{graph_id}-box'
-    bar = html.Div([html.Span(note or DEFAULT_NOTE, className='small text-secondary'),
-                    fullscreen_button(html, box)],
-                   className='c2c-chart-bar d-flex justify-content-between align-items-center mb-1')
+    bar_children, attributes = [html.Span(note or DEFAULT_NOTE, className='small text-secondary'),
+                                fullscreen_button(html, box)], {}
+    if frame_bar:   # Stores ohne Darstellung in der Leiste: die Kinder des Blocks bleiben (Leiste, Diagramm)
+        bar_children += [dcc.Store(id=frame_bar, data=None, storage_type='memory'),
+                         dcc.Store(id=f'{graph_id}-barsync', data=None, storage_type='memory')]
+        attributes['data-framebar'] = frame_bar
+    bar = html.Div(bar_children, className='c2c-chart-bar d-flex justify-content-between align-items-center mb-1')
     graph = dcc.Graph(id=graph_id, figure=empty_figure(hint), config=CHART_CONFIG, responsive=True,
                       className='c2c-graph', style={'height': f'{int(height)}px'})
-    return html.Div([bar, graph], id=box, className='c2c-chart-box')
+    return html.Div([bar, graph], id=box, className='c2c-chart-box', **attributes)

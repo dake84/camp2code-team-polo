@@ -50,3 +50,19 @@ def event_window(frame_id, before, after):
     before = max(0, int(before or 0))
     after = max(0, int(after or 0))
     return max(0, int(frame_id) - before), int(frame_id) + after
+def nearest_position(ids, frame):
+    """PAKET-H1B: Position in ``ids`` des Frames, der ``frame`` am naechsten liegt.
+
+    ``None`` bei ungueltiger Eingabe (kein Zahlenwert, nicht endlich) oder ohne bekannte IDs. Bei gleichem
+    Abstand gewinnt der kleinere Frame; unbekannte IDs (``None``) werden uebergangen.
+    """
+    if isinstance(frame, bool) or not isinstance(frame, (int, float)) or not math.isfinite(frame):
+        return None
+    best = best_distance = None
+    for position, frame_id in enumerate(ids):
+        if frame_id is None:
+            continue
+        distance = abs(frame_id - frame)
+        if best is None or distance < best_distance or (distance == best_distance and frame_id < ids[best]):
+            best, best_distance = position, distance
+    return best

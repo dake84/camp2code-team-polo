@@ -1,4 +1,20 @@
 # Changelog
+## 6.8 – Paket H1b (PAKET-H1B)
+* **Frame-Balken** in Replay Lab („Zeitliche Navigation“) und Simulations-Diagramm: senkrechter, ziehbarer Balken am
+  angezeigten Frame (`assets/framebar.js`). Der Balken ist ein eigenes Element über dem Plotly-Diagramm (keine Plotly-Shape:
+  deren Ziehen meldet erst beim Loslassen, verschiebt frei in y und machte auch Ereignislinien ziehbar). Ziehen baut das
+  Diagramm nicht neu (Zoom, Legende und Bereichsauswahl bleiben), meldet gedrosselt (150 ms) an `replay-bar`/`sim-bar` und
+  setzt Frame und Bild; bei Wiedergabe läuft er clientseitig mit (Dash-Callback `c2c_framebar.move`). Programmatisches
+  Setzen meldet nichts zurück. Die Kurve „Aktueller Frame“ (Patch) im Replay-Diagramm entfällt.
+* **Kamera & Regler** im Settings-Reiter (`runtime_settings.py`): Kamera-Abtastung (`cam_sensor.scan_frequency`),
+  Regler-Abtastung, Linien-Timeout, Lenkverstärkung (`cameracar_controller.*`), minimaler/maximaler Steuerwert
+  (`car.v_min/v_max`). Nur im Stillstand, Bereiche validiert, sofort wirksam, dauerhaft über `config_store`; je Wert
+  Anzeige „aktiv“ / „gespeichert (gilt ab nächstem Start)“; Standardwerte unverändert; fehlerhafte gespeicherte Werte
+  ergeben die Standardwerte (`ConfigReader.get_int/get_float` brechen bei ungültigen Werten nicht mehr ab).
+  Verhaltensrelevante Werte sind gekennzeichnet; Hardware-Kalibrierung, Auflösung und colormode bleiben außen vor (H3).
+* Ereignis `CONFIG_SAVED` bei erfolgreichem dauerhaften Speichern; `ConfigReader.set_value`; Simulation liest nach
+  Änderungen der Settings die Regler-Konfiguration neu.
+
 ## 6.7 – Dashboard als Plug-ins, dynamisches Pipeline Studio, Modus Opus
 * **Dashboard in Tab-Klassen zerlegt:** `Camp2CodeDashboard.py` (vorher ca. 1400 Zeilen mit allen Layouts und
   Callbacks) startet nur noch; Aufbau im Paket `dashboard/` (Shell + `tabs/`: Driving, Pipeline, Telemetry,

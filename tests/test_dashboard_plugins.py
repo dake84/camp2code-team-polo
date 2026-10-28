@@ -185,7 +185,7 @@ class PluginTests(unittest.TestCase):
         'RecordingTab': {'recording_view'},
         'ReplayTab': {'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits', 'replay_toggle',
                       'replay_play_label', 'replay_render', 'replay_chart', 'replay_to_studio', 'export_range'},
-        'SettingsTab': {'settings_apply', 'settings_fill'},
+        'SettingsTab': {'settings_apply', 'settings_fill', 'rt_settings'},  # PAKET-H1B
         'Shell': {'kpi_bar', 'handle_actions', 'tab_intervals', 'global_status', 'recovery_pulse'},
     }
 

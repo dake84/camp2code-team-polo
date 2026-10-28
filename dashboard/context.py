@@ -27,7 +27,7 @@ class DashboardContext:
         self.thread_cpu = thread_cpu  # ThreadCpuSampler (Telemetrie)
         self.sim = sim                # SimLab (Cockpit-Simulation)
         self.uri = uri
-        for name in ('dbc', 'dcc', 'html', 'Input', 'Output', 'State', 'ALL', 'ctx', 'no_update', 'Patch', 'go'):
+        for name in ('dbc', 'dcc', 'html', 'Input', 'Output', 'State', 'ALL', 'ctx', 'no_update', 'Patch', 'go', 'ClientsideFunction'):  # PAKET-H1B
             setattr(self, name, getattr(components, name, None))
 
     # ------------------------------------------------------------- Callback-Kontext
@@ -66,9 +66,9 @@ class DashboardContext:
     def legend(self):
         return legend_block(self.html)
 
-    def chart_block(self, graph_id, height=260, hint='Noch keine Daten', note=None):
+    def chart_block(self, graph_id, height=260, hint='Noch keine Daten', note=None, frame_bar=None):
         """Diagramm mit fester Hoehe (style.height), Vollbild-Leiste als Geschwister (chart_kit)."""
-        return chart_kit.chart_block(self.dcc, self.html, graph_id, height, hint, note)
+        return chart_kit.chart_block(self.dcc, self.html, graph_id, height, hint, note, frame_bar)  # PAKET-H1B
 
     @staticmethod
     def empty_figure(text='Noch keine Daten'):
