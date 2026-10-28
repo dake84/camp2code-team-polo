@@ -6,12 +6,12 @@ Die Reihenfolge entspricht der Reihenfolge der Reiter; der erste Tab ist der Sta
 from .base import DashboardTab
 from .driving import DrivingTab
 from .pipeline import PipelineTab
-from .recording import RecordingTab
 from .replay import ReplayTab
 from .settings import SettingsTab
 from .telemetry import TelemetryTab
 
-DEFAULT_TABS = (DrivingTab, PipelineTab, TelemetryTab, RecordingTab, ReplayTab, SettingsTab)
+# PAKET-H2: der Reiter "Recording & Events" entfaellt (Ereignisprotokoll in Cockpit und Replay Lab)
+DEFAULT_TABS = (DrivingTab, PipelineTab, TelemetryTab, ReplayTab, SettingsTab)
 
 
 def default_tabs(context):
@@ -20,4 +20,4 @@ def default_tabs(context):
 
 
 __all__ = ['DashboardTab', 'DEFAULT_TABS', 'default_tabs', 'DrivingTab', 'PipelineTab', 'TelemetryTab',
-           'RecordingTab', 'ReplayTab', 'SettingsTab']
+           'ReplayTab', 'SettingsTab']

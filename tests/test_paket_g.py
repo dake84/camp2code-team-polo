@@ -158,7 +158,7 @@ class DashboardTests(unittest.TestCase):
     def test_kennzahlen(self):
         for frame_id in range(1, 6):
             self.fake.publish(frame_id, with_decision=True)
-        rate, lat, qual = self.cb['kpi_bar'](2)
+        rate, lat, qual, load = self.cb['kpi_bar'](2)  # PAKET-H2
         self.assertTrue(qual.children.endswith('%'))
         self.assertTrue(lat.children.endswith('ms'))
 
@@ -168,10 +168,12 @@ class DashboardTests(unittest.TestCase):
         self.fake.recorder.path = None
         self.fake.health.record('LANE_LOST', 'Test', 52)
         self.fake.health.record('ALT', 'nicht mehr im Ringbuffer', 3)
-        _status, _details, items, _preview = self.cb['recording_view'](1, None, 'record')
-        links = [c for item in items for c in item.walk() if type(c).__name__ == 'Link']
+        table = self.cb['drive_events'](1, 'all', 'drive')   # PAKET-H2: Ereignisprotokoll im Cockpit
+        links = [c for c in table.walk() if type(c).__name__ == 'Link']
         self.assertTrue(any(link.props['href'].startswith('#jump/__live__/52/') for link in links))
         self.assertFalse(any('/3/' in link.props['href'] for link in links))
+        grey = [c for c in table.walk() if c.props.get('title') == 'Weder in einer Session noch im Ringbuffer']
+        self.assertEqual([c.children for c in grey], ['3'])        # Frame 3: grau mit Tooltip
         href = next(link.props['href'] for link in links if '/52/' in link.props['href'])
         self.ctx.set('jump-url', 'hash')
         result = self.cb['replay_to_studio'](None, None, None, None, 0, href)
@@ -225,15 +227,17 @@ class RealDashJumpTests(unittest.TestCase):
 
     def test_sprung_ueber_http(self):
         outputs = [('main-tabs', 'active_tab'), ('replay-studio-msg', 'children'), ('ab-source', 'children'),
-                   ('replay-studio-token', 'data'), ('session-choice', 'value')]
+                   ('replay-studio-token', 'data'), ('session-choice', 'value'), ('drive-studio-msg', 'children')]
         body = {'output': '..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..',
                 'outputs': [{'id': i, 'property': p} for i, p in outputs],
                 'inputs': [{'id': 'replay-to-studio', 'property': 'n_clicks', 'value': None},
-                           {'id': 'record-open-replay', 'property': 'n_clicks', 'value': None},
-                           {'id': 'jump-url', 'property': 'hash', 'value': '#jump/__live__/11/1'}],
+                           {'id': 'replay-open-latest', 'property': 'n_clicks', 'value': None},
+                           {'id': 'jump-url', 'property': 'hash', 'value': '#jump/__live__/11/1'},
+                           {'id': 'drive-to-studio', 'property': 'n_clicks', 'value': None}],
                 'state': [{'id': 'session-choice', 'property': 'value', 'value': '__live__'},
                           {'id': 'replay-bounds', 'property': 'data', 'value': None},
-                          {'id': 'replay-index', 'property': 'value', 'value': 0}],
+                          {'id': 'replay-index', 'property': 'value', 'value': 0},
+                          {'id': 'drive-rendered', 'property': 'data', 'value': None}],
                 'changedPropIds': ['jump-url.hash']}
         response = self.client.post('/_dash-update-component', json=body)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])

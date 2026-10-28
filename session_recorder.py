@@ -97,6 +97,7 @@ class SessionRecorder:
         self._last_id = -1
         self.count = 0
         self._frame_times = []  # PAKET-H1: camera_monotonic_ns der geschriebenen Frames
+        self._frame_ids = set()  # PAKET-H2: IDs der geschriebenen Frames (has_frame)
         self.gap_frames = 0
         self.missing_decisions = 0
         self.skipped_empty = 0
@@ -126,6 +127,7 @@ class SessionRecorder:
             self._last_id = -1
             self.count = self.gap_frames = self.missing_decisions = self.skipped_empty = 0
             self._frame_times = []
+            self._frame_ids = set()  # PAKET-H2
             self.error = None
             self._write_manifest('recording')
             self._stop.clear()
@@ -149,6 +151,18 @@ class SessionRecorder:
                 self._log.exception('Abschluss der Session fehlgeschlagen')
             self._write_manifest('error' if self.error else 'stopped')
             self._created_at = None
+
+    def has_frame(self, frame_id):
+        """PAKET-H2: Wurde dieser Frame in der laufenden bzw. zuletzt aufgezeichneten Session geschrieben?"""
+        if isinstance(frame_id, bool):
+            return False
+        try:
+            number = int(frame_id)
+        except (TypeError, ValueError):
+            return False
+        if isinstance(frame_id, float) and frame_id != number:
+            return False                  # 7.5 ist kein Frame
+        return number in self._frame_ids
 
     def stats(self):
         """Kennzahlen fuer Dashboard und Manifest."""
@@ -367,6 +381,7 @@ class SessionRecorder:
         self.count += len(rows)
         self._frame_times.extend(int(r['camera_monotonic_ns']) for r in rows
                                  if r.get('camera_monotonic_ns') not in ('', None))  # PAKET-H1
+        self._frame_ids.update(int(r['frame_id']) for r in rows)  # PAKET-H2
         if pending or recorder_events:
             with (self.path / 'events.csv').open('a', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=EVENT_FIELDS)

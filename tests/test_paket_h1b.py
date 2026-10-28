@@ -586,7 +586,7 @@ class FrameBarServerTests(unittest.TestCase):
             self.assertIn(store, by_id)
             self.assertIn(f'{graph}-barsync', by_id)
             self.assertEqual(type(by_id[store]).__name__, 'Store')
-        for graph in ('freq-bars', 'freq-history', 'drive-history'):
+        for graph in ('telemetry-chart',):  # PAKET-H2
             self.assertNotIn('data-framebar', by_id[f'{graph}-box'].props)    # nur Replay und Simulation
 
     def test_clientseitige_callbacks_sind_registriert(self):

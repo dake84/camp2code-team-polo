@@ -10,6 +10,9 @@ Die Inhalte der Reiter kommen ausschliesslich aus den Tab-Klassen (tabs/).
 import time
 import logging
 
+import event_log  # PAKET-H2
+import system_stats
+from help_texts import tip
 from .helpers import MODES, lane_quality
 
 log = logging.getLogger(__name__)
@@ -36,7 +39,9 @@ class Shell:
             dbc.Col([dbc.Badge(id='global-camera-state', color='secondary', className='me-1'),
                      dbc.Badge(id='global-mode-state', color='secondary', className='me-1'),
                      dbc.Badge(id='global-rec-state', color='secondary', className='me-1'),
-                     html.Span(id='global-frame', className='ms-1 small text-secondary')],
+                     html.Span(id='global-frame', className='ms-1 small text-secondary'),
+                       dbc.Tooltip(id='global-rec-tooltip', target='global-rec-state',
+                                   placement='bottom')],
                     xs=12, lg=4, className='mb-2 mb-lg-0'),
             dbc.Col(dcc.Dropdown(id='mode', options=MODES, value='camera', clearable=False,
                                  className='c2c-dropdown'), xs=12, md=4, lg=3, className='mb-2 mb-md-0'),
@@ -58,7 +63,9 @@ class Shell:
             control_bar,
             dbc.Row([dbc.Col([c.help_label('Regelrate', 'rate'), html.Div(id='kpi-rate', className='c2c-kpi-small')]),
                      dbc.Col([c.help_label('Reaktionszeit', 'lat'), html.Div(id='kpi-lat', className='c2c-kpi-small')]),
-                     dbc.Col([c.help_label('Spurqualität', 'qual'), html.Div(id='kpi-qual', className='c2c-kpi-small')])],
+                     dbc.Col([c.help_label('Spurqualität', 'qual'), html.Div(id='kpi-qual', className='c2c-kpi-small')]),
+                       dbc.Col([c.help_label('Auslastung', 'cpu', suffix='kpi'),
+                                html.Div(id='kpi-load', className='c2c-kpi-small')])],
                     className='g-2 mb-2 c2c-kpibar'),
             html.Div(id='global-action-message', className='small mb-2'),
             recovery_panel,
@@ -82,7 +89,7 @@ class Shell:
         polling = self.polling_tabs
 
         @app.callback(Output('kpi-rate', 'children'), Output('kpi-lat', 'children'), Output('kpi-qual', 'children'),
-                      Input('refresh', 'n_intervals'))
+                      Output('kpi-load', 'children'), Input('refresh', 'n_intervals'))
         def kpi_bar(_):
             kpi = c.kpi
             metrics = getattr(car, 'thread_metrics', {})
@@ -101,7 +108,13 @@ class Shell:
             quality = lane_quality(car.frame_history.snapshot())
             qual_view = kpi('–', 'off') if quality is None else kpi(
                 f'{quality * 100:.0f} %', 'ok' if quality >= .9 else 'warn' if quality >= .7 else 'bad')
-            return rate_view, lat_view, qual_view
+            # PAKET-H2: Auslastung = CPU gross (Ampel), RAM und Temperatur klein; nur lesen, nie messen
+            stats = application.system_stats() if hasattr(application, 'system_stats') else system_stats.empty()
+            summary = system_stats.load_summary(stats)
+            load_view = [kpi(summary['cpu'], summary['cpu_level']),
+                         html.Span(f" RAM {summary['ram']}", className='small text-secondary ms-2', title=tip('ram')),
+                         html.Span(f" · {summary['temp']}", className='small text-secondary', title=tip('temp'))]
+            return rate_view, lat_view, qual_view, load_view
 
         # ---- Aktionen (ein Callback)
         @app.callback(Output('last-action', 'data'),
@@ -151,7 +164,7 @@ class Shell:
                       Output('recovery-panel', 'is_open'), Output('recovery-pulse', 'disabled'),
                       Output('record-toggle', 'children'), Output('record-toggle', 'color'),
                       Output('record-toggle', 'outline'), Output('mode', 'disabled'),
-                      Output('global-action-message', 'children'),
+                      Output('global-action-message', 'children'), Output('global-rec-tooltip', 'children'),
                       Input('refresh', 'n_intervals'), Input('last-action', 'data'))
         def global_status(_tick, last_action):
             camera = car.camera_data
@@ -183,7 +196,7 @@ class Shell:
                     recovery, not recovery,
                     '■ REC stoppen' if recording else '● REC starten', 'danger' if recording else 'secondary',
                     not recording, running,
-                    message)
+                    message, event_log.recording_summary(application.recorder))
 
         @app.callback(Output('recovery-status', 'children'),
                       Input('recovery-pulse', 'n_intervals'), State('recovery-keys', 'data'))

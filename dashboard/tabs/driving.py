@@ -1,5 +1,9 @@
 """Tab "Driving Cockpit": Livebild mit Linien, Fahrzustand, Simulation (Live | Simulation)."""
 import time
+from pathlib import Path  # PAKET-H2
+
+import event_log
+import system_stats
 
 from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
@@ -47,7 +51,21 @@ class DrivingTab(DashboardTab):
                 html.Div(id='drive-mode-status', className='mb-2'),
                 c.help_label('Controllerdiagnose', 'diag'),
                 html.Div(id='drive-diagnostic', className='small'),
+                html.Hr(),
+                dbc.Row([
+                    dbc.Col([c.help_label('Auslastung (CPU)', 'cpu'), html.Div(id='drive-cpu', className='c2c-kpi')], width=6),
+                    dbc.Col([c.help_label('RAM', 'ram'), html.Div(id='drive-ram', className='c2c-kpi-small'),
+                             c.help_label('Temperatur', 'temp'), html.Div(id='drive-temp', className='c2c-kpi-small')], width=6),
+                ], className='g-2'),
+                html.Hr(),
+                html.Div(id='drive-rec-line', className='small text-secondary mb-2'),
+                dbc.Button('Frame im Pipeline Studio öffnen', id='drive-to-studio', color='info', size='sm'),
+                html.Div(id='drive-studio-msg', className='small mt-1'),
             ]), lg=4),
+            dbc.Col(c.card(['Ereignisprotokoll (neueste zuerst)', *c.info('eventlog')], [
+                dbc.RadioItems(id='drive-events-filter', options=event_log.FILTER_OPTIONS, value='important', inline=True,
+                               className='mb-2'),
+                html.Div(id='drive-events', className='c2c-events')]), lg=12),
         ], className='g-3')
         # Umschalter Live | Simulation (die Simulation gehoert zum Cockpit)
         return html.Div([SimLab.wrap_cockpit(cockpit, dbc, dcc, html),
@@ -67,11 +85,13 @@ class DrivingTab(DashboardTab):
                       Output('drive-requested', 'children'), Output('drive-raw', 'children'),
                       Output('drive-mode-status', 'children'), Output('drive-diagnostic', 'children'),
                       Output('drive-frame-badge', 'children'), Output('drive-age', 'children'),
+                      Output('drive-cpu', 'children'), Output('drive-ram', 'children'),
+                      Output('drive-temp', 'children'), Output('drive-rec-line', 'children'),
                       Input(self.tick_id, 'n_intervals'), Input('main-tabs', 'active_tab'),
                       State('drive-rendered', 'data'), State('cockpit-hud', 'value'))
         def cockpit_view(_, tab, rendered, hud=None):
             if tab != self.tab_id:
-                return (no_update,) * 10
+                return (no_update,) * 14
             with c.measure('dashboard.cockpit'):
                 camera = car.camera_data
                 running = application.running()
@@ -103,8 +123,29 @@ class DrivingTab(DashboardTab):
                         age += f' · Entscheidung nach {(record.driving.monotonic_ns - shown.monotonic_ns) / 1e6:.0f} ms'
                 mode_badge = dbc.Badge(f'Modus: {application.active_mode}' if running else 'Modus: aus',
                                        color='success' if running else 'secondary')
+                # PAKET-H2: Auslastung (nur lesen) und Aufnahmezustand
+                summary = system_stats.load_summary(application.system_stats() if hasattr(application, 'system_stats')
+                                                    else system_stats.empty())
                 return (image, key, fmt(car.steering_angle, 0, '°'), fmt(car.speed),
                         fmt(diagnostic.get('requested_angle'), 0, '°') if running and diagnostic else '–',
                         fmt(diagnostic.get('raw_angle'), 0, '°') if running and diagnostic else '–',
                         mode_badge, diagnostic_text(diagnostic, stop_reason, running),
-                        f'Frame #{shown.frame_id}' if shown is not None else '', age)
+                        f'Frame #{shown.frame_id}' if shown is not None else '', age,
+                        c.kpi(summary['cpu'], summary['cpu_level']), c.kpi(summary['ram'], summary['ram_level']),
+                        c.kpi(summary['temp'], summary['temp_level']),
+                        event_log.recording_summary(application.recorder))
+
+        # PAKET-H2: Ereignisprotokoll im Cockpit (Frame-Nummer = Link ins Replay Lab)
+        @app.callback(Output('drive-events', 'children'),
+                      Input(self.tick_id, 'n_intervals'), Input('drive-events-filter', 'value'),
+                      Input('main-tabs', 'active_tab'))
+        def drive_events(_, mode, tab):
+            if tab != self.tab_id:
+                return no_update
+            recorder = application.recorder
+            path = getattr(recorder, 'path', None)
+            ring_ids = {record.camera.frame_id for record in car.frame_history.snapshot()}
+            entries = event_log.live_entries(application.health.events(), time.monotonic_ns(), mode,
+                                             Path(str(path)).name if path else None, getattr(recorder, 'has_frame', None),
+                                             ring_ids)
+            return event_log.event_table(c.html, c.dcc, entries)

@@ -23,6 +23,7 @@ from CameraCar import CameraCar
 from CameraSensor import CameraSensor
 import config_store  # PAKET-H1
 import runtime_settings  # PAKET-H1B
+import system_stats  # PAKET-H2
 from driving_health import DrivingHealthMonitor
 from pipeline_config import save
 from recovery_control import RecoveryControl
@@ -62,6 +63,12 @@ class CarApplication:
         self.timings = DurationStats()
         self._requested_stop = False
         self._freq_history = deque(maxlen=240)
+        # PAKET-H2: Latenz- und Systemverlauf; SystemSampler wird nur vom Telemetrie-Thread aufgerufen
+        self._extra_lock = threading.Lock()
+        self._latency_history = deque(maxlen=240)
+        self._system_history = deque(maxlen=240)
+        self._last_latency_frame = None
+        self.system = system_stats.SystemSampler(fps_source=self._camera_hz)
         # PAKET-H1: Fahrzeugzustand fuer die Kamera (Aufnahmemoment) und gespeicherte Einstellungen
         self._attach_vehicle_mode()
         self._apply_stored_settings()
@@ -339,9 +346,42 @@ class CarApplication:
                 if missing:
                     self._events.append((state.frame_id, 'Keine Linien erkannt'))
             metrics = getattr(self.car, 'thread_metrics', {})
+            # PAKET-H2: veraltete Werte (kein Tick seit 2 s) werden None statt 0 und ergeben Luecken im Diagramm
             self._freq_history.append((monotonic(),
-                self._fresh_hz(metrics.get('camera')),  # PAKET-G: veraltete Werte = 0
-                self._fresh_hz(metrics.get('controller'))))
+                self._fresh_hz(metrics.get('camera')) or None,
+                self._fresh_hz(metrics.get('controller')) or None))
+        self._sample_extra()
+
+    def _camera_hz(self):
+        """PAKET-H2: aktuelle Kamerarate (None bei veraltetem Wert) fuer die Aufnahme-Schaetzung."""
+        return self._fresh_hz(getattr(self.car, 'thread_metrics', {}).get('camera')) or None
+
+    def _sample_extra(self):
+        """PAKET-H2: Latenz- und Systemverlauf (4 Hz) im Telemetrie-Thread; einziger Aufrufer des SystemSampler."""
+        now = monotonic()
+        camera = self.car.camera_data
+        age = processing = reaction = None
+        if camera is not None and camera.frame_id >= 0 and camera.monotonic_ns:
+            age = (monotonic_ns() - camera.monotonic_ns) / 1e6
+            processing = camera.processing_ns / 1e6 if camera.processing_ns else None
+        record = self.car.frame_history.latest_complete()
+        if (record is not None and self.running() and record.driving.frame_id != self._last_latency_frame
+                and record.driving.monotonic_ns and record.camera.monotonic_ns):
+            self._last_latency_frame = record.driving.frame_id
+            reaction = (record.driving.monotonic_ns - record.camera.monotonic_ns) / 1e6
+        values = self.system.sample()
+        with self._extra_lock:
+            self._latency_history.append((now, age, processing, reaction))
+            self._system_history.append((now, values['cpu'], values['ram'], values['temp']))
+
+    def sample_extra(self):
+        """PAKET-H2: (Latenzverlauf, Systemverlauf) als unveraenderliche Momentaufnahme."""
+        with self._extra_lock:
+            return tuple(self._latency_history), tuple(self._system_history)
+
+    def system_stats(self):
+        """PAKET-H2: letzter Systemwert (CPU, RAM, Temperatur, Speicherplatz); misst nicht selbst."""
+        return self.system.last()
 
     def sample(self):
         """Liefert eine unveraenderliche Momentaufnahme der Historie."""

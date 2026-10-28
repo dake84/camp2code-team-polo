@@ -57,3 +57,7 @@ img:fullscreen{object-fit:contain;background:#000;max-height:none!important}
 .c2c-framebar-grip{position:absolute;left:1px;top:0;width:12px;height:9px;border-radius:0 0 3px 3px;background:#4da3ff}
 .c2c-framebar-tag{position:absolute;left:16px;top:10px;padding:0 4px;border-radius:3px;background:#172235;color:#e9f1ff;font-size:.72rem;white-space:nowrap}
 .c2c-framebar:hover .c2c-framebar-line,.c2c-framebar.c2c-dragging .c2c-framebar-line{left:5px;width:4px;background:#8cc4ff}
+
+/* PAKET-H2: Ereignisprotokoll als Tabelle */
+.c2c-events-table td,.c2c-events-table th{padding:.15rem .45rem;border-color:#26314a}
+.c2c-events-table th{color:var(--c2c-muted);font-weight:600}

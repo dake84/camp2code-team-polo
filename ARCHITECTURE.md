@@ -60,7 +60,7 @@ flowchart LR
 | Replay | `replay_hud.py`, `replay_selection.py` | HUD auf Bildkopie, Frame-ID-Bereiche |
 | Darstellung | `dashboard_overlay.py`, `dashboard_steering.py` | gemeinsame Zeichenfunktionen (Live + Replay) |
 | Anwendung | `car_application.py` | erzeugt und beendet alles genau einmal |
-| Dashboard | `Camp2CodeDashboard.py` (Start), `dashboard/` (Shell + Tab-Klassen), `assets/` | sechs Ansichten als Plug-ins, ausschließlich über `CarApplication` |
+| Dashboard | `Camp2CodeDashboard.py` (Start), `dashboard/` (Shell + Tab-Klassen), `assets/` | fünf Ansichten als Plug-ins, ausschließlich über `CarApplication` |
 
 ## 3. Vererbung
 
@@ -72,7 +72,7 @@ Camera (basisklassen_cam) ── CameraSensor
 Infrared ── InfraredSensor          Ultrasonic ── UltrasonicSensor
 LaneProcessor ── CopilotLaneProcessor
              └── OpusLaneProcessor (dunkle Linien: Blackhat + Otsu)
-DashboardTab (abc) ── DrivingTab · PipelineTab · TelemetryTab · RecordingTab · ReplayTab · SettingsTab
+DashboardTab (abc) ── DrivingTab · PipelineTab · TelemetryTab · ReplayTab · SettingsTab   (PAKET-H2: fünf Reiter)
 DrivingMode (abc)
 ├── CameraMode · PSControllerMode · KeyboardMode
 ├── ModeOne ── ModeTwo
@@ -138,7 +138,6 @@ Stoppursachen: `LANE_TIMEOUT`, `CAMERA_STALE`, `NO_CAMERA_DATA`, `CONTROLLER_EXC
 | Driving Cockpit | `tick-drive` | 1 |
 | Pipeline Studio | `tick-pipeline` | 1 |
 | Telemetrie | `tick-telemetry` | 1 |
-| Recording & Events | `tick-record` | 1 |
 | Replay Lab | `tick-replay` | 3 |
 | Bergung | `recovery-pulse` 120 ms | 1, nur bei aktiver Bergung |
 
@@ -156,7 +155,7 @@ dashboard/
 ├── helpers.py            reine Hilfsfunktionen (Kodierung, Formatierung, Diagramm-Dicts)
 ├── shell.py              Steuerleiste, Kennzahlen, Bergung, jump-url, globale Stores, Takte
 └── tabs/                 je Reiter eine Klasse von DashboardTab (Layout + Callbacks)
-    driving.py · pipeline.py · telemetry.py · recording.py · replay.py · settings.py
+    driving.py · pipeline.py · telemetry.py · replay.py · settings.py
 ```
 
 * Ein Tab liefert `layout()` und `register_callbacks(app)`; `tab_id` ist der Schlüssel in
@@ -165,7 +164,7 @@ dashboard/
 * Das Paket `dashboard` importiert Dash nie selbst; die Bausteine kommen über den Kontext. Dieselben Klassen
   laufen daher mit echtem Dash und mit der Test-Attrappe.
 * Jede Komponenten-ID und jeder Output gehört genau einem Tab. Einziger tabübergreifender Callback:
-  `replay_to_studio` (Navigation Replay/Recording → Pipeline Studio, Besitzer: `ReplayTab`).
+  `replay_to_studio` (Navigation Replay/Cockpit/Sprunglink → Tab, Pipeline Studio, Session; einziger Besitzer von `main-tabs.active_tab`).
 * Die Layout-Funktion wird je Seitenaufruf neu ausgeführt; ein Neuladen zeigt die wirksamen Studio-Einstellungen.
 
 ### 7.1b Frame-Balken (PAKET-H1B)
@@ -207,7 +206,7 @@ Sessions v1 (V5.4/5.5) werden gelesen; ohne ROI-Angabe zeichnet das HUD keine Li
 
 | Diagramm | Tatsächlicher Stand 6.0 |
 |---|---|
-| „Vier Ansichten“ | fünf Ansichten (zusätzlich Recording & Events) |
+| „Vier Ansichten“ | fünf Ansichten (Recording & Events entfiel mit Paket H2) |
 | `CameraFrame` | existiert nicht; Datenpaket heißt `CameraData` |
 | `SaveData_4_AI` als Recorder | `SessionRecorder` (Schema v2); `SaveData_4_AI` nur noch für Legacy-Dashboards |
 | CameraSensor „~30 Hz“ | Soll aus `cam_sensor.scan_frequency` = 25 Hz |

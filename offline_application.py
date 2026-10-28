@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import config_store  # PAKET-H1
 import runtime_settings  # PAKET-H1B
+import system_stats  # PAKET-H2
 from driving_health import DrivingHealthMonitor
 from pipeline_config import load, save
 from processor_registry import create_processor, is_live_processor, key_for_class
@@ -156,6 +157,13 @@ class OfflineApplication:
     def save_pipeline(self, config):
         self.set_pipeline(config)
         save(config)
+
+    def system_stats(self):  # PAKET-H2
+        """Offline wird nichts gemessen (es gibt keinen Sampler-Thread): alle Werte unbekannt."""
+        return system_stats.empty()
+
+    def sample_extra(self):
+        return (), ()
 
     def sample(self):
         return (), (), ()

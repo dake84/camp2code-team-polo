@@ -36,11 +36,10 @@ Nur **eine** Instanz starten. Legacy-Dashboards (`legacy/dashboards/`) und `Dash
 
 | Bereich | Funktion |
 |---|---|
-| Steuerleiste (immer sichtbar) | Kamera-/Fahr-/REC-Status, Frame-ID, Fahrmodus, **START**, **STOP**, Bergung, REC |
+| Steuerleiste (immer sichtbar) | Kamera-/Fahr-/REC-Status (Tooltip: Aufnahmezähler), Frame-ID, Fahrmodus, **START**, **STOP**, Bergung, REC |
 | Driving Cockpit | Livebild mit Linien und Reglerrichtung, Stellwert, Soll-/Rohwinkel, Speed-Steuerwert, Diagnose |
 | Pipeline Studio | Stufen und Regler je Bildprozessor (Legacy/Copilot: 9, Modus Opus: 10), Freeze, A/B-Vergleich, Presets (nur im Stillstand änderbar) |
-| Telemetrie & Performance | Soll/Ist-Frequenzen, Verläufe, Linienanzahl, Datenalter, Latenzen, CPU/RAM |
-| Recording & Events | Aufzeichnungsstatus, Zähler, Ereignisprotokoll |
+| Telemetrie & Performance | ein gekoppeltes Diagramm (Frequenzen, Latenzen, Fahren, System), Speicherplatz mit Aufnahme-Schätzung (PAKET-H2) |
 | Replay Lab | Session/Ringbuffer, Timeline, Klick-Navigation, Play/Pause, Ereignissprung mit Vor-/Nachlauf, Export |
 
 Bergung: „Bergung aktivieren“, dann **Leertaste halten** + W/S/A/D. Ohne Tastensignal stoppt der

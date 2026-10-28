@@ -31,7 +31,7 @@ class ReplayStudioViewTests(unittest.TestCase):
 
     def test_replay_frame_in_allen_stufen(self):
         no = self.module.no_update
-        tab, _msg, _src, token, _s = self.cb['replay_to_studio'](1, None, '__live__', None, 0)  # PAKET-E
+        tab, _msg, _src, token, _s, _d = self.cb['replay_to_studio'](1, None, '__live__', None, 0)  # PAKET-H2
         self.assertEqual(tab, 'pipeline')
         self.ctx.set('replay-studio-token', 'data')
         frozen = self.cb['freeze'](None, token, None)
@@ -54,7 +54,7 @@ class ReplayStudioViewTests(unittest.TestCase):
 
     def test_replay_frame_mit_dem_gewaehlten_prozessor(self):
         """Das Studio verarbeitet den Replay-Frame mit dem gewaehlten Prozessor (hier Modus Opus)."""
-        _tab, _msg, _src, token, _s = self.cb['replay_to_studio'](1, None, '__live__', None, 0)
+        _tab, _msg, _src, token, _s, _d = self.cb['replay_to_studio'](1, None, '__live__', None, 0)
         self.ctx.set('replay-studio-token', 'data')
         frozen = self.cb['freeze'](None, token, None)
         ids = stage_image_ids('opus')

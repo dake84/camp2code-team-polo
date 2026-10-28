@@ -231,7 +231,7 @@ class DashboardStructureTests(unittest.TestCase):
     def test_erwartete_callbacks_registriert(self):
         expected = {'rebuild_stage_cards', 'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
-                    'recording_view', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
+                    'drive_events', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
                     'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_playback', 'sim_render', 'kpi_bar', 'settings_apply', 'settings_fill', 'rt_settings'}  # PAKET-H1B  # PAKET-H1  # PAKET-G  # PAKET-F  # PAKET-C
         self.assertEqual(set(self.callbacks), expected)
 
@@ -272,7 +272,7 @@ class DashboardStructureTests(unittest.TestCase):
         no = self.module.no_update
         self.assertTrue(all(v is no for v in self.callbacks['cockpit_view'](1, 'pipeline', None)))
         self.assertTrue(all(v is no for v in self.callbacks['telemetry_view'](1, 'drive')))
-        self.assertTrue(all(v is no for v in self.callbacks['recording_view'](1, None, 'drive')))
+        self.assertIs(self.callbacks['drive_events'](1, 'important', 'pipeline'), no)  # PAKET-H2
         hidden = self.callbacks['pipeline_view'](1, 'overlay', None, 'drive', 0, stage_image_ids(), 'copilot', None)
         self.assertTrue(all(v is no or (isinstance(v, list) and all(x is no for x in v)) for v in hidden))
 
@@ -440,25 +440,27 @@ class DashboardStructureTests(unittest.TestCase):
         index, bounds = self.callbacks['seek'](None, None, None, {'xaxis.range[0]': 21, 'xaxis.range[1]': 23},
                                                None, None, 1, 2, False, '__live__', None, 30, 30, 'replay')
         self.assertEqual(bounds, [21.0, 23.0])
-        maximum, text = self.callbacks['replay_limits'](bounds, '__live__', 1, 'replay')
+        maximum, text, _events = self.callbacks['replay_limits'](bounds, '__live__', 1, 'replay')  # PAKET-H2
         self.assertEqual(maximum, 2)
         self.ctx.set('replay-export')
         download = self.callbacks['export_range'](1, '__live__', bounds)
         self.assertTrue(download['path'].endswith('.zip'))
 
     def test_nur_sichtbarer_tab_pollt(self):
-        self.assertEqual(self.callbacks['tab_intervals']('telemetry', False), (True, True, False, True, True))
-        self.assertEqual(self.callbacks['tab_intervals']('telemetry', True), (True,) * 5)
+        self.assertEqual(self.callbacks['tab_intervals']('telemetry', False), (True, True, False, True))  # PAKET-H2
+        self.assertEqual(self.callbacks['tab_intervals']('telemetry', True), (True,) * 4)
         per_tick = Counter(i.component_id for cb in self.callbacks.values() for i in cb.inputs
                            if i.component_property == 'n_intervals')
         self.assertEqual(per_tick['refresh'], 2)         # Statusleiste + Kennzahlen (PAKET-G)
-        self.assertLessEqual(max(per_tick[f'tick-{t}'] for t in ('drive', 'pipeline', 'telemetry', 'record', 'replay')), 3)
+        self.assertLessEqual(max(per_tick[f'tick-{t}'] for t in ('drive', 'pipeline', 'telemetry', 'replay')), 3)
 
     def test_ereignisliste(self):
-        self.app_state.health.record('TEST_EVENT', 'Prüfung', 3)
-        status, details, items, preview = self.callbacks['recording_view'](1, None, 'record')
-        texts = [c.children for item in items for c in item.walk() if isinstance(c.children, str)]
+        self.app_state.health.record('TEST_EVENT', 'Prüfung', 3)       # PAKET-H2: Ereignisprotokoll im Cockpit
+        table = self.callbacks['drive_events'](1, 'all', 'drive')
+        texts = [c.children for c in table.walk() if isinstance(c.children, str)]
         self.assertIn('TEST_EVENT', texts)
+        important = self.callbacks['drive_events'](1, 'important', 'drive')
+        self.assertNotIn('TEST_EVENT', [c.children for c in important.walk() if isinstance(c.children, str)])
 
 
 if __name__ == '__main__':

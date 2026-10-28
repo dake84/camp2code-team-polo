@@ -41,7 +41,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_abhaengigkeiten(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 34)  # PAKET-H1B: + rt_settings, + 2 clientseitige Frame-Balken  # 30 bisherige + rebuild_stage_cards (Pipeline Studio dynamisch)
+        self.assertEqual(len(deps), 34)  # PAKET-H2: - recording_view, + drive_events  # PAKET-H1B: + rt_settings, + 2 clientseitige Frame-Balken  # 30 bisherige + rebuild_stage_cards (Pipeline Studio dynamisch)
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1
@@ -61,7 +61,7 @@ class RealDashTests(unittest.TestCase):
                    ('recovery-toggle', 'children'), ('recovery-toggle', 'outline'),
                    ('recovery-panel', 'is_open'), ('recovery-pulse', 'disabled'),
                    ('record-toggle', 'children'), ('record-toggle', 'color'), ('record-toggle', 'outline'),
-                   ('mode', 'disabled'), ('global-action-message', 'children')]
+                   ('mode', 'disabled'), ('global-action-message', 'children'), ('global-rec-tooltip', 'children')]
         response = self.post(outputs, [('refresh', 'n_intervals', 1), ('last-action', 'data', None)], [],
                              ['refresh.n_intervals'])
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:500])
@@ -81,7 +81,9 @@ class RealDashTests(unittest.TestCase):
         outputs = [('drive-overlay', 'src'), ('drive-rendered', 'data'), ('drive-angle', 'children'),
                    ('drive-speed', 'children'), ('drive-requested', 'children'), ('drive-raw', 'children'),
                    ('drive-mode-status', 'children'), ('drive-diagnostic', 'children'),
-                   ('drive-frame-badge', 'children'), ('drive-age', 'children')]
+                   ('drive-frame-badge', 'children'), ('drive-age', 'children'),
+                   ('drive-cpu', 'children'), ('drive-ram', 'children'), ('drive-temp', 'children'),
+                   ('drive-rec-line', 'children')]  # PAKET-H2
         response = self.post(outputs, [('refresh', 'n_intervals', 1)],
                              [('main-tabs', 'active_tab', 'drive'), ('drive-rendered', 'data', None),
                               ('cockpit-hud', 'value', [])],  # PAKET-G

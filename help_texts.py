@@ -111,6 +111,32 @@ HELP = {
     'vmax': ('Maximaler Steuerwert', 'Einstellung',
              'Obergrenze des PWM-Steuerwerts für jede Fahrt (Standard 100), die auch die adaptive Geschwindigkeit '
              'und die Bergung begrenzt und nicht kleiner als der minimale Steuerwert sein darf.'),
+    # PAKET-H2: Auslastung, Speicherplatz, Telemetrie-Diagramm, Ereignisprotokoll
+    'cpu': ('Auslastung (CPU)', 'gemessen',
+            'CPU-Last des Pi in Prozent als Mittel über alle vier Kerne, die bis 60 Prozent grün, bis 85 Prozent gelb '
+            'und darüber oder ab 80 Grad Celsius rot angezeigt wird und mit Bildverarbeitung, Aufnahme und '
+            'Dashboard steigt.'),
+    'ram': ('Arbeitsspeicher', 'gemessen',
+            'Belegter Anteil des Arbeitsspeichers in Prozent, der mit Ringbuffer, Aufnahme und offenen '
+            'Browser-Tabs steigt.'),
+    'temp': ('Temperatur', 'gemessen',
+             'CPU-Temperatur in Grad Celsius, ab etwa 80 Grad taktet der Pi 4 herunter, weshalb ab diesem Wert '
+             'die Anzeige immer rot ist.'),
+    'disk': ('Freier Speicher', 'gemessen',
+             'Freier Platz der SD-Karte unter Data_AI in Gigabyte und Prozent, der nur etwa alle 30 Sekunden '
+             'neu bestimmt wird.'),
+    'diskest': ('Aufnahmedauer', 'berechnet',
+                'Geschätzte Minuten Aufnahme, die auf den freien Speicher passen, berechnet aus der mittleren '
+                'JPEG-Größe der neuesten Session und der Kamera-fps, ohne vorhandene Session nicht bestimmbar.'),
+    'decisions': ('Entscheidungen', 'gemessen',
+                  'Wie oft der Regler pro Sekunde einen neuen Kameraframe auswertet, höchstens so hoch wie die '
+                  'Kamerarate.'),
+    'telechart': ('Telemetrie-Diagramm', 'gemessen',
+                  'Vier Spuren (Frequenzen, Latenzen, Fahren, System) mit gemeinsamer Zeitachse der letzten '
+                  '60 Sekunden, in denen im Stillstand Lücken entstehen, weil nichts fortgeschrieben wird.'),
+    'eventlog': ('Ereignisprotokoll', 'gemessen',
+                 'Zustandsänderungen und Meldungen des Fahrzeugs mit dem Frame, zu dem sie gehören, wobei der '
+                 'Filter Wichtig die häufigen Linien- und Lenkereignisse ausblendet.'),
     'simrate': ('Anzeigerate', 'gemessen',
                 'Vom Server ausgelieferte Anzeigeframes pro Sekunde, begrenzt durch den Anzeigetakt von 150 ms '
                 '(höchstens etwa 6 bis 7 pro Sekunde) sowie Bildkodierung und Übertragung, ohne Messung der '
@@ -134,3 +160,7 @@ def label(text, key, dbc, html, className='c2c-kpi-label', suffix=None):
     """Beschriftung mit angehaengtem ⓘ."""
     return html.Div([text, ' ', *info(key, dbc, html, suffix)], className=className)
 
+def tip(key):
+    """PAKET-H2: Kurztext fuer ``title``-Attribute (Tooltip ohne Popover): ``Titel (Herkunft): Satz``."""
+    title, origin, text = HELP[key]
+    return f'{title} ({origin}): {text}'

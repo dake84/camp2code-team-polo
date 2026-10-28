@@ -178,11 +178,10 @@ class MinimalTab:
 
 class PluginTests(unittest.TestCase):
     TAB_CALLBACKS = {
-        'DrivingTab': {'cockpit_view'},
+        'DrivingTab': {'cockpit_view', 'drive_events'},  # PAKET-H2
         'PipelineTab': {'rebuild_stage_cards', 'configure', 'preset_actions', 'freeze', 'inspect',
                         'pipeline_view', 'ab_calibrate'},
         'TelemetryTab': {'telemetry_view'},
-        'RecordingTab': {'recording_view'},
         'ReplayTab': {'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits', 'replay_toggle',
                       'replay_play_label', 'replay_render', 'replay_chart', 'replay_to_studio', 'export_range'},
         'SettingsTab': {'settings_apply', 'settings_fill', 'rt_settings'},  # PAKET-H1B
@@ -199,14 +198,14 @@ class PluginTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.context.__exit__(None, None, None)
 
-    def test_sechs_tabs_in_dieser_reihenfolge(self):
+    def test_fuenf_tabs_in_dieser_reihenfolge(self):  # PAKET-H2
         self.assertEqual([t.tab_id for t in self.app.c2c_tabs],
-                         ['drive', 'pipeline', 'telemetry', 'record', 'replay', 'settings'])
+                         ['drive', 'pipeline', 'telemetry', 'replay', 'settings'])
         tabs = [c for c in layout_of(self.app).walk() if type(c).__name__ == 'Tab']
         self.assertEqual([c.props['tab_id'] for c in tabs], [t.tab_id for t in self.app.c2c_tabs])
         self.assertEqual([c.props['label'] for c in tabs],
                          ['Driving Cockpit', 'Pipeline Studio', 'Telemetrie & Performance',
-                          'Recording & Events', 'Replay Lab', 'Settings'])
+                          'Replay Lab', 'Settings'])
 
     def test_jeder_tab_besitzt_seine_callbacks(self):
         owners = {}
@@ -220,7 +219,7 @@ class PluginTests(unittest.TestCase):
 
     def test_nur_tabs_mit_takt_haben_ein_intervall(self):
         ticks = {c.id for c in layout_of(self.app).walk() if isinstance(c.id, str) and c.id.startswith('tick-')}
-        self.assertEqual(ticks, {'tick-drive', 'tick-pipeline', 'tick-telemetry', 'tick-record', 'tick-replay'})
+        self.assertEqual(ticks, {'tick-drive', 'tick-pipeline', 'tick-telemetry', 'tick-replay'})
         self.assertIsNone(self.app.c2c_tabs[-1].interval_component())
         starts = {c.id: c.props['disabled'] for c in layout_of(self.app).walk()
                   if isinstance(c.id, str) and c.id.startswith('tick-')}
@@ -247,7 +246,7 @@ class PluginTests(unittest.TestCase):
         app = self.module.create_app(FakeApplication(), tabs=(*DEFAULT_TABS, EchoTab))
         self.assertEqual(app.c2c_tabs[-1].tab_id, 'echo')
         self.assertIn('echo', app.callbacks)
-        self.assertEqual(len(app.callbacks['tab_intervals'].outputs), 6)              # 5 Standardtakte + Echo
+        self.assertEqual(len(app.callbacks['tab_intervals'].outputs), 5)              # 4 Standardtakte + Echo
         self.assertEqual(app.callbacks['echo'](3, 0), '3')
 
     def test_doppelte_tab_ids_werden_abgelehnt(self):

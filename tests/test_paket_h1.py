@@ -518,7 +518,7 @@ class DashboardChartTests(unittest.TestCase):
         components = list(layout_of(self.app).walk())
         graphs = [c for c in components if type(c).__name__ == 'Graph']
         ids = {g.id for g in graphs}
-        self.assertEqual(ids, {'freq-bars', 'freq-history', 'drive-history', 'replay-chart', 'sim-chart'})
+        self.assertEqual(ids, {'telemetry-chart', 'replay-chart', 'sim-chart'})  # PAKET-H2
         boxes = {c.id: c for c in components if isinstance(c.id, str) and c.id.endswith('-box')}
         for graph in graphs:
             props = graph.props
@@ -541,25 +541,25 @@ class DashboardChartTests(unittest.TestCase):
             self.assertNotIn('height', layout)
 
     def test_telemetrie_leer_und_mit_daten(self):
+        """PAKET-H2: EIN gekoppeltes Diagramm statt drei; leer = dunkle Figur mit Hinweis, ohne layout.height."""
         self.fake.sample = lambda: ((), (), ())
         self.ctx.set('main-tabs', 'active_tab')
-        bars, freq, drive = self.cb['telemetry_view'](1, 'telemetry')[:3]
-        self.figures_without_height(bars, freq, drive)
-        self.assertEqual(freq['data'], [])
-        self.assertTrue(freq['layout']['annotations'][0]['text'])
-        self.assertEqual(drive['data'], [])
+        chart = self.cb['telemetry_view'](1, 'telemetry')[0]
+        self.figures_without_height(chart)
+        self.assertEqual(chart['data'], [])
+        self.assertTrue(chart['layout']['annotations'][0]['text'])
         now = time.monotonic()
         rows = tuple((now - 3 + i * .5, 100 + i, 97, 30, 0, 2, 99) for i in range(6))
         freqs = tuple((now - 3 + i * .5, 25, 24) for i in range(6))
         self.fake.sample = lambda: (rows, freqs, ())
-        bars, freq, drive = self.cb['telemetry_view'](1, 'telemetry')[:3]
-        self.figures_without_height(bars, freq, drive)
-        self.assertEqual(len(freq['data']), 2)
-        self.assertEqual(len(drive['data']), 4)
-        for figure, revision in ((bars, 'bars'), (freq, 'freq'), (drive, 'drive')):
-            self.assertEqual(figure['layout']['uirevision'], revision)           # Zoom/Legende ueberleben Updates
+        chart = self.cb['telemetry_view'](1, 'telemetry')[0]
+        self.figures_without_height(chart)
+        names = [trace['name'] for trace in chart['data']]
+        for needed in ('Kamera (Ist)', 'Entscheidungen (Ist)', 'Kamera (Soll)', 'Rohwinkel', 'Stellwert',
+                       'Speed-Steuerwert', 'Linienanzahl'):
+            self.assertIn(needed, names)
+        self.assertEqual(chart['layout']['uirevision'], 'telemetry')            # Zoom/Legende ueberleben Updates
         self.fake.sample = lambda: ((), (), ())
-
     def test_replay_diagramm_uirevision_und_leere_figur(self):
         for frame_id in range(30, 34):
             self.fake.publish(frame_id, with_decision=True)
@@ -663,7 +663,7 @@ class RealDashChartTests(unittest.TestCase):
         layout = self.client.get('/_dash-layout').get_json()
         graphs = [n for n in self.walk(layout) if n.get('type') == 'Graph']
         self.assertEqual({g['props']['id'] for g in graphs},
-                         {'freq-bars', 'freq-history', 'drive-history', 'replay-chart', 'sim-chart'})
+                         {'telemetry-chart', 'replay-chart', 'sim-chart'})  # PAKET-H2
         for graph in graphs:
             props = graph['props']
             self.assertRegex(props['style']['height'], r'^\d+px$')
@@ -674,7 +674,7 @@ class RealDashChartTests(unittest.TestCase):
             self.assertNotIn('padding', json.dumps(props['style']))
         boxes = {n['props']['id'] for n in self.walk(layout) if n.get('type') == 'Div'
                  and isinstance(n.get('props', {}).get('id'), str)}
-        self.assertTrue({'freq-bars-box', 'replay-chart-box', 'sim-chart-box'} <= boxes)
+        self.assertTrue({'telemetry-chart-box', 'replay-chart-box', 'sim-chart-box'} <= boxes)
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1
@@ -699,13 +699,13 @@ class RealDashChartTests(unittest.TestCase):
         self.assertEqual(len(figure['data']), 2)  # PAKET-H1B: Frame-Balken ist ein DOM-Element
 
     def test_telemetrie_und_settings_ueber_http(self):
-        outputs = [('freq-bars', 'figure'), ('freq-history', 'figure'), ('drive-history', 'figure'),
-                   ('data-age', 'children'), ('system-stats', 'children'), ('telemetry-preview', 'src')]
+        outputs = [('telemetry-chart', 'figure'), ('data-age', 'children'), ('system-stats', 'children'),
+                   ('telemetry-disk-free', 'children'), ('telemetry-disk-estimate', 'children'),
+                   ('telemetry-preview', 'src')]  # PAKET-H2
         response = self.post(outputs, [('tick-telemetry', 'n_intervals', 1), ('main-tabs', 'active_tab', 'telemetry')],
                              [], ['main-tabs.active_tab'])
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True)[:400])
-        for name in ('freq-bars', 'freq-history', 'drive-history'):
-            self.assertNotIn('height', response.get_json()['response'][name]['figure']['layout'])
+        self.assertNotIn('height', response.get_json()['response']['telemetry-chart']['figure']['layout'])
         outputs = [('set-speed-mode', 'value'), ('set-speed-fixed', 'value'), ('set-speed-vmin', 'value'),
                    ('set-speed-vmax', 'value'), ('set-rec-quality', 'value'), ('set-rec-quality', 'options')]
         response = self.post(outputs, [('main-tabs', 'active_tab', 'settings')], [], ['main-tabs.active_tab'])

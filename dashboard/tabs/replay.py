@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import cv2
 
+import event_log  # PAKET-H2
+
 from replay_hud import draw_hud, row_from_camera
 from replay_selection import (event_window, nearest_position, record_frame_id, select_records,
                               selected_bounds)  # PAKET-H1B
@@ -23,6 +25,16 @@ from ..helpers import IMAGE_STYLE, LIVE, dark_figure, fmt, parse_jump
 from .base import DashboardTab
 
 log = logging.getLogger(__name__)
+
+def parse_drive_key(key):
+    """PAKET-H2: Frame-ID aus dem Render-Schluessel des Cockpits (``drive:<id>``, ``cal:<id>``, optional ``:hud``)."""
+    if not isinstance(key, str) or ':' not in key:
+        return None
+    try:
+        number = int(key.split(':')[1])
+    except ValueError:
+        return None
+    return number if number >= 0 else None
 
 
 class ReplayTab(DashboardTab):
@@ -38,8 +50,10 @@ class ReplayTab(DashboardTab):
                 dbc.Col(dcc.Dropdown(id='session-choice', className='c2c-dropdown', clearable=False,
                                      options=[{'label': 'Live-Ringbuffer (flüchtig)', 'value': LIVE}],
                                      value=LIVE), md=6),
-                dbc.Col(dbc.Button('Sessions aktualisieren', id='session-refresh', color='secondary'), md=2),
-                dbc.Col(html.Div('Replay steuert keine Motoren.', className='small text-secondary'), md=4),
+                dbc.Col([dbc.Button('Sessions aktualisieren', id='session-refresh', color='secondary',
+                                  className='me-2'),
+                         dbc.Button('Neueste Session öffnen', id='replay-open-latest', color='info')], md=4),
+                dbc.Col(html.Div('Replay steuert keine Motoren.', className='small text-secondary'), md=2),
             ], className='g-2 mb-2', align='center'),
             dbc.Row([
                 dbc.Col(c.card('Frame Inspector · Replay-HUD', [
@@ -82,6 +96,10 @@ class ReplayTab(DashboardTab):
                                    'Ziehen im Diagramm oder Mausrad = Bereich wählen · '
                                    'Doppelklick = alles · Legende: Klick = Kurve ein/aus')]), md=12)],
                     className='mt-3'),
+            dbc.Row([dbc.Col(c.card(['Ereignisprotokoll', *c.info('eventlog', suffix='replay')], [
+                dbc.RadioItems(id='replay-events-filter', options=event_log.FILTER_OPTIONS, value='important', inline=True,
+                               className='mb-2'),
+                html.Div(id='replay-events', className='c2c-events')]), md=12)], className='mt-3'),
             dcc.Store(id='replay-playing', data=False, storage_type='memory'),
             dcc.Store(id='replay-bounds', data=None, storage_type='memory'),
         ])
@@ -110,6 +128,24 @@ class ReplayTab(DashboardTab):
         position = max(0, min(int(index or 0), len(records) - 1))
         return records, events, path, records[position]
 
+    def events_view(self, name, mode):
+        """PAKET-H2: Ereignisprotokoll des Replay Labs (events.csv der Session bzw. Live-Ringbuffer)."""
+        c, application, car = self.ctx, self.ctx.application, self.ctx.car
+        if name in (None, LIVE):
+            recorder = application.recorder
+            path = getattr(recorder, 'path', None)
+            ring_ids = {record.camera.frame_id for record in car.frame_history.snapshot()}
+            entries = event_log.live_entries(application.health.events(), time.monotonic_ns(), mode,
+                                             Path(str(path)).name if path else None, getattr(recorder, 'has_frame', None),
+                                             ring_ids, limit=300)
+        else:
+            try:
+                _path, frame_rows = load_session(name)
+                entries = event_log.session_entries(load_events(name), frame_rows, name, mode)
+            except (ValueError, OSError):
+                return event_log.event_table(c.html, c.dcc, [], 'Session nicht lesbar')
+        return event_log.event_table(c.html, c.dcc, entries)
+
     # --------------------------------------------------------------- Callbacks
     def register_callbacks(self, app):
         c = self.ctx
@@ -119,8 +155,8 @@ class ReplayTab(DashboardTab):
         records_for, record_at = self.records, self.record_at
 
         @app.callback(Output('session-choice', 'options'), Input('session-refresh', 'n_clicks'),
-                      Input('last-action', 'data'))
-        def refresh_sessions(_, _action):
+                      Input('last-action', 'data'), Input('replay-open-latest', 'n_clicks'))
+        def refresh_sessions(_, _action, _latest=None):
             return [{'label': 'Live-Ringbuffer (flüchtig)', 'value': LIVE}] + [
                 {'label': name, 'value': name} for name in list_sessions()]
 
@@ -200,16 +236,22 @@ class ReplayTab(DashboardTab):
                                     Input('replay-index', 'value'), Input('replay-chart', 'figure'),
                                     State('replay-chart-box', 'id'))
 
-        @app.callback(Output('replay-index', 'max'), Output('replay-range', 'children'),
+        @app.callback(Output('replay-index', 'max'), Output('replay-range', 'children'), Output('replay-events', 'children'),
                       Input('replay-bounds', 'data'), Input('session-choice', 'value'),
-                      Input(self.tick_id, 'n_intervals'), State('main-tabs', 'active_tab'))
-        def replay_limits(bounds, name, _, tab):
+                      Input(self.tick_id, 'n_intervals'), State('main-tabs', 'active_tab'),
+                      Input('replay-events-filter', 'value'))
+        def replay_limits(bounds, name, _, tab, mode='important'):
+            """Index-Maximum, Bereichstext und (PAKET-H2) Ereignisprotokoll der Quelle in EINEM Takt-Callback."""
             if tab != self.tab_id and ctx.triggered_id == self.tick_id:
-                return no_update, no_update
+                return no_update, no_update, no_update
             records, _, _ = records_for(name, bounds)
             source = 'Live-Ringbuffer (gleitend)' if name in (None, LIVE) else 'gespeicherte Session'
             selection = f' · Bereich Frame {int(bounds[0])}–{int(bounds[1])}' if bounds else ''
-            return max(0, len(records) - 1), f'{len(records)} Frames · {source}{selection}'
+            if name not in (None, LIVE) and c.triggered_ids() == {self.tick_id}:
+                events = no_update            # gespeicherte Session: der Takt allein aendert nichts
+            else:
+                events = self.events_view(name, mode)
+            return max(0, len(records) - 1), f'{len(records)} Frames · {source}{selection}', events
 
         @app.callback(Output('replay-playing', 'data'), Input('replay-play', 'n_clicks'),
                       State('replay-playing', 'data'), prevent_initial_call=True)
@@ -315,25 +357,51 @@ class ReplayTab(DashboardTab):
                         chart.add_vline(x=fid, line_width=1, line_dash='dot', line_color='#f0ad4e')
                 return chart
 
-        # ---- Navigation (tabuebergreifend): Replay/Recording/Sprunglink -> Tab, Studio, Session
+        # ---- Navigation (tabuebergreifend): Replay/Cockpit/Sprunglink -> Tab, Studio, Session (PAKET-H2)
         @app.callback(Output('main-tabs', 'active_tab'), Output('replay-studio-msg', 'children'),
                       Output('ab-source', 'children'), Output('replay-studio-token', 'data'),
-                      Output('session-choice', 'value'),
-                      Input('replay-to-studio', 'n_clicks'), Input('record-open-replay', 'n_clicks'),
+                      Output('session-choice', 'value'), Output('drive-studio-msg', 'children'),
+                      Input('replay-to-studio', 'n_clicks'), Input('replay-open-latest', 'n_clicks'),
                       State('session-choice', 'value'), State('replay-bounds', 'data'),
-                      State('replay-index', 'value'), Input('jump-url', 'hash'), prevent_initial_call=True)
-        def replay_to_studio(_, _open, name, bounds, index, jump=None):
-            """Uebergibt Rohbild + damalige Parameter als Referenz A an das A/B-Labor."""
-            if ctx.triggered_id == 'jump-url':  # Link im Ereignisprotokoll
+                      State('replay-index', 'value'), Input('jump-url', 'hash'),
+                      Input('drive-to-studio', 'n_clicks'), State('drive-rendered', 'data'), prevent_initial_call=True)
+        def replay_to_studio(_, _latest, name, bounds, index, jump=None, _drive=None, drive_key=None):
+            """EINZIGER Besitzer von main-tabs.active_tab (Navigation).
+
+            Ausloeser: Replay -> Pipeline Studio, "Neueste Session oeffnen", Sprunglink im Ereignisprotokoll und
+            Cockpit -> Pipeline Studio (Fehlermeldung dann im Cockpit: drive-studio-msg).
+            """
+            trigger = ctx.triggered_id
+            if trigger == 'jump-url':  # Link im Ereignisprotokoll
                 target = parse_jump(jump)
                 if target is None:
-                    return (no_update,) * 5
-                return self.tab_id, no_update, no_update, no_update, target[0]
-            if ctx.triggered_id == 'record-open-replay':  # letzte Session im Replay oeffnen
-                path = getattr(application.recorder, 'path', None)
-                if not path:
-                    return (no_update,) * 5
-                return self.tab_id, no_update, no_update, no_update, Path(str(path)).name
+                    return (no_update,) * 6
+                return self.tab_id, no_update, no_update, no_update, target[0], no_update
+            if trigger == 'replay-open-latest':  # PAKET-H2: neueste Session, auch ohne laufende Aufnahme
+                sessions = list_sessions()
+                if not sessions:
+                    return no_update, 'Keine gespeicherte Session vorhanden', no_update, no_update, no_update, no_update
+                return self.tab_id, no_update, no_update, no_update, sessions[0], no_update
+            if trigger == 'drive-to-studio':  # PAKET-H2: den im Cockpit angezeigten Frame einfrieren
+                try:
+                    frame_id = parse_drive_key(drive_key)
+                    if frame_id is None:
+                        raise ValueError('im Cockpit ist kein Frame angezeigt')
+                    record = car.frame_history.find(frame_id)
+                    camera = record.camera if record is not None else None
+                    live = car.camera_data
+                    if camera is None and live is not None and live.frame_id == frame_id:
+                        camera = live
+                    if camera is None or camera.raw_image is None or not getattr(camera.raw_image, 'size', 0):
+                        raise ValueError(f'Frame {frame_id} liegt nicht mehr im Ringbuffer')
+                    ab.freeze(camera, parameters_from_record(camera.processing_parameters),
+                              processor_key(camera.processor_name))
+                except (ValueError, TypeError, OSError, cv2.error) as exc:
+                    return (no_update,) * 5 + (f'Übergabe nicht möglich: {exc}',)
+                return ('pipeline', no_update,
+                        f'Referenz A = Frame {frame_id} aus dem Cockpit mit den damaligen Parametern. '
+                        '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).',
+                        {'frame_id': frame_id, 'source': 'Cockpit', 'nonce': time.time()}, no_update, '')
             try:
                 _, _, path, record = record_at(name, bounds, index)
                 if record is None:
@@ -350,12 +418,12 @@ class ReplayTab(DashboardTab):
                     frame_id = record.camera.frame_id
                 ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id), params, processor)
             except (ValueError, TypeError, OSError, cv2.error) as exc:
-                return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update, no_update
+                return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update, no_update, no_update
             source = 'Live-Ringbuffer' if name in (None, LIVE) else name
             return ('pipeline', f'Frame {frame_id} an das Pipeline Studio übergeben',
                     f'Referenz A = Frame {frame_id} aus {source} mit den damaligen Parametern. '
                     '„A/B berechnen“ vergleicht mit den aktuellen Slidern (B).',
-                    {'frame_id': frame_id, 'source': source, 'nonce': time.time()}, no_update)
+                    {'frame_id': frame_id, 'source': source, 'nonce': time.time()}, no_update, no_update)
 
         @app.callback(Output('replay-download', 'data'), Input('replay-export', 'n_clicks'),
                       State('session-choice', 'value'), State('replay-bounds', 'data'),

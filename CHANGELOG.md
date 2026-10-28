@@ -1,4 +1,25 @@
 # Changelog
+## 6.9 – Paket H2 (PAKET-H2)
+* **Fünf Reiter:** „Recording & Events“ entfällt (`dashboard/tabs/recording.py` gelöscht, Callback `recording_view` und alle
+  IDs `record-*`, `session-stats`, `event-list`, `tick-record` entfernt). Aufnahmezustand und Zähler (Frames, Lücken, fehlende
+  Entscheidungen, Session, Fehler): Tooltip am REC-Chip der Steuerleiste und eine Zeile im Cockpit. Der wirkungslose Button
+  „Letzte Session im Replay öffnen“ entfällt; im Replay Lab öffnet „Neueste Session öffnen“ die neueste Session aus
+  `list_sessions()` auch ohne laufende Aufnahme. `replay_to_studio` bleibt einziger Besitzer von `main-tabs.active_tab`.
+* **Ereignisprotokoll** (`event_log.py`) im Cockpit und im Replay Lab: Zeit, Frame, Ereignistyp, Beschreibung, neueste zuerst,
+  Filter „Wichtig“ / „Alle“. Die Frame-Nummer ist ein Link `#jump/<session>/<frame>/<nonce>` (nur anspringbar, wenn der Frame in der
+  aufgezeichneten Session – neu `SessionRecorder.has_frame` – oder im Ringbuffer liegt, sonst grau mit Tooltip; Frame -1/None
+  ohne Link). Replay Lab: `events.csv` der gewählten Session bzw. Live-Ringbuffer; die Ereignismarker im Replay-Diagramm waren
+  schon vorhanden und bleiben.
+* **Auslastung** (`system_stats.py`, `SystemSampler`): CPU-Last (Mittel über alle Kerne) prominent, RAM und Temperatur klein, in
+  Kennzahlenleiste und Cockpit; Ampel < 60 % grün, < 85 % gelb, darüber rot, ab 80 °C immer rot. Genau ein Aufrufer (Telemetrie-
+  Sampler-Thread, ca. 4 Hz); Dash liest nur den letzten Wert; fehlende Werte sind `None` (Anzeige „–“).
+* **Telemetrie & Performance:** Speicherplatz der SD-Karte mit Schätzung „reicht für ca. X min Aufnahme“ (alle ca. 30 s);
+  EIN gekoppeltes Diagramm (`telemetry_chart.py`) statt drei: Frequenzen, Latenzen, Fahren, System auf gemeinsamer Zeitachse
+  (60 s), echte Messwerte mit Lücken im Stillstand, dict-Figur, nur jeden 3. Takt, max. 240 Punkte je Kurve, `uirevision`.
+  Das Textblock „Datenalter, Latenzen, System“ ist einklappbar. Info-Text zu „Entscheidungen“.
+* **Cockpit:** Button „Frame im Pipeline Studio öffnen“ (gleiche Übergabe wie im Replay Lab); Fehlermeldung im Cockpit, wenn kein
+  Frame vorliegt. Das Frequenzhistorie-Tupel enthält veraltete Werte jetzt als `None` statt 0.
+
 ## 6.8 – Paket H1b (PAKET-H1B)
 * **Frame-Balken** in Replay Lab („Zeitliche Navigation“) und Simulations-Diagramm: senkrechter, ziehbarer Balken am
   angezeigten Frame (`assets/framebar.js`). Der Balken ist ein eigenes Element über dem Plotly-Diagramm (keine Plotly-Shape:
