@@ -30,6 +30,9 @@ from recovery_control import RecoveryControl
 from session_recorder import SessionRecorder
 from telemetry import DurationStats
 
+import mode_registry
+
+
 log = logging.getLogger(__name__)
 
 
@@ -40,10 +43,7 @@ class CarApplication:
         self._lock = threading.RLock()
         self.car = car if car is not None else CameraCar()
         self.sensor = sensor if sensor is not None else CameraSensor(self.car)
-        self.modes = modes if modes is not None else {
-            'camera': Driving.CameraMode(car=self.car),
-            'gamepad': Driving.PSControllerMode(car=self.car),
-        }
+        self.modes = modes if modes is not None else mode_registry.create_all(self.car)
         self.stop_event = threading.Event()
         self._camera_thread = None
         self._telemetry_thread = None

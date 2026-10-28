@@ -9,6 +9,9 @@ import threading
 
 import cv2
 
+import Driving  # noqa: F401  (importiert die Modi, damit sie sich registrieren)
+import mode_registry
+
 try:  # optional, fuer CPU- und Speicheranzeige
     import psutil
 except ImportError:  # pragma: no cover - abhaengig von der Installation
@@ -16,8 +19,7 @@ except ImportError:  # pragma: no cover - abhaengig von der Installation
 
 LIVE = '__live__'
 ACTIVE_PRESET = '__active__'
-MODES = [{'label': 'CameraMode (autonom)', 'value': 'camera'},
-         {'label': 'PSControllerMode (Gamepad)', 'value': 'gamepad'}]
+MODES = mode_registry.dropdown_options()
 IMAGE_STYLE = {'width': '100%', 'background': '#0b1220', 'borderRadius': '8px', 'objectFit': 'contain'}
 
 # PAKET-E: Diagramme als einfache dicts. go.Figure validiert jeden Trace in Python;

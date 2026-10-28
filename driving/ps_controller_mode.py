@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 import ConfigReader
 
 from .base import DrivingMode
+from mode_registry import register
 
 try:  # evdev ist nur auf Linux verfuegbar; Import des Pakets bleibt dadurch moeglich.
     from evdev import InputDevice, ecodes
@@ -18,6 +19,7 @@ except ImportError:  # pragma: no cover - abhaengig von der Plattform
 if TYPE_CHECKING:
     from BaseCar import BaseCar
 
+@register('ps_controller', 'PS Controller', order=20)
 class PSControllerMode(DrivingMode):
 
     def __init__(self, name='PS-Controller', car:Optional[BaseCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None, device_path:str='/dev/input/event4'):
@@ -92,4 +94,3 @@ class PSControllerMode(DrivingMode):
             except OSError: pass
             self._controller = None
         return super()._post_run()
-
