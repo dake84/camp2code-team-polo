@@ -89,6 +89,7 @@ class SimFrame:
     then_lane_count: int | None
     then_plausible: bool | None
     then_status: str | None
+    captured_ns: int = 0  # PAKET-H1: aufgezeichneter Zeitstempel (Grundlage der Wiedergabe)
 
     @property
     def angle_delta(self):
@@ -246,7 +247,8 @@ class SimEngine:
             then_plausible = (lanes_plausible(frame.then_lanes, w, h)
                               if frame.then_lane_count is not None else None)
             result.frames.append(SimFrame(
-                index=index, frame_id=frame.frame_id, warmup=index < first, crop=crop_from_params(params),
+                index=index, frame_id=frame.frame_id, captured_ns=captured, warmup=index < first,
+                crop=crop_from_params(params),
                 lanes=lanes, lane_count=sum(lane is not None for lane in lanes),
                 plausible=lanes_plausible(lanes, w, h),
                 raw_angle=diag.get('raw_angle'),

@@ -29,6 +29,20 @@ def _float(value):
         return None
 
 
+def fps_info(frames, manifest=None):
+    """PAKET-H1: Median-fps der Aufnahme: aus dem Manifest (capture.median_fps) oder aus den Zeitstempeln."""
+    value = ((manifest or {}).get('capture') or {}).get('median_fps')
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return float(value), 'Manifest'
+    times = [f.monotonic_ns for f in frames if f.monotonic_ns]
+    gaps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
+    if not gaps:
+        return None, None
+    mid = len(gaps) // 2
+    median = gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
+    return 1e9 / median, 'berechnet aus Zeitstempeln'
+
+
 @dataclass(frozen=True)
 class SourceFrame:
     """Ein aufgezeichneter Frame mit den Werten von damals (fehlende Werte = None)."""
@@ -53,7 +67,7 @@ class SessionSource:
     kind = 'session'
 
     def __init__(self, name, root='Data_AI/sessions'):
-        from session_recorder import load_events, load_session
+        from session_recorder import load_events, load_manifest, load_session
         self.name = name
         self.label = f'Session {name}'
         self.path, rows = load_session(name, root)
@@ -62,6 +76,8 @@ class SessionSource:
         self.events = [(fid, row.get('code', ''), row.get('detail', ''))
                        for row in load_events(name, root)
                        if (fid := _int(row.get('frame_id'))) is not None and fid >= 0]
+        self.hud_events = [{'frame_id': fid, 'code': code, 'detail': detail} for fid, code, detail in self.events]
+        self.median_fps, self.fps_source = fps_info(self.frames, load_manifest(name, root))  # PAKET-H1
 
     @staticmethod
     def _frame(row):
@@ -94,7 +110,8 @@ class SessionSource:
 
     def then_image(self, index):
         from replay_hud import draw_hud
-        return draw_hud(self.image(index), self._rows[index])
+        return draw_hud(self.image(index), self._rows[index], events=self.hud_events,
+                        footer='DAMALS (Aufzeichnung)')
 
 
 class RingbufferSource:
@@ -110,6 +127,8 @@ class RingbufferSource:
         self.frames = [self._frame(r) for r in self._records]
         ids = {frame.frame_id for frame in self.frames}
         self.events = [(e.frame_id, e.code, e.detail) for e in events if e.frame_id in ids]
+        self.hud_events = [{'frame_id': fid, 'code': code, 'detail': detail} for fid, code, detail in self.events]
+        self.median_fps, self.fps_source = fps_info(self.frames, None)  # PAKET-H1
 
     @staticmethod
     def _frame(record):
@@ -138,8 +157,7 @@ class RingbufferSource:
         return self._records[index].camera.raw_image
 
     def then_image(self, index):
-        from dashboard_overlay import render_calibration_overlay, render_overlay
+        from replay_hud import draw_hud, row_from_camera  # PAKET-H1: HUD wie im Replay
         record = self._records[index]
-        if record.driving is not None:
-            return render_overlay(record.camera, record.driving)
-        return render_calibration_overlay(record.camera)
+        row = row_from_camera(record.camera, record.driving, events=self.hud_events)
+        return draw_hud(record.camera.raw_image, row, events=self.hud_events, footer='DAMALS (Ringbuffer)')

@@ -49,3 +49,17 @@ Session-Ordner aus `Data_AI/sessions/` auf den Laptop kopieren. Kamera, Motoren,
 und Aufnahme sind deaktiviert; Replay Lab, Pipeline Studio (Replay → Studio, A/B) und
 Simulation funktionieren. Benötigt: Python 3.11+, `opencv-python`, `numpy`, `dash`,
 `dash-bootstrap-components`, `plotly` (siehe `requirements-c2c.txt`).
+
+
+## Wiedergabe (PAKET-H1)
+
+* **Tempo** 0,25x / 0,5x / 1x / 2x / 4x bezieht sich auf die aufgezeichneten Zeitstempel der Frames
+  (`SimFrame.captured_ns`), nicht auf feste fps; Aufnahmen haben ca. 13–16 Hz, schwankend. Tempowechsel
+  braucht keine Neuberechnung. Am Ende wird automatisch pausiert.
+* **Echtzeit:** zeitgenau, Anzeigeframes dürfen übersprungen werden. **Jeder Frame:** nichts wird übersprungen,
+  die Wiedergabe läuft langsamer, wenn die Anzeige nicht hinterherkommt.
+* **Anzeigerate** (Frames/s) wird serverseitig gemessen (ausgelieferte Frames). Der Anzeigetakt beträgt
+  150 ms (`PLAY_TICK_MS`), daher sind höchstens etwa 6–7 Anzeigeframes/s möglich. Die Darstellung im Browser
+  ist nicht gemessen.
+* Änderungen an Quelle, Prozessor, Parameterquelle, Frame-Bereich oder Vorlauf verwerfen das Ergebnis; Play ist
+  erst nach erfolgreicher Berechnung möglich.

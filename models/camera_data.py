@@ -38,6 +38,11 @@ class CameraData:
     processor_name: str | None = None
     # Dauer der Bildverarbeitung in Nanosekunden (0 = unbekannt).
     processing_ns: int = 0
+    # PAKET-H1: Fahrzeugzustand im Aufnahmemoment (None = unbekannt, z. B. alte Aufnahme).
+    # vehicle_mode: idle | auto | manual | recovery; Winkel in Grad; Speed = vorzeichenbehafteter Steuerwert.
+    vehicle_mode: str | None = None
+    vehicle_angle: float | None = None
+    vehicle_speed: float | None = None
 
     def roi_rows(self, height: int | None = None) -> tuple[int, int]:
         """Liefert (oben, unten) des ROI in Vollbild-Pixeln wie im LaneProcessor."""

@@ -157,6 +157,9 @@ Data_AI/sessions/session_<YYYYmmdd_HHMMSS_ffffff>/
 `data_status`: `complete` · `missing_decision` (Fahrmodus aktiv, keine Entscheidung) · `no_driving_state`.
 Export: `export_session_range()` (Bilder unverändert, keine Neukodierung) und `export_live_records()`.
 Sessions v1 (V5.4/5.5) werden gelesen; ohne ROI-Angabe zeichnet das HUD keine Linien.
+**Revision 2 (PAKET-H1):** zusaetzliche Spalten `vehicle_mode` (idle/auto/manual/recovery), `vehicle_angle`,
+`vehicle_speed` (Fahrzeugzustand im Aufnahmemoment) und `manifest.capture.median_fps`; Schema bleibt 2,
+ältere Sessions ohne diese Spalten bleiben lesbar (HUD: KEIN FAHRMODUS).
 
 ## 9. Abweichungen zum Referenzdiagramm v5.1
 

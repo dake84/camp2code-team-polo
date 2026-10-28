@@ -42,3 +42,11 @@ input[type=text],input[type=number],.form-control{background:var(--c2c-input)!im
 .c2c-kpibar{background:var(--c2c-card);border:1px solid var(--c2c-line);border-radius:10px;padding:6px 10px}
 .c2c-link{color:#7fb3ff;text-decoration:underline}
 img:fullscreen{object-fit:contain;background:#000;max-height:none!important}
+
+/* PAKET-H1: Diagramme mit fester Hoehe (style.height am dcc.Graph), kein Padding am Plotly-Element */
+.c2c-chart-box{background:transparent}
+.c2c-chart-bar{min-height:30px}
+.c2c-graph{width:100%;overflow:hidden}
+.c2c-chart-box:fullscreen{background:var(--c2c-bg)}
+.c2c-chart-box:fullscreen .c2c-graph{height:calc(100vh - 64px)!important}
+.c2c-hud-legend summary{cursor:pointer}

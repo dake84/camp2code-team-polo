@@ -178,7 +178,7 @@ class DashboardStructureTests(unittest.TestCase):
         expected = {'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
                     'recording_view', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
-                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_seek', 'sim_play_toggle', 'sim_render', 'kpi_bar', 'settings_apply'}  # PAKET-G  # PAKET-F  # PAKET-C
+                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_playback', 'sim_render', 'kpi_bar', 'settings_apply', 'settings_fill'}  # PAKET-H1  # PAKET-G  # PAKET-F  # PAKET-C
         self.assertEqual(set(self.callbacks), expected)
 
     def test_aktionen_und_zustand(self):

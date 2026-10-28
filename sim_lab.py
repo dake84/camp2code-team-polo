@@ -14,18 +14,30 @@ Sicherheit:
 Dash-Objekte werden uebergeben statt importiert, damit Tests (Dash-Attrappe)
 und Betrieb (echtes Dash) dieselbe Klasse nutzen koennen.
 """
+import bisect
+import itertools
 import logging
 import threading
 import time
+from collections import deque
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 
+import chart_kit  # PAKET-H1
 from processor_registry import label_for, processor_options
 
 log = logging.getLogger(__name__)
 
 LIVE = '__live__'
+# PAKET-H1: Wiedergabe nach aufgezeichneten Zeitstempeln
+PLAY_TICK_MS = 150   # Anzeigetakt; bei 150 ms sind hoechstens etwa 6 bis 7 Anzeigeframes/s moeglich
+SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
+SPEED_LABELS = (('0,25x', 0.25), ('0,5x', 0.5), ('1x', 1.0), ('2x', 2.0), ('4x', 4.0))
+PLAY_LABEL = '▶ Play'
+PAUSE_LABEL = '⏸ Pause'
+STALE_HINT = 'Einstellungen geändert - bitte neu berechnen'
 IMAGE_STYLE = {'width': '100%', 'background': '#0b1220', 'borderRadius': '8px', 'objectFit': 'contain'}
 AXIS = dict(gridcolor='#2a3550', zerolinecolor='#3a4766', color='#c8d3e6')
 
@@ -62,7 +74,7 @@ def _int_or_none(value):
 class SimLab:
     """Layout und Callbacks der Cockpit-Simulation."""
 
-    CALLBACKS = ('sim_view_mode', 'sim_run', 'sim_seek', 'sim_play_toggle', 'sim_render')
+    CALLBACKS = ('sim_view_mode', 'sim_run', 'sim_playback', 'sim_render')  # PAKET-H1
 
     def __init__(self, application, ui, uri, root='Data_AI/sessions'):
         self.application = application
@@ -73,6 +85,12 @@ class SimLab:
         self._run_lock = threading.Lock()
         self._results = {}
         self._engine = None
+        self._play = None            # PAKET-H1: Medienuhr der Wiedergabe (Anker, Tempo, Modus)
+        self._play_lock = threading.Lock()
+        self._ts_cache = None
+        self._skipped = 0
+        self._renders = deque(maxlen=20)
+        self._clock = time.monotonic
 
     # ------------------------------------------------------------------ Layout
     @staticmethod
@@ -88,17 +106,21 @@ class SimLab:
         return html.Div([switch,
                          dbc.Collapse(cockpit, id='cockpit-live-wrap', is_open=True),
                          dbc.Collapse(SimLab._panel(dbc, dcc, html), id='sim-wrap', is_open=False),
-                         dcc.Interval(id='sim-play-tick', interval=250, n_intervals=0, disabled=True),
+                         dcc.Interval(id='sim-play-tick', interval=PLAY_TICK_MS, n_intervals=0, disabled=True),
                          dcc.Store(id='sim-result-token', data=None, storage_type='memory')])
 
     @staticmethod
     def _panel(dbc, dcc, html):
+        from help_texts import info as help_info, label as help_label  # PAKET-H1
+        from replay_hud import legend_block
+
         def card(title, content):
             return dbc.Card([dbc.CardHeader(title), dbc.CardBody(content)], className='h-100')
 
         def number(id_, value=None, placeholder=''):
+            # debounce: erst bei Enter/Verlassen des Feldes (nicht bei jeder Ziffer verwerfen)
             return dcc.Input(id=id_, type='number', step=1, value=value, placeholder=placeholder,
-                             className='form-control form-control-sm')
+                             debounce=True, className='form-control form-control-sm')
 
         settings = card('Simulation · Quelle, Prozessor, Parameter', [
             dbc.Row([
@@ -118,27 +140,42 @@ class SimLab:
                 dbc.Col([html.Label('Vorlauf', className='small'), number('sim-warmup', 30)], md=1),
             ], className='g-2'),
             dbc.Button('Simulation berechnen', id='sim-run', color='primary', size='sm', className='mt-2 me-2'),
-            html.Span('Keine Motoransteuerung · START ist im Simulationsmodus gesperrt',
+            html.Span('Keine Motoransteuerung · START ist im Simulationsmodus gesperrt · '
+                      'Änderungen an diesen Einstellungen verwerfen das Ergebnis',
                       className='small text-secondary'),
             html.Div(id='sim-status', className='small mt-2'),
         ])
-        viewer = card('Damals · Jetzt', [
+        controls = dbc.Row([
+            dbc.Col([help_label('Tempo', 'simspeed', dbc, html, 'small'),
+                     dbc.RadioItems(id='sim-speed', value=1.0, inline=True,
+                                    options=[{'label': text, 'value': value} for text, value in SPEED_LABELS])],
+                    md=5),
+            dbc.Col([help_label('Wiedergabe', 'simmode', dbc, html, 'small'),
+                     dbc.RadioItems(id='sim-timing', value='realtime', inline=True, options=[
+                         {'label': 'Echtzeit', 'value': 'realtime'}, {'label': 'Jeder Frame', 'value': 'every'}])],
+                    md=4),
+            dbc.Col([help_label('Anzeigerate', 'simrate', dbc, html, 'small'),
+                     html.Div(id='sim-display-rate', className='small')], md=12),
+        ], className='g-2 mt-1')
+        viewer = card(['Damals · Jetzt ', *help_info('hud', dbc, html, suffix='sim')], [
             html.Div(id='sim-frame-label', className='fw-semibold mb-2'),
             dbc.Row([dbc.Col([html.Div('DAMALS (Aufzeichnung)', className='c2c-kpi-label'),
                               html.Img(id='sim-img-then', style=IMAGE_STYLE)], md=6),
                      dbc.Col([html.Div('JETZT (Simulation)', className='c2c-kpi-label'),
                               html.Img(id='sim-img-now', style=IMAGE_STYLE)], md=6)], className='g-2'),
+            legend_block(html),
             dbc.ButtonGroup([dbc.Button('◀', id='sim-prev', size='sm'),
                              dbc.Button('▶ Play', id='sim-play', size='sm'),
                              dbc.Button('▶|', id='sim-next', size='sm')], className='mt-2 mb-2'),
             dcc.Slider(id='sim-index', min=0, max=1, step=1, value=0, marks=None,
                        tooltip={'placement': 'bottom'}),
+            controls,
         ])
         compare = card('Vergleich', [html.Div(id='sim-compare'), html.Hr(), html.Div(id='sim-stats')])
         chart = card('Stellwert und Linienanzahl · damals vs. jetzt', [
-            dcc.Graph(id='sim-chart', config={'displayModeBar': False}),
-            html.Div('Klick auf einen Punkt = Frame anzeigen · grau = Vorlauf (nicht in den Kennzahlen) · '
-                     'rote Rauten = Regler-Stopp in der Simulation', className='small text-secondary')])
+            chart_kit.chart_block(dcc, html, 'sim-chart', 280, 'Noch keine Simulation berechnet',
+                                  note='Klick auf einen Punkt = Frame anzeigen · grau = Vorlauf (nicht in den Kennzahlen) · '
+                                       'rote Rauten = Regler-Stopp · Mausrad = Zoom · Legende: Klick = Kurve ein/aus')])
         return html.Div([
             dbc.Row([dbc.Col(settings, md=12)], className='g-3 mb-3'),
             dbc.Row([dbc.Col(viewer, lg=8), dbc.Col(compare, lg=4)], className='g-3 mb-3'),
@@ -191,6 +228,148 @@ class SimLab:
     def first_measured(result):
         return next((i for i, frame in enumerate(result.frames) if not frame.warmup), 0)
 
+    def valid_speed(self, value):
+        """Erlaubte Wiedergabetempi (0,25x bis 4x); alles andere ergibt 1x."""
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return 1.0
+        return value if value in SPEEDS else 1.0
+
+    def discard(self):
+        """Verwirft Ergebnis und Wiedergabezustand (Einstellungen wurden geaendert)."""
+        self._results = {}
+        self._play = None
+        self._ts_cache = None
+        self._skipped = 0
+        self._renders.clear()
+
+    def _timestamps(self, token, result):
+        """Nicht fallende aufgezeichnete Zeitstempel (SimFrame.captured_ns) je Frame."""
+        if self._ts_cache is None or self._ts_cache[0] != token:
+            self._ts_cache = (token, list(itertools.accumulate((f.captured_ns for f in result.frames), max)))
+        return self._ts_cache[1]
+
+    def _start_clock(self, frames, index, now, speed, timing):
+        """Verankert die Medienuhr am angezeigten Frame (Start, Sprung, Tempo- oder Modus-Wechsel)."""
+        self._play = {'index': index, 'media_ns': frames[index].captured_ns, 'wall': now,
+                      'speed': speed, 'timing': timing}
+
+    def advance(self, result, token, index, now, speed, timing):
+        """Naechster Anzeigeframe nach den aufgezeichneten Zeitstempeln; liefert (index, fertig).
+
+        * ``realtime``: Medienzeit = Anker + Wanduhr * Tempo; es wird der letzte Frame bis zu dieser
+          Zeit gezeigt, dazwischenliegende Frames werden uebersprungen.
+        * ``every``: hoechstens ein Frame weiter je Aufruf, nie ueberspringen; der Anker wandert mit dem
+          angezeigten Frame mit, die Wiedergabe laeuft also langsamer, wenn die Anzeige nicht hinterherkommt.
+        """
+        frames = result.frames
+        last = len(frames) - 1
+        play = self._play
+        if play is None or play['index'] != index or play['speed'] != speed or play['timing'] != timing:
+            self._start_clock(frames, index, now, speed, timing)
+            play = self._play
+        if index >= last:
+            return index, True
+        stamps = self._timestamps(token, result)
+        media = play['media_ns'] + (now - play['wall']) * 1e9 * speed
+        if timing == 'every':
+            if media >= stamps[index + 1]:
+                index += 1
+                play.update(index=index, media_ns=stamps[index], wall=now)
+        else:
+            target = max(index, min(last, bisect.bisect_right(stamps, media) - 1))
+            if target != index:
+                self._skipped += target - index - 1
+                index = target
+                play['index'] = index
+        return index, index >= last
+
+    def playback(self, trigger, token, speed, timing, index, paused, click=None, now=None):
+        """Logik des Wiedergabe-Callbacks: (Index, Takt pausiert, Play-Beschriftung).
+
+        Play ist nur mit gueltigem (berechnetem) Ergebnis moeglich; ein neues oder verworfenes Ergebnis
+        pausiert. Am Ende wird automatisch pausiert. Tempo und Modus brauchen keine Neuberechnung.
+        """
+        keep = self.ui.no_update
+        now = self._clock() if now is None else now
+        with self._play_lock:
+            entry = self.lookup(token)
+            if entry is None:
+                self._play = None
+                return 0, True, PLAY_LABEL
+            result = entry[0]
+            frames = result.frames
+            last = max(0, len(frames) - 1)
+            index = max(0, min(int(index or 0), last))
+            speed = self.valid_speed(speed)
+            timing = 'every' if timing == 'every' else 'realtime'
+            playing = not paused
+            if trigger == 'sim-result-token':
+                self._play = None
+                return self.first_measured(result), True, PLAY_LABEL
+            if trigger == 'sim-prev':
+                return max(0, index - 1), keep, keep
+            if trigger == 'sim-next':
+                return min(last, index + 1), keep, keep
+            if trigger == 'sim-chart':
+                points = (click or {}).get('points') or [{}]
+                value = points[0].get('customdata')
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    return max(0, min(last, int(value))), keep, keep
+                return keep, keep, keep
+            if trigger == 'sim-play':
+                if playing:
+                    self._play = None
+                    return keep, True, PLAY_LABEL
+                if index >= last:
+                    index = self.first_measured(result)
+                self._start_clock(frames, index, now, speed, timing)
+                self._skipped = 0
+                self._renders.clear()
+                return index, False, PAUSE_LABEL
+            if trigger in ('sim-speed', 'sim-timing'):
+                if playing:
+                    self._start_clock(frames, index, now, speed, timing)
+                return keep, keep, keep
+            if trigger == 'sim-play-tick' and playing:
+                new_index, finished = self.advance(result, token, index, now, speed, timing)
+                if finished:
+                    self._play = None
+                return (new_index if new_index != index else keep), (True if finished else keep), \
+                    (PLAY_LABEL if finished else keep)
+            return keep, keep, keep
+
+    def note_render(self, frame, now=None):
+        """Merkt sich einen ausgelieferten Anzeigeframe (Wanduhr, aufgezeichnete Zeit) fuer die Anzeigerate."""
+        self._renders.append((self._clock() if now is None else now, frame.captured_ns))
+
+    def baseline_text(self, source):
+        fps = getattr(source, 'median_fps', None)
+        if not fps:
+            return '–'
+        return f'Aufnahme: Median {fps:.1f} Hz ({getattr(source, "fps_source", "?")})'
+
+    def rate_text(self, source):
+        """Gemessene Anzeigerate (serverseitig ausgelieferte Frames/s) und effektives Tempo.
+
+        Gemessen wird, wie oft der Server Anzeigeframes ausliefert; die Darstellung im Browser ist nicht gemessen.
+        """
+        parts = []
+        renders = list(self._renders)
+        if len(renders) >= 2 and renders[-1][0] > renders[0][0]:
+            span = renders[-1][0] - renders[0][0]
+            parts.append(f'Anzeige {(len(renders) - 1) / span:.1f} Frames/s (serverseitig gemessen)')
+            parts.append(f'effektives Tempo {(renders[-1][1] - renders[0][1]) / 1e9 / span:.2f}x')
+        else:
+            parts.append('Anzeige wird gemessen')
+        if self._skipped:
+            parts.append(f'übersprungen {self._skipped}')
+        fps = getattr(source, 'median_fps', None)
+        if fps:
+            parts.append(f'Aufnahme Median {fps:.1f} Hz ({getattr(source, "fps_source", "?")})')
+        return ' · '.join(parts)
+
     def chart(self, result):
         frames = result.frames
         ids = [f.frame_id for f in frames]
@@ -216,13 +395,13 @@ class SimLab:
         if warm:
             shapes.append(dict(type='rect', xref='x', yref='paper', x0=min(warm), x1=max(warm), y0=0, y1=1,
                                fillcolor='rgba(147,162,189,0.15)', line={'width': 0}))
-        layout = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#111a2b', height=280,
+        layout = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#111a2b',
                       font={'color': '#e9f1ff'}, margin=dict(l=45, r=45, t=25, b=40),
                       legend=dict(orientation='h', y=1.15, x=0), shapes=shapes,
                       xaxis=dict(AXIS, title={'text': 'Frame-ID'}),
                       yaxis=dict(AXIS, title={'text': 'Stellwert °'}, range=[40, 140]),
                       yaxis2=dict(AXIS, title={'text': 'Linien'}, overlaying='y', side='right', range=[0, 3]),
-                      uirevision=f'sim-{result.source_label}')
+                      uirevision=f'sim-{id(result)}')
         return {'data': traces, 'layout': layout}
 
     def stats_table(self, result):
@@ -256,22 +435,23 @@ class SimLab:
         return html.Table([head, body], className='table table-sm table-dark mb-0 small')
 
     def render_frame(self, result, source, position):
-        from dashboard_overlay import render_calibration_overlay, render_overlay
-        from models import CameraData, DrivingState
+        """Damals (HUD der Aufzeichnung) und jetzt (HUD der Simulation), Kennzeichnung unten im Bild."""
+        from dashboard_overlay import roi_rows
+        from replay_hud import draw_hud, encode_lanes
         frame = result.frames[position]
         raw = source.image(frame.index)
         then = source.then_image(frame.index)
-        camera = CameraData(process_image=np.empty(0), raw_image=raw, frame_id=frame.frame_id,
-                            crop=frame.crop, lanes=frame.lanes)
-        if frame.car_angle is not None:
-            state = DrivingState(frame.frame_id, 0, frame.raw_angle if frame.raw_angle is not None else 90,
-                                 frame.speed or 0, lanes=frame.lanes, steering_angle_car=frame.car_angle,
-                                 requested_angle=frame.requested_angle)
-            now = render_overlay(camera, state)
-        else:
-            now = render_calibration_overlay(camera)
-        tag = 'MOCK' if result.processor_key == 'mock' else label_for(result.processor_key)
-        return then, _label(now, f'JETZT · {tag}', (0, 255, 255) if result.processor_key == 'mock' else (255, 255, 255))
+        top, bottom = roi_rows(SimpleNamespace(crop=frame.crop), raw.shape[0])
+        row = {'frame_id': frame.frame_id, 'roi_top_px': top, 'roi_bottom_px': bottom,
+               'lanes_json': encode_lanes(frame.lanes), 'vehicle_mode': 'auto',
+               'data_status': 'complete' if frame.car_angle is not None else 'no_driving_state',
+               'steering_angle': frame.raw_angle, 'requested_angle': frame.requested_angle,
+               'steering_angle_car': frame.car_angle, 'speed': frame.speed}
+        if frame.stop_reason:
+            row['event_codes'] = 'STOP_REASON'
+            row['stop_reason'] = frame.stop_reason
+        footer = f'JETZT (Simulation) - {result.processor_key.upper()}' + (' - VORLAUF' if frame.warmup else '')
+        return then, draw_hud(raw, row, footer=footer)
 
     # ------------------------------------------------------------------ Callbacks
     def register(self, app):
@@ -299,75 +479,74 @@ class SimLab:
                       Output('sim-index', 'max'), Output('sim-chart', 'figure'),
                       Output('sim-result-token', 'data'),
                       Input('sim-run', 'n_clicks'),
-                      State('sim-session', 'value'), State('sim-processor', 'value'),
-                      State('sim-params', 'value'), State('sim-from', 'value'), State('sim-to', 'value'),
-                      State('sim-warmup', 'value'), prevent_initial_call=True)
+                      Input('sim-session', 'value'), Input('sim-processor', 'value'),
+                      Input('sim-params', 'value'), Input('sim-from', 'value'), Input('sim-to', 'value'),
+                      Input('sim-warmup', 'value'), prevent_initial_call=True)
         def sim_run(_n, name, processor, param_mode, lo, hi, warmup):
+            """Berechnen (Button) oder Ergebnis verwerfen (eine Einstellung wurde geaendert).
+
+            Quelle, Prozessor, Parameterquelle, Frame-Bereich und Vorlauf gehoeren zum Ergebnis: Aendert der
+            Nutzer eines davon, wird die Wiedergabe pausiert (Token None), das Ergebnis verworfen, die
+            Anzeigen werden geleert und es erscheint der Hinweis zum Neuberechnen.
+            """
+            if ui.ctx.triggered_id != 'sim-run':
+                self.discard()
+                return (STALE_HINT, '', 1, chart_kit.empty_figure(STALE_HINT), None)
             try:
                 token, result = self.simulate(name, processor, param_mode, lo, hi, warmup)
             except (RuntimeError, ValueError, OSError) as exc:
                 return f'Simulation nicht möglich: {exc}', no_update, no_update, no_update, no_update
             measured = result.measured
+            entry = self.lookup(token)
+            source = entry[1] if entry is not None else None
+            fps = getattr(source, 'median_fps', None)
             text = (f'{result.source_label} · {label_for(result.processor_key)} · Parameter '
                     f"{'Studio' if result.param_mode == 'studio' else 'von damals'} · "
                     f'{len(measured)} Frames (+{len(result.frames) - len(measured)} Vorlauf) in '
                     f'{result.duration_s:.1f} s' + (' · ABGESCHNITTEN' if result.truncated else '')
-                    + (f' · {result.errors} Frames übersprungen' if result.errors else ''))
+                    + (f' · {result.errors} Frames übersprungen' if result.errors else '')
+                    + (f' · Aufnahme Median {fps:.1f} Hz ({source.fps_source})' if fps else ''))
             if not result.frames:
                 return text + ' · keine verwertbaren Frames', no_update, no_update, no_update, no_update
             return text, self.stats_table(result), max(0, len(result.frames) - 1), self.chart(result), token
 
-        @app.callback(Output('sim-index', 'value'),
-                      Input('sim-prev', 'n_clicks'), Input('sim-next', 'n_clicks'),
+        @app.callback(Output('sim-index', 'value'), Output('sim-play-tick', 'disabled'),
+                      Output('sim-play', 'children'),
+                      Input('sim-prev', 'n_clicks'), Input('sim-next', 'n_clicks'), Input('sim-play', 'n_clicks'),
                       Input('sim-play-tick', 'n_intervals'), Input('sim-chart', 'clickData'),
-                      Input('sim-result-token', 'data'), State('sim-index', 'value'),
-                      prevent_initial_call=True)
-        def sim_seek(_prev, _next, _tick, click, token, index):
-            entry = self.lookup(token)
-            if entry is None:
-                return no_update
-            result = entry[0]
-            last = max(0, len(result.frames) - 1)
-            trigger = ui.ctx.triggered_id
-            index = max(0, min(int(index or 0), last))
-            if trigger == 'sim-result-token':
-                return self.first_measured(result)
-            if trigger == 'sim-prev':
-                return max(0, index - 1)
-            if trigger in ('sim-next', 'sim-play-tick'):
-                return min(last, index + 1)
-            if trigger == 'sim-chart' and click and click.get('points'):
-                value = click['points'][0].get('customdata')
-                if isinstance(value, (int, float)):
-                    return max(0, min(last, int(value)))
-            return no_update
-
-        @app.callback(Output('sim-play-tick', 'disabled'), Output('sim-play', 'children'),
-                      Input('sim-play', 'n_clicks'), State('sim-play-tick', 'disabled'),
-                      prevent_initial_call=True)
-        def sim_play_toggle(_n, disabled):
-            playing = bool(disabled)          # war pausiert -> jetzt abspielen
-            return not playing, '⏸ Pause' if playing else '▶ Play'
+                      Input('sim-result-token', 'data'), Input('sim-speed', 'value'), Input('sim-timing', 'value'),
+                      State('sim-index', 'value'), State('sim-play-tick', 'disabled'), prevent_initial_call=True)
+        def sim_playback(_prev, _next, _play, _tick, click, token, speed, timing, index, paused):
+            """Schritte, Sprung ins Diagramm und Wiedergabe nach den aufgezeichneten Zeitstempeln."""
+            return self.playback(ui.ctx.triggered_id, token, speed, timing, index, paused, click)
 
         @app.callback(Output('sim-img-then', 'src'), Output('sim-img-now', 'src'),
                       Output('sim-compare', 'children'), Output('sim-frame-label', 'children'),
-                      Input('sim-index', 'value'), Input('sim-result-token', 'data'))
-        def sim_render(index, token):
+                      Output('sim-display-rate', 'children'),
+                      Input('sim-index', 'value'), Input('sim-result-token', 'data'),
+                      State('sim-play-tick', 'disabled'))
+        def sim_render(index, token, paused):
             entry = self.lookup(token)
             if entry is None:
-                return None, None, 'Noch keine Simulation berechnet', ''
+                return None, None, 'Noch keine Simulation berechnet', '', ''
             result, source = entry
             if not result.frames:
-                return None, None, 'Keine Frames', ''
+                return None, None, 'Keine Frames', '', ''
             position = max(0, min(int(index or 0), len(result.frames) - 1))
             frame = result.frames[position]
+            if paused:
+                # Nach einer Pause bleibt die zuletzt gemessene Rate stehen; bei neuem Ergebnis nur die Aufnahmerate.
+                rate = self.baseline_text(source) if ui.ctx.triggered_id == 'sim-result-token' else no_update
+            else:
+                self.note_render(frame)
+                rate = self.rate_text(source)
             try:
                 then, now = self.render_frame(result, source, position)
             except (ValueError, OSError, cv2.error) as exc:
-                return None, None, f'Bild nicht verfügbar: {exc}', f'Frame #{frame.frame_id}'
+                return None, None, f'Bild nicht verfügbar: {exc}', f'Frame #{frame.frame_id}', rate
             label = f'Frame #{frame.frame_id}' + (' · Vorlauf' if frame.warmup else '')
             if frame.stop_reason:
                 label += f' · STOPP {frame.stop_reason}'
-            return self.uri(then), self.uri(now), self.frame_table(frame), html.Span(label)
+            return self.uri(then), self.uri(now), self.frame_table(frame), html.Span(label), rate
 
         return self.CALLBACKS

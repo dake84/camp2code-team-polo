@@ -30,7 +30,7 @@ def _parameters_from_settings(settings: dict) -> tuple:
 class CameraSensor(Camera):
 
     def __init__(self, car: CameraCar, sensor_config: Optional[ConfigReader.ConfigReader] = None,
-                 logger: Optional[logging.Logger] = None) -> None:
+                 logger: Optional[logging.Logger] = None, mode_provider=None) -> None:
         self._log = logger if logger is not None else logging.getLogger(self.__class__.__name__)
         self._cfg = sensor_config if sensor_config is not None else ConfigReader.ConfigReader('cam_sensor', logger=self._log)
         self._lock = threading.Lock()
@@ -38,6 +38,9 @@ class CameraSensor(Camera):
         self._car = car
         # Laufende Nummer fuer die Zuordnung von Bild und Fahrentscheidung.
         self._frame_id = 0
+        # PAKET-H1: Fahrzeugzustand je Frame (Aufnahmemoment)
+        self._mode_provider = mode_provider
+        self._mode_provider_failed = False
         # Gespeicherte Studio-Konfiguration auch ohne offenen Browser nutzen.
         from pipeline_config import load as load_pipeline_config
         settings = load_pipeline_config()
@@ -80,6 +83,37 @@ class CameraSensor(Camera):
         with self._lock:
             self._pack_processing_parameters = pack_processing_parameters
 
+    @property
+    def mode_provider(self):
+        """PAKET-H1: Funktion, die (Modus, Winkel, Speed) des Fahrzeugs liefert (CarApplication.vehicle_mode)."""
+        with self._lock:
+            return self._mode_provider
+
+    @mode_provider.setter
+    def mode_provider(self, provider):
+        with self._lock:
+            self._mode_provider = provider
+        self._mode_provider_failed = False
+
+    def _vehicle_snapshot(self):
+        """PAKET-H1: (Modus, Winkel, Speed) im Aufnahmemoment oder (None, None, None).
+
+        Fehler duerfen die Kameraschleife nie stoeren; sie werden einmalig protokolliert.
+        """
+        provider = self._mode_provider
+        if provider is None:
+            return None, None, None
+        try:
+            mode, angle, speed = provider()
+            if mode not in ('idle', 'auto', 'manual', 'recovery'):
+                mode = None
+            return mode, angle, speed
+        except Exception:
+            if not self._mode_provider_failed:
+                self._mode_provider_failed = True
+                self._log.warning('Fahrzeugzustand nicht lesbar (einmalige Meldung)', exc_info=True)
+            return None, None, None
+
     def set_processor(self, name: str):
         """Wechselt zwischen Prozessor ohne ('legacy') und mit Diagnosebildern ('copilot').
 
@@ -112,6 +146,7 @@ class CameraSensor(Camera):
                 # Zeitstempel direkt nach der Aufnahme (Definition siehe models/camera_data.py).
                 captured_wall_ns = time.time_ns()
                 captured_mono_ns = time.monotonic_ns()
+                vehicle_mode, vehicle_angle, vehicle_speed = self._vehicle_snapshot()  # PAKET-H1
                 # Leere Frames werden nicht an die Verarbeitung weitergereicht.
                 if image is None or image.size == 0:
                     self._log.warning('Leeres Kamerabild verworfen')
@@ -137,6 +172,8 @@ class CameraSensor(Camera):
                     processing_parameters=parameters,
                     processor_name=type(processor).__name__,
                     processing_ns=time.monotonic_ns() - captured_mono_ns,
+                    vehicle_mode=vehicle_mode, vehicle_angle=vehicle_angle,
+                    vehicle_speed=vehicle_speed,
                 )
                 self._car.camera_data = cameradata
                 period = 1.0 / max(1, self.scan_frequency)

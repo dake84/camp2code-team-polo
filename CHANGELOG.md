@@ -1,4 +1,30 @@
 # Changelog
+## 6.6 – Paket H1 (PAKET-H1)
+* **Diagramme:** feste Höhe nur als `style.height` am `dcc.Graph` (kein `layout.height`, kein Padding am
+  Plotly-Element), Vollbild-Schalter als Geschwister in einer Leiste über dem Diagramm, jedes Diagramm startet
+  mit einer dunklen leeren Figur samt Hinweis. Interaktiv: Legende klicken = Kurve ein/aus, Doppelklick =
+  nur diese Kurve, Mausrad-Zoom, Werkzeugleiste (Zoom, Verschieben, Reset, PNG), Doppelklick = alles.
+  Zoom und Legendenzustand überleben Live-Updates (`uirevision`). Replay: Zoom/Ziehen bleibt die
+  Bereichsauswahl (nur X-Achse). Ursache des „wachsenden leeren Diagramms“ nicht am Code verifiziert
+  (der frühere Chart-Zusatz ist nicht im Stand 062f360), siehe `chart_kit.py`.
+* **HUD** (`replay_hud.py`, Replay, Cockpit, Simulation damals und jetzt): Zustandsanzeige statt N/A
+  (GESTOPPT: Ursache > BERGUNG/MANUELL > AUTONOM > AUTONOM/ENTSCHEIDUNG FEHLT > STEHT > KEIN FAHRMODUS),
+  Speed standardmäßig sichtbar und vorzeichenbehaftet (Steuerwert), ROH > STELL, SOLL nur bei ≥ 1° Abweichung,
+  fehlende Werte ausgeblendet, ASCII-Texte, Kennzeichnung unten im Bild, einklappbare Legende.
+  Neue Felder `CameraData.vehicle_mode/vehicle_angle/vehicle_speed` (Aufnahmemoment, über
+  `CameraSensor.mode_provider` = `CarApplication.vehicle_mode()`), neue Spalten in `frames.csv`
+  (Schema 2, Revision 2; alte Sessions bleiben lesbar → KEIN FAHRMODUS).
+* **Simulation:** Änderung von Quelle, Prozessor, Parameterquelle, Frame-Bereich oder Vorlauf pausiert,
+  verwirft das Ergebnis und leert die Anzeigen („Einstellungen geändert - bitte neu berechnen“). Tempo
+  0,25x/0,5x/1x/2x/4x nach den aufgezeichneten Zeitstempeln (`SimFrame.captured_ns`), automatische Pause am Ende,
+  Schalter Echtzeit (überspringt) / Jeder Frame (überspringt nichts), gemessene Anzeigerate.
+  Median-fps der Aufnahme im `manifest.json` (`capture.median_fps`).
+* **Einstellungen dauerhaft:** `config_store.py` speichert Geschwindigkeit (`cameracar_controller.speed_*`) und
+  JPEG-Qualität (`session_recorder.jpeg_quality`) atomar in `config.json` (Sicherung in
+  `Data_AI/config_backups`, letzte 5), lädt beim Start und fällt bei Fehlern auf fest 30 / 95 zurück.
+* **Hilfetexte** (`help_texts.py`): jeder Text genau ein Satz mit Herkunft gemessen/berechnet/Befehlswert/Einstellung.
+* **Tests:** `test_static_checks` durchsucht Verzeichnisse mit Pruning (rglob durchlief `.venv`).
+
 ## 6.5 – Paket G (PAKET-G)
 
 * **Settings-Reiter:** Geschwindigkeit fest/adaptiv (v_min 30 … v_max), JPEG-Qualität der Aufnahme.

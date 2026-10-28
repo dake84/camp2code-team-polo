@@ -8,6 +8,7 @@
 * Dateien aus DELETE_MANIFEST.txt werden von keinem verbleibenden Modul importiert
 """
 import ast
+import os
 import unittest
 from collections import defaultdict
 from pathlib import Path
@@ -24,11 +25,19 @@ def manifest_entries():
             if line.split('#')[0].strip()}
 
 
+def _py_files():
+    """PAKET-H1: Dateisuche mit Verzeichnis-Pruning (rglob durchlief frueher auch .venv; auf dem Pi
+    brach der Test im Paket-C-Installer nach 121 s mit rc=124 ab)."""
+    skip = {'.venv', 'venv', 'legacy', 'camp2code', '__pycache__', '.git', 'node_modules', 'Data_AI'}
+    for folder, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for name in files:
+            if name.endswith('.py'):
+                yield Path(folder) / name
+
 def project_files(include_deleted=False):
     deleted = manifest_entries()
-    for path in sorted(p for p in ROOT.rglob('*.py')
-                       if not {'.venv', 'venv', 'legacy', 'camp2code', '__pycache__', '.git'}
-                       & set(p.relative_to(ROOT).parts)):
+    for path in sorted(_py_files()):  # PAKET-H1
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith(EXCLUDE_DIRS):
             continue

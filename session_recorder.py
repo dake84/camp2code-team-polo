@@ -37,6 +37,9 @@ import cv2
 from replay_hud import encode_lanes
 
 SCHEMA_VERSION = 2
+SCHEMA_REVISION = 2  # PAKET-H1: Revision 2 = + vehicle_mode, vehicle_angle, vehicle_speed (Schema bleibt 2)
+REVISION_NOTE = ('Revision 1: Paket B bis G. Revision 2 (Paket H1): Spalten vehicle_mode, vehicle_angle, '
+                 'vehicle_speed; Manifest capture.median_fps. Aeltere Sessions ohne diese Spalten bleiben lesbar.')
 
 FIELDS = (
     'frame_id', 'image_filename', 'data_status', 'driving_active', 'driving_mode',
@@ -48,6 +51,7 @@ FIELDS = (
     'lane_count', 'lanes_json', 'lane0_m', 'lane0_b', 'lane1_m', 'lane1_b',
     'ir_1', 'ir_2', 'ir_3', 'ir_4', 'ir_5', 'infrared_age_ns',
     'ultrasonic_cm', 'ultrasonic_age_ns', 'event_codes',
+    'vehicle_mode', 'vehicle_angle', 'vehicle_speed',
 )
 EVENT_FIELDS = ('timestamp_ns', 'frame_id', 'code', 'detail')
 
@@ -92,6 +96,7 @@ class SessionRecorder:
         self._thread = None
         self._last_id = -1
         self.count = 0
+        self._frame_times = []  # PAKET-H1: camera_monotonic_ns der geschriebenen Frames
         self.gap_frames = 0
         self.missing_decisions = 0
         self.skipped_empty = 0
@@ -120,6 +125,7 @@ class SessionRecorder:
             self._event_keys = set()
             self._last_id = -1
             self.count = self.gap_frames = self.missing_decisions = self.skipped_empty = 0
+            self._frame_times = []
             self.error = None
             self._write_manifest('recording')
             self._stop.clear()
@@ -152,9 +158,25 @@ class SessionRecorder:
                 'path': str(self.path) if self.path else None,
                 'running': self.is_running()}
 
+    def _capture_stats(self):
+        """PAKET-H1: Aufnahmerate aus den Kamerazeitstempeln der geschriebenen Frames (Median)."""
+        times = [t for t in self._frame_times if t]
+        gaps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
+        stats = {'frames_measured': len(times), 'median_fps': None,
+                 'fps_definition': 'Kehrwert des Median der Abstaende von camera_monotonic_ns '
+                                   'aufeinanderfolgender gespeicherter Frames'}
+        if gaps:
+            mid = len(gaps) // 2
+            median = gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
+            stats['median_fps'] = round(1e9 / median, 2)
+        return stats
+
     def _write_manifest(self, status):
         manifest = {
             'schema_version': SCHEMA_VERSION,
+            'schema_revision': SCHEMA_REVISION,
+            'revision_note': REVISION_NOTE,
+            'capture': self._capture_stats(),
             'created_at': self._created_at,
             'updated_at': datetime.now().isoformat(),
             'status': status,
@@ -283,6 +305,9 @@ class SessionRecorder:
             ir_1=ir[0], ir_2=ir[1], ir_3=ir[2], ir_4=ir[3], ir_5=ir[4],
             infrared_age_ns=ir_age, ultrasonic_cm=ultrasonic, ultrasonic_age_ns=us_age,
             event_codes='|'.join(events_for_frame.get(cam.frame_id, ())),
+            vehicle_mode=getattr(cam, 'vehicle_mode', None),
+            vehicle_angle=getattr(cam, 'vehicle_angle', None),
+            vehicle_speed=getattr(cam, 'vehicle_speed', None),
         )
         return {key: _blank(value) for key, value in row.items()}
 
@@ -340,6 +365,8 @@ class SessionRecorder:
                 target.unlink(missing_ok=True)
             raise
         self.count += len(rows)
+        self._frame_times.extend(int(r['camera_monotonic_ns']) for r in rows
+                                 if r.get('camera_monotonic_ns') not in ('', None))  # PAKET-H1
         if pending or recorder_events:
             with (self.path / 'events.csv').open('a', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=EVENT_FIELDS)

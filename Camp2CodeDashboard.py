@@ -47,7 +47,8 @@ from replay_studio import load_session_image, parameters_from_record, processor_
 from telemetry.thread_stats import ThreadCpuSampler
 from pipeline_config import list_presets, load, load_preset, save_preset
 from help_texts import info, label as help_label  # PAKET-G
-from replay_hud import draw_hud
+from replay_hud import draw_hud, legend_block, row_from_camera  # PAKET-H1
+import chart_kit  # PAKET-H1
 from replay_selection import event_window, record_frame_id, select_records, selected_bounds
 from session_recorder import (export_live_records, export_session_range, list_sessions,
                               load_events, load_session)
@@ -81,9 +82,10 @@ def uri(image, quality=70):
     return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii') if ok else None
 
 
-def dark_figure(figure, height=260, **layout):
+def dark_figure(figure, **layout):
+    """Dunkles Layout ohne layout.height (die feste Hoehe liegt am dcc.Graph, siehe chart_block)."""
     figure.update_layout(template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
-                         plot_bgcolor='#111a2b', height=height,
+                         plot_bgcolor='#111a2b', font={'color': '#e9f1ff'},
                          margin=dict(l=45, r=20, t=25, b=40),
                          legend=dict(orientation='h', y=1.12, x=0), **layout)
     return figure
@@ -152,8 +154,9 @@ def axis(title=None, **kwargs):
     return result
 
 
-def plain_figure(traces, height=260, **layout):
-    base = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#111a2b', height=height,
+def plain_figure(traces, **layout):
+    """Dict-Figur ohne layout.height (feste Hoehe: dcc.Graph.style, siehe chart_block)."""
+    base = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#111a2b',
                 font={'color': '#e9f1ff'}, margin=dict(l=45, r=20, t=25, b=40),
                 legend=dict(orientation='h', y=1.12, x=0), xaxis=axis(), yaxis=axis())
     base.update(layout)
@@ -163,6 +166,28 @@ def plain_figure(traces, height=260, **layout):
 def thin(rows, limit=240):
     step = max(1, -(-len(rows) // limit))
     return list(rows)[::step]
+
+
+# --------------------------------------------------------------------- PAKET-H1 Diagramme
+def chart_block(graph_id, height=260, hint='Noch keine Daten', note=None):
+    """Diagramm mit fester Hoehe (style.height), Vollbild-Leiste als Geschwister (chart_kit)."""
+    return chart_kit.chart_block(dcc, html, graph_id, height, hint, note)
+
+
+def empty_figure(text='Noch keine Daten'):
+    """Dunkle leere Figur mit Hinweistext (statt des weissen Plotly-Standards)."""
+    return chart_kit.empty_figure(text)
+
+
+def saved_note(saved):
+    """Hinweis, ob eine Einstellung dauerhaft in config.json gespeichert wurde (None = unbekannt)."""
+    if saved is True:
+        return ' · dauerhaft gespeichert (config.json)'
+    if saved is False:
+        return ' · nur bis zum Neustart (config.json nicht beschreibbar)'
+    return ''
+
+
 # --------------------------------------------------------------------- PAKET-G Hilfen
 def parse_jump(hash_value):
     """``#jump/<session>/<frame>/<nonce>`` -> (session, frame) oder None."""
@@ -185,16 +210,7 @@ def fs_button(target):
 
 def live_hud_row(camera, driving):
     """Zeile im Format von frames.csv fuer draw_hud aus Live-Daten (keine neue Erkennung)."""
-    from replay_hud import encode_lanes
-    lanes = driving.lanes if driving is not None and driving.lanes is not None else camera.lanes
-    top, bottom = camera.roi_rows()
-    row = {'frame_id': camera.frame_id, 'roi_top_px': top, 'roi_bottom_px': bottom,
-           'lanes_json': encode_lanes(lanes), 'event_codes': '',
-           'data_status': 'complete' if driving is not None else 'live · ohne Fahrentscheidung'}
-    if driving is not None:
-        row.update(steering_angle_car=driving.steering_angle_car, requested_angle=driving.requested_angle,
-                   steering_angle=driving.steering_angle, speed=driving.speed)
-    return row
+    return row_from_camera(camera, driving)
 
 
 def lane_quality(records):
@@ -292,6 +308,7 @@ def build_layout(cfg):
                                     value=[], switch=True, inline=True, className='d-inline-block ms-3 small'),
                       *info('hud', dbc, html)], className='mb-2'),
             html.Img(id='drive-overlay', style={**IMAGE_STYLE, 'maxHeight': '68vh'}),
+            legend_block(html),  # PAKET-H1
             html.Div('Grün/Gelb: erkannte Linien · Magenta: Reglerrichtung aus den Linien · '
                      'Instrument: Fahrzeug-Stellwert · Rohbild bleibt unverändert',
                      className='text-secondary small mt-2')]), lg=8),
@@ -371,9 +388,9 @@ def build_layout(cfg):
 
     telemetry = dbc.Row([
         dbc.Col(card('Live · Mini-Preview', html.Img(id='telemetry-preview', style=IMAGE_STYLE)), md=4),
-        dbc.Col(card(['Soll / Ist Frequenz', *info('freq', dbc, html)], dcc.Graph(id='freq-bars', config={'displayModeBar': False})), md=8),
-        dbc.Col(card(['Frequenzverlauf (letzte 60 s)', *info('freqhist', dbc, html)], dcc.Graph(id='freq-history', config={'displayModeBar': False})), md=12),
-        dbc.Col(card(['Lenkwinkel / Speed / Linienanzahl', *info('drivehist', dbc, html)], dcc.Graph(id='drive-history', config={'displayModeBar': False})), md=12),
+        dbc.Col(card(['Soll / Ist Frequenz', *info('freq', dbc, html)], chart_block('freq-bars', 240, 'Noch keine Messwerte')), md=8),
+        dbc.Col(card(['Frequenzverlauf (letzte 60 s)', *info('freqhist', dbc, html)], chart_block('freq-history', 240, 'Noch keine Frequenzdaten')), md=12),
+        dbc.Col(card(['Lenkwinkel / Speed / Linienanzahl', *info('drivehist', dbc, html)], chart_block('drive-history', 300, 'Noch keine Fahrdaten - START im Cockpit')), md=12),
         dbc.Col(card(['Datenalter · Latenzen · System', *info('dataage', dbc, html)], [html.Div(id='data-age'),
                                                       html.Div(id='system-stats', className='small text-secondary mt-2')]), md=12),
     ], className='g-3')
@@ -399,8 +416,10 @@ def build_layout(cfg):
         dbc.Row([
             dbc.Col(card('Frame Inspector · Replay-HUD', [
                 html.Div([html.Span(id='replay-frame-label', className='fw-semibold'),
-                          fs_button('replay-image')], className='mb-2'),  # PAKET-G
+                          fs_button('replay-image'),
+                          *info('hud', dbc, html, suffix='replay')], className='mb-2'),  # PAKET-G
                 html.Img(id='replay-image', style={**IMAGE_STYLE, 'maxHeight': '60vh'}),
+                legend_block(html),  # PAKET-H1
                 html.Div(id='replay-details', className='small mt-2')]), lg=8),
             dbc.Col(card('Replay-Steuerung', [
                 dbc.ButtonGroup([dbc.Button('◀', id='replay-prev'),
@@ -428,9 +447,9 @@ def build_layout(cfg):
                 html.Div(id='replay-studio-msg', className='small mt-1')]), lg=4),
         ], className='g-3'),
         dbc.Row([dbc.Col(card('Zeitliche Navigation', [
-            dcc.Graph(id='replay-chart', config={'displayModeBar': False}),
-            html.Div('Klick auf Messpunkt = Frame wählen · Ziehen = Bereich wählen · Doppelklick = alles',
-                     className='small text-secondary')]), md=12)], className='mt-3'),
+            chart_block('replay-chart', 260, 'Noch keine Daten',
+                        note='Klick auf Messpunkt = Frame wählen · Ziehen oder Mausrad = Bereich wählen · '
+                             'Doppelklick = alles · Legende: Klick = Kurve ein/aus')]), md=12)], className='mt-3'),
     ])
 
     # PAKET-G: Settings-Reiter
@@ -450,7 +469,7 @@ def build_layout(cfg):
                          dcc.Input(id='set-speed-vmax', type='number', min=30, max=60, step=1, value=45,
                                    className='form-control form-control-sm')]),
             ], className='g-2 mt-1'),
-            html.Div('Nur im Stillstand · gilt bis zum Neustart · Werte sind Steuerwerte (PWM).',
+            html.Div('Nur im Stillstand · wird dauerhaft in config.json gespeichert · Werte sind Steuerwerte (PWM).',
                      className='small text-secondary mt-2')]), md=6),
         dbc.Col(card('Aufzeichnung', [
             help_label('JPEG-Qualität', 'recq', dbc, html, 'small'),
@@ -542,19 +561,44 @@ def create_app(application):
             setter = getattr(application, 'set_speed_policy', None)
             if setter is None:
                 raise RuntimeError('Anwendung ohne Geschwindigkeitseinstellung')
-            setter(policy)
-            messages.append(html.Div(f'✔ Geschwindigkeit: {policy.describe()}', className='text-success'))
+            saved = setter(policy)
+            messages.append(html.Div(f'✔ Geschwindigkeit: {policy.describe()}' + saved_note(saved),
+                                     className='text-success'))
         except (ValueError, RuntimeError) as exc:
             messages.append(html.Div(f'✖ Geschwindigkeit: {exc}', className='text-warning'))
         try:
             setter = getattr(application, 'set_jpeg_quality', None)
             if setter is None:
                 raise RuntimeError('Anwendung ohne Aufnahme')
-            setter(quality)
-            messages.append(html.Div(f'✔ JPEG-Qualität {quality} ab der nächsten Aufnahme', className='text-success'))
+            saved = setter(quality)
+            messages.append(html.Div(f'✔ JPEG-Qualität {quality} ab der nächsten Aufnahme' + saved_note(saved),
+                                     className='text-success'))
         except (ValueError, RuntimeError, TypeError) as exc:
             messages.append(html.Div(f'✖ Aufnahme: {exc}', className='text-warning'))
         return messages
+
+    # ------------------------------------------------ PAKET-H1: Settings zeigen die aktiven (gespeicherten) Werte
+    QUALITY_OPTIONS = [{'label': '70 · klein', 'value': 70}, {'label': '85 · mittel', 'value': 85},
+                       {'label': '95 · hoch (Standard)', 'value': 95}, {'label': '100 · maximal', 'value': 100}]
+
+    @app.callback(Output('set-speed-mode', 'value'), Output('set-speed-fixed', 'value'),
+                  Output('set-speed-vmin', 'value'), Output('set-speed-vmax', 'value'),
+                  Output('set-rec-quality', 'value'), Output('set-rec-quality', 'options'),
+                  Input('main-tabs', 'active_tab'))
+    def settings_fill(tab):
+        """Beim Oeffnen des Reiters die tatsaechlich aktiven Werte zeigen (nach Neustart: gespeicherte)."""
+        if tab != 'settings':
+            return (no_update,) * 6
+        getter = getattr(application, 'speed_policy', None)
+        policy = getter() if getter is not None else None
+        quality = getattr(getattr(application, 'recorder', None), 'jpeg_quality', None)
+        speed = ((policy.mode, policy.fixed_speed, policy.v_min, policy.v_max) if policy is not None
+                 else (no_update,) * 4)
+        if not isinstance(quality, int) or isinstance(quality, bool):
+            return (*speed, no_update, no_update)
+        options = QUALITY_OPTIONS if quality in (70, 85, 95, 100) else (
+            QUALITY_OPTIONS + [{'label': f'{quality} · gespeichert', 'value': quality}])
+        return (*speed, quality, options)
 
     # ------------------------------------------------ Aktionen (ein Callback)
     @app.callback(Output('last-action', 'data'),
@@ -909,7 +953,7 @@ def create_app(application):
                 names = ['Kamera', 'Entscheidungen']
                 bars = plain_figure([dict(type='bar', name='Soll', x=names, y=targets, marker={'color': '#6c7a92'}),
                                      dict(type='bar', name='Ist', x=names, y=actual, marker={'color': '#2fbf8f'})],
-                                    240, barmode='group', yaxis=axis('Hz'), uirevision='bars')
+                                    barmode='group', yaxis=axis('Hz'), uirevision='bars')
                 ftraces = []
                 if freqs:
                     end = freqs[-1][0]
@@ -917,7 +961,8 @@ def create_app(application):
                     for i, name in ((1, 'Kamera'), (2, 'Entscheidungen')):
                         ftraces.append(dict(type='scatter', mode='lines', name=name,
                                             x=[round(r[0] - end, 2) for r in recent], y=[r[i] for r in recent]))
-                fplot = plain_figure(ftraces, 240, xaxis=axis('Sekunden'), yaxis=axis('Hz'), uirevision='freq')
+                fplot = (plain_figure(ftraces, xaxis=axis('Sekunden'), yaxis=axis('Hz'), uirevision='freq')
+                         if ftraces else empty_figure('Noch keine Frequenzdaten'))
                 dtraces = []
                 if rows:
                     end = time.monotonic()
@@ -931,10 +976,11 @@ def create_app(application):
                         dict(type='scatter', mode='lines', name='Linienanzahl', x=x, line={'shape': 'hv'}, yaxis='y2',
                              y=[r[5] if len(r) > 5 else None for r in recent]),
                     ]
-                dplot = plain_figure(dtraces, 300, xaxis=axis('Sekunden', range=[-CHART_WINDOW_S, 0]),
-                                     yaxis=axis('Grad / Steuerwert'),
-                                     yaxis2=axis('Linien', overlaying='y', side='right', range=[0, 3]),
-                                     uirevision='drive')
+                dplot = (plain_figure(dtraces, xaxis=axis('Sekunden', range=[-CHART_WINDOW_S, 0]),
+                                      yaxis=axis('Grad / Steuerwert'),
+                                      yaxis2=axis('Linien', overlaying='y', side='right', range=[0, 3]),
+                                      uirevision='drive')
+                         if dtraces else empty_figure('Noch keine Fahrdaten - START im Cockpit'))
             lines = []
             if camera is not None and camera.monotonic_ns:
                 lines.append(f'Kameradatenalter (seit Aufnahme): {(time.monotonic_ns() - camera.monotonic_ns) / 1e6:.0f} ms')
@@ -1155,7 +1201,7 @@ def create_app(application):
         if not live and triggered_props() == {'tick-replay'}:
             return (no_update,) * 3
         with measure(application, 'dashboard.replay'):
-            _, _, path, record = replay_record_at(name, bounds, index)
+            _, events, path, record = replay_record_at(name, bounds, index)
             if record is None:
                 return None, 'Keine Frames', 'Kamera starten oder Session auswählen'
             if isinstance(record, dict):
@@ -1167,9 +1213,10 @@ def create_app(application):
                            f"Soll {record.get('requested_angle') or '–'} · Roh {record.get('steering_angle') or '–'} · "
                            f"Speed {record.get('speed') or '–'} · Linien {record.get('lane_count') or '–'} · "
                            f"Ereignisse {record.get('event_codes') or '–'}")
-                return uri(draw_hud(image, record), 80), f"Frame #{record.get('frame_id')}", details
-            image = (render_overlay(record.camera, record.driving) if record.driving
-                     else render_calibration_overlay(record.camera))
+                return uri(draw_hud(image, record, events=events), 80), f"Frame #{record.get('frame_id')}", details
+            # PAKET-H1: HUD auch fuer den Live-Ringbuffer (Zustand, Stopp-Ursache aus den Ereignissen)
+            image = draw_hud(record.camera.raw_image,
+                             row_from_camera(record.camera, record.driving, events=events), events=events)
             info = (f'Frame {record.camera.frame_id} · '
                     + (f'Stellwert {fmt(record.driving.steering_angle_car)} · Roh {fmt(record.driving.steering_angle)} · '
                        f'Speed {fmt(record.driving.speed)}' if record.driving else 'Keine zugeordnete Fahrentscheidung'))
@@ -1196,11 +1243,16 @@ def create_app(application):
             return patch
         with measure(application, 'dashboard.replay_chart'):
             chart = go.Figure()
-            dark_figure(chart, 240, xaxis_title='Frame-ID', yaxis_title='Winkel',
-                        yaxis2=dict(overlaying='y', side='right', range=[0, 3], title='Linien'),
-                        uirevision=f'{name}|{bounds}')
+            # PAKET-H1: keine layout.height; der Legendenzustand haengt an layout.uirevision (je Quelle), die
+            # Achsenzustaende an xaxis.uirevision (je Quelle und Bereich): eine Bereichsauswahl setzt die Achsen
+            # neu, ausgeblendete Kurven bleiben ausgeblendet.
+            dark_figure(chart, xaxis=dict(title={'text': 'Frame-ID'}, uirevision=f'{name}|{bounds}'),
+                        yaxis=dict(title={'text': 'Winkel'}, fixedrange=True),
+                        yaxis2=dict(overlaying='y', side='right', range=[0, 3], title={'text': 'Linien'},
+                                    fixedrange=True),
+                        uirevision=f'{name}')
             if not records:
-                return chart
+                return empty_figure('Keine Frames - Kamera starten oder Session wählen')
             ids = [record_frame_id(r) for r in records]
             if isinstance(records[0], dict):
                 def number(row, key):

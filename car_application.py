@@ -21,6 +21,7 @@ from time import monotonic, monotonic_ns
 import Driving
 from CameraCar import CameraCar
 from CameraSensor import CameraSensor
+import config_store  # PAKET-H1
 from driving_health import DrivingHealthMonitor
 from pipeline_config import save
 from recovery_control import RecoveryControl
@@ -60,6 +61,9 @@ class CarApplication:
         self.timings = DurationStats()
         self._requested_stop = False
         self._freq_history = deque(maxlen=240)
+        # PAKET-H1: Fahrzeugzustand fuer die Kamera (Aufnahmemoment) und gespeicherte Einstellungen
+        self._attach_vehicle_mode()
+        self._apply_stored_settings()
         if start_camera:
             self.start_camera()
         self._telemetry_thread = threading.Thread(target=self._sample_loop,
@@ -160,6 +164,54 @@ class CarApplication:
         self.set_pipeline(config)
         save(config)
 
+    # ------------------------------------------------------------ Fahrzeugzustand, dauerhafte Einstellungen (PAKET-H1)
+    def vehicle_mode(self):
+        """PAKET-H1: (Modus, Winkel, Speed) des Fahrzeugs fuer den Kamerathread (je Frame).
+
+        Nimmt bewusst NICHT das Anwendungs-Lock: ein STOP haelt es bis zu 2 s und wuerde die
+        Kameraschleife blockieren. Modus: recovery | manual (Gamepad) | auto (CameraMode) | idle.
+        Winkel/Speed sind die zuletzt gesendeten Stellwerte (Speed vorzeichenbehaftet).
+        """
+        car = self.car
+        with car._lock:
+            angle = car.steering_angle
+            speed = car.speed
+        if self.recovery.enabled:
+            mode = 'recovery'
+        elif self.running():
+            mode = 'auto' if self.active_mode == 'camera' else 'manual'
+        else:
+            mode = 'idle'
+        return mode, angle, speed
+
+    def _attach_vehicle_mode(self):
+        """PAKET-H1: der CameraSensor liest den Fahrzeugzustand je Frame ueber diesen Provider."""
+        try:
+            self.sensor.mode_provider = self.vehicle_mode
+        except AttributeError:
+            log.warning('Sensor ohne mode_provider - Fahrzeugzustand wird nicht aufgezeichnet')
+
+    def _apply_stored_settings(self):
+        """PAKET-H1: dauerhafte Einstellungen laden; Fehler duerfen den Start nie verhindern."""
+        try:
+            policy = config_store.load_speed_policy()
+            mode = self.modes.get('camera')
+            if mode is not None and hasattr(mode, 'speed_policy'):
+                mode.speed_policy = policy
+            self.recorder.jpeg_quality = config_store.load_jpeg_quality()
+        except Exception:
+            log.exception('Gespeicherte Einstellungen nicht anwendbar - Standardwerte bleiben')
+
+    def _persist(self, action, what):
+        """PAKET-H1: dauerhaft speichern. False (mit Protokoll), wenn nicht moeglich - der Wert gilt dann bis zum Neustart."""
+        try:
+            action()
+            return True
+        except (config_store.ConfigStoreError, OSError, ValueError) as exc:
+            log.warning('%s nicht dauerhaft gespeichert: %s', what, exc)
+            self.health.record('CONFIG_NOT_SAVED', f'{what}: {exc}')
+            return False
+
     # ------------------------------------------------------------ Einstellungen (PAKET-G)
     @staticmethod
     def _fresh_hz(counter, max_age_s=2.0):
@@ -187,6 +239,7 @@ class CarApplication:
                 raise RuntimeError('CameraMode ohne Geschwindigkeitsstrategie')
             mode.speed_policy = policy
             self.health.record('SPEED_POLICY', policy.describe())
+        return self._persist(lambda: config_store.save_speed_policy(policy), 'Geschwindigkeit')
 
     def set_jpeg_quality(self, quality):
         """JPEG-Qualitaet der naechsten Aufnahme (nur ohne laufende Aufzeichnung)."""
@@ -197,6 +250,8 @@ class CarApplication:
             if self.recorder.is_running():
                 raise RuntimeError('Bildqualität nur ohne laufende Aufzeichnung ändern')
             self.recorder.jpeg_quality = quality
+        return self._persist(lambda: config_store.save_jpeg_quality(quality), 'JPEG-Qualität')
+
     # ------------------------------------------------------------ Aufzeichnung
     def toggle_recording(self):
         with self._lock:

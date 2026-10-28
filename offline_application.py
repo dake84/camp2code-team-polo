@@ -10,6 +10,7 @@ Dashboard sie nutzt.
 import logging
 from types import SimpleNamespace
 
+import config_store  # PAKET-H1
 from driving_health import DrivingHealthMonitor
 from pipeline_config import load, save
 from processor_registry import create_processor, is_live_processor, key_for_class
@@ -76,7 +77,7 @@ class OfflineApplication:
         self.active_mode = None
         self.controller_poll_hz = 0.0
         from speed_policy import SpeedPolicy  # PAKET-G
-        self._speed_policy = SpeedPolicy()
+        self._speed_policy = config_store.load_speed_policy()  # PAKET-H1: gespeichert oder fest 30
         self.health.record('OFFLINE', 'Dashboard ohne Hardware gestartet')
 
     @staticmethod
@@ -113,6 +114,11 @@ class OfflineApplication:
 
     def set_speed_policy(self, policy):
         self._speed_policy = policy
+        try:  # PAKET-H1: dauerhaft speichern, falls config.json vorhanden ist (auf dem Laptop oft nicht)
+            config_store.save_speed_policy(policy)
+            return True
+        except (config_store.ConfigStoreError, OSError, ValueError):
+            return False
 
     def set_jpeg_quality(self, quality):
         self._refuse()

@@ -285,18 +285,21 @@ class DashboardSimTests(TempConfig):
 
     def test_simulation_im_cockpit(self):
         self.cb['sim_view_mode']('sim')
+        self.ctx.set('sim-run')  # PAKET-H1
         status, stats, maximum, chart, token = self.cb['sim_run'](1, self.name, 'mock', 'recorded', 40, 50, 5)
         self.assertIn('MOCK', status)
         self.assertEqual(maximum, 15)
         self.assertGreaterEqual(len(chart['data']), 4)
         self.ctx.set('sim-result-token', 'data')
-        index = self.cb['sim_seek'](None, None, None, None, token, 0)
+        index, _paused, _label = self.cb['sim_playback'](None, None, None, None, None, token, 1.0,
+                                                         'realtime', 0, True)
         self.assertEqual(index, 5)                     # erster Frame nach dem Vorlauf
-        then, now, table, label = self.cb['sim_render'](index, token)
+        then, now, table, label, _rate = self.cb['sim_render'](index, token, True)
         self.assertTrue(then.startswith('data:image') and now.startswith('data:image'))
 
     def test_keine_simulation_waehrend_fahrt(self):
         self.fake._running = True
+        self.ctx.set('sim-run')
         status = self.cb['sim_run'](1, self.name, 'copilot', 'recorded', None, None, 0)[0]
         self.assertIn('Fahrt', status)
         self.fake._running = False
