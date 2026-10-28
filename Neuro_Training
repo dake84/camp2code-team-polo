@@ -1,0 +1,348 @@
+from pathlib import Path
+from datetime import datetime                                  
+
+import pandas as pd
+import numpy as np
+import warnings
+
+import seaborn as sns
+
+warnings.filterwarnings('ignore')
+import matplotlib.pyplot as plt
+import tensorflow as tf
+
+from tensorflow.keras import Sequential
+from tensorflow.keras.layers import Input, Rescaling, Conv2D, Flatten, Dropout, Dense
+
+
+def import_data(data_path=Path('Data_AI'),
+                sub_folder_list=['2026-10-26_14-03-39'],
+                lane_filter=True):
+
+    X = []
+    Y = []
+
+    # Bildgröße gilt für ALLE Unterordner
+    image_height = None
+    image_width = None
+    image_dimension = None
+
+    for sub_folder_value in sub_folder_list:
+
+        csv_path = data_path / sub_folder_value / 'data.csv'
+        data = pd.read_csv(csv_path)
+
+        # Optional: Nur Daten mit 2 erkannten Linien verwenden
+        if lane_filter:
+            try:
+                data = data[data['lane_count'] == 2]
+            except KeyError:
+                print('lane_count nicht vorhanden -> Daten werden nicht gefiltert.')
+
+        # leere Unterordner überspringen (sonst Fehler bei flip_left_right)
+        if data.empty:
+            print(f'{sub_folder_value}: keine Daten -> übersprungen.')
+            continue
+
+        images = []
+
+        for image_name in data['image']:
+
+            image_path = data_path / sub_folder_value / image_name
+
+            # Beim ersten Bild Originalgröße bestimmen
+            if image_height is None:
+                first_image = tf.keras.utils.load_img(image_path)
+                first_image = tf.keras.utils.img_to_array(first_image)
+
+                image_height, image_width, image_dimension = first_image.shape
+
+                print('Bildhöhe:', image_height)
+                print('Bildbreite:', image_width)
+                print('Bilddimension:', image_dimension)
+
+            # Alle Bilder auf diese Größe laden
+            image = tf.keras.utils.load_img(
+                image_path,
+                target_size=(image_height, image_width)
+            )
+
+            image = tf.keras.utils.img_to_array(image)
+
+            images.append(image)
+
+        X_arr = np.array(images, dtype=np.float32)
+        X_flipped = tf.image.flip_left_right(X_arr)
+
+        Y_arr = data[['speed', 'steering_angle']].to_numpy(dtype=np.float32)
+
+        Y_flipped = Y_arr.copy()
+        Y_flipped[:, 1] = 180 - Y_flipped[:, 1]
+
+        X.append(X_arr)
+        X.append(X_flipped)
+
+        Y.append(Y_arr)
+        Y.append(Y_flipped)
+
+    X = np.concatenate(X, axis=0)
+    Y = np.concatenate(Y, axis=0)
+
+    return X, Y, image_height, image_width, image_dimension
+
+
+def write_txt(txt_path, lines, mode='a'):                      
+    '''Schreibt Zeilen in die Parameter-/Ergebnis-.txt.'''
+    with open(txt_path, mode, encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
+def train_deepcar(data_path=Path('Data_AI'),
+                  sub_folder_list=['2026-10-28_10-06-38'],
+                  lane_filter=True,
+                  epochs=100,
+                  learning_rate=0.001,                         # als Parameter für die .txt
+                  batch_size=32,                               
+                  train_split=0.70,                            
+                  validate_split=0.15):                        
+
+    # eigener Trainingsordner Data_AI/Training_Datum_Uhrzeit
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    save_path = data_path / f'Training_{timestamp}'
+    save_path.mkdir(parents=True, exist_ok=True)
+    txt_path = save_path / 'parameter.txt'
+
+    # Parameter in .txt schreiben
+    write_txt(txt_path, [
+        f'Training: {timestamp}',
+        '',
+        '[Parameter]',
+        f'data_path: {data_path}',
+        f'sub_folder_list: {sub_folder_list}',
+        f'lane_filter: {lane_filter}',
+        f'epochs: {epochs}',
+        f'learning_rate: {learning_rate}',
+        f'batch_size: {batch_size}',
+        f'train_split: {train_split}',
+        f'validate_split: {validate_split}',
+        f'test_split: {round(1 - train_split - validate_split, 2)}',
+        'augmentation: flip_left_right, steering_angle = 180 - steering_angle',
+    ], mode='w')
+
+    # Daten einlesen
+    X, Y, fig_heigt, fig_width, fig_dim = import_data(data_path=data_path,
+                                                      sub_folder_list=sub_folder_list,
+                                                      lane_filter=lane_filter)
+
+    # DataFrame für Pandas
+    data = pd.DataFrame(Y, columns=['speed', 'steering_angle'])
+    # Visualisierung
+    g = sns.pairplot(data=data[['speed', 'steering_angle']])
+    g.savefig(save_path / 'pairplot_speed_steering.png', dpi=150)
+    plt.close('all')
+
+    # Einmal Checken wie die Shapes sind
+    # x: Anzahl der Bilder, Pixel Höhe, Pixel Breite, Anzahl Farbkanäle
+    # y: Anzahl der Werte, Speed, Steeringangle
+    print('X shape:', X.shape)
+    print('Y shape:', Y.shape)
+
+    print('Erster Output:')
+    print(Y[0])
+
+    # Datensätze mischen:
+    indices = np.random.permutation(len(X))
+
+    X = X[indices]
+    Y = Y[indices]
+
+    # Dataset für model aufbauen
+    dataset = tf.data.Dataset.from_tensor_slices((X, Y))
+
+    # Daten mischen
+    dataset = dataset.shuffle(
+        buffer_size=len(X),
+        seed=42,
+        reshuffle_each_iteration=False
+    )
+
+    # Anzahl Daten
+    n = len(X)
+    n_train = int(train_split * n)                            
+    n_validate = int(validate_split * n)                      
+
+    # Aufteilung in Trainingsdaten, Testdaten und Validierungsdaten
+    train_ds = dataset.take(n_train)             # Trainingsdaten
+    remaining_ds = dataset.skip(n_train)         # Alles, was nicht in train_ds steckt
+    validate_ds = remaining_ds.take(n_validate)  # Validierung
+    test_ds = remaining_ds.skip(n_validate)      # Testdaten
+
+    # Datenumfang in .txt
+    write_txt(txt_path, [
+        '',
+        '[Daten]',
+        f'Bildgröße (H, B, Kanäle): ({fig_heigt}, {fig_width}, {fig_dim})',
+        f'X shape: {X.shape}',
+        f'Y shape: {Y.shape}',
+        f'n_train: {n_train}',
+        f'n_validate: {n_validate}',
+        f'n_test: {n - n_train - n_validate}',
+    ])
+
+    # Netz aufbauen (Shapes in den Kommentaren gelten für 120x160)
+    model = Sequential(
+        [
+            Input(shape=(fig_heigt, fig_width, fig_dim)),
+            Rescaling(1./255),
+            Conv2D(24, 5, strides=2, activation='relu'),   # -> (58, 78, 24)
+            Conv2D(36, 5, strides=2, activation='relu'),   # -> (27, 37, 36)
+            Conv2D(48, 5, strides=2, activation='relu'),   # -> (12, 17, 48)
+            Conv2D(64, 3, activation='relu'),              # -> (10, 15, 64)
+            Conv2D(64, 3, activation='relu'),              # -> (8, 13, 64)
+            Flatten(),                                     # -> 6.656
+            Dropout(0.3),
+            Dense(100, activation='relu'),
+            Dense(50, activation='relu'),
+            Dense(10, activation='relu'),
+            Dense(2)
+        ],
+        name='DeepCar_CNN'
+    )
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),   
+        loss='mse',
+        metrics=['mae']
+    )
+
+    model.summary()
+
+    # Modellaufbau in .txt
+    summary_lines = []
+    model.summary(print_fn=lambda line, **kwargs: summary_lines.append(line))
+    write_txt(txt_path, ['', '[Modell]', *summary_lines])
+
+    train_ds    = train_ds.shuffle(1000).batch(batch_size).prefetch(tf.data.AUTOTUNE)   
+    validate_ds = validate_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    test_ds     = test_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+    print(train_ds.element_spec)
+
+    history = model.fit(
+        train_ds,
+        validation_data=validate_ds,
+        epochs=epochs
+    )
+
+    
+    # Modell speichern und testen (nach model.fit)
+    # - MAE (Mean Absolute Error) - Absolute Fehler des Outputs, da hier nicht skaliert -> etwa 1 bis 2 grad -> OK
+    # - MSE (Mean Squared Error) - Die Einheit ist das Quadrat der Zielwerte, deshalb ist der MSE schwer direkt zu lesen.
+    #   Besser lesbar ist die Wurzel daraus, der RMSE: (Wurzel(MSE))
+    
+    model.save(save_path / 'deepcar.keras')   # vollständiges Modell: Architektur + Gewichte
+
+    test_loss, test_mae = model.evaluate(test_ds)
+    print(f'Test-MSE: {test_loss:.4f}  Test-MAE: {test_mae:.4f}')
+
+    y_true = np.concatenate([y.numpy() for _, y in test_ds]); y_pred = model.predict(test_ds, verbose=0)
+    y_mean = np.concatenate([y.numpy() for _, y in train_ds]).mean(axis=0)
+
+    mae_per_output = np.abs(y_pred - y_true).mean(axis=0)
+    mae_baseline = np.abs(y_mean - y_true).mean(axis=0)
+    r2 = 1 - ((y_pred - y_true)**2).mean(axis=0) / y_true.var(axis=0)
+
+    print('MAE  [speed, steering]:', mae_per_output)
+    print('Basis-MAE (nur Mittelwert):', mae_baseline)
+    print('R² [speed, steering]:', r2)
+
+    # TFLite-Export
+    tflite_path = save_path / 'deepcar.tflite'
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]   # Gewichte als int8, Datei ca. 4x kleiner
+    tflite_path.write_bytes(converter.convert())
+
+    # Kontrolle: Keras vs. TFLite an einem Testbild
+    interp = tf.lite.Interpreter(model_path=str(tflite_path)); interp.allocate_tensors()
+    inp, out = interp.get_input_details()[0], interp.get_output_details()[0]
+    x, y = next(iter(test_ds.unbatch().batch(1)))
+    interp.set_tensor(inp['index'], x.numpy().astype(np.float32)); interp.invoke()
+    keras_out, tflite_out, soll = model.predict(x, verbose=0)[0], interp.get_tensor(out['index'])[0], y.numpy()[0]
+    print('Keras :', keras_out); print('TFLite:', tflite_out); print('Soll  :', soll)
+
+    # Plotte die Ergebnisse
+    h = history.history; ep = np.arange(1, len(h['loss']) + 1); best = int(np.argmin(h['val_loss'])) + 1
+
+    # Ergebnisse in .txt
+    write_txt(txt_path, [
+        '',
+        '[Ergebnisse]',
+        f'beste Epoche (val_loss): {best}',
+        f'val_loss (beste Epoche): {h["val_loss"][best - 1]:.4f}',
+        f'Test-MSE: {test_loss:.4f}',
+        f'Test-RMSE: {np.sqrt(test_loss):.4f}',
+        f'Test-MAE: {test_mae:.4f}',
+        f'MAE [speed, steering]: {mae_per_output}',
+        f'Basis-MAE (nur Mittelwert): {mae_baseline}',
+        f'R² [speed, steering]: {r2}',
+        f'Kontrolle Keras : {keras_out}',
+        f'Kontrolle TFLite: {tflite_out}',
+        f'Kontrolle Soll  : {soll}',
+    ])
+
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4.5))
+    ax[0].plot(ep, h['loss'], label='Training')
+    ax[0].plot(ep, h['val_loss'], label='Validierung')
+    ax[0].axvline(best, color='gray', ls='--', label=f'beste Epoche {best}')
+    ax[0].set_yscale('log')
+    ax[0].set(title='Loss (MSE)', xlabel='Epoche', ylabel='MSE')
+    ax[0].legend(); ax[0].grid(alpha=0.3)
+    ax[1].plot(ep, h['mae'], label='Training')
+    ax[1].plot(ep, h['val_mae'], label='Validierung')
+    ax[1].axvline(best, color='gray', ls='--')
+    ax[1].set(title='MAE', xlabel='Epoche', ylabel='MAE')
+    ax[1].legend()
+    ax[1].grid(alpha=0.3)
+    plt.tight_layout()
+    fig.savefig(save_path / 'training_loss_mae.png', dpi=150)
+    plt.close(fig)
+
+    names = ['speed', 'steering_angle']
+
+    fig, ax = plt.subplots(2, 2, figsize=(13, 9))
+    for i, name in enumerate(names):
+        lim = [y_true[:, i].min(), y_true[:, i].max()]
+        ax[0, i].scatter(y_true[:, i], y_pred[:, i], s=8, alpha=0.5)
+        ax[0, i].plot(lim, lim, 'r--', label='ideal')
+        ax[0, i].set(title=f'{name}: Vorhersage vs. echt', xlabel='echt', ylabel='vorhergesagt')
+        ax[0, i].legend(); ax[0, i].grid(alpha=0.3)
+        ax[1, i].hist(y_pred[:, i] - y_true[:, i], bins=50)
+        ax[1, i].set(title=f'{name}: Fehlerverteilung', xlabel='Fehler'); ax[1, i].grid(alpha=0.3)
+
+    plt.tight_layout()
+    fig.savefig(save_path / 'test_vorhersage_vs_echt.png', dpi=150)
+    plt.close(fig)
+
+    fig = plt.figure(figsize=(13, 4))
+    plt.plot(y_true[:, 1], label='echt')
+    plt.plot(y_pred[:, 1], label='Netz', alpha=0.8)
+    plt.title('Lenkwinkel über die Testbilder')
+    plt.xlabel('Bild-Index')
+    plt.ylabel('steering_angle')
+    plt.legend()
+    plt.grid(alpha=0.3)
+    fig.savefig(save_path / 'test_lenkwinkel_verlauf.png', dpi=150)
+    plt.close(fig)
+
+    print('Plots, parameter.txt, deepcar.keras und deepcar.tflite gespeichert in:', save_path)
+
+    return model, history
+
+
+if __name__ == '__main__':
+    print('this is the main')
+
+    model, history = train_deepcar(data_path=Path('Data_AI'),
+                                   sub_folder_list=['2026-10-28_10-06-38'],
+                                   lane_filter=True,
+                                   epochs=100)
