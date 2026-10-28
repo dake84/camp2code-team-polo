@@ -24,6 +24,11 @@ PROJECT_MODULES = ('BaseCar', 'SonicCar', 'SensorCar', 'CameraCar', 'CameraSenso
                    'replay_hud', 'dashboard_overlay', 'Camp2CodeDashboard')
 
 
+def _fresh(name):
+    """Paketmodule, die pro Test frisch importiert werden (driving/*, dashboard/* mit den Tabs)."""
+    return name.startswith(('driving.', 'dashboard.')) or name == 'dashboard'
+
+
 class CallLog:
     """Gemeinsames Protokoll aller Attrappen (thread-sicher)."""
 
@@ -154,16 +159,16 @@ def installed(frames=None, extra=None):
     if extra:
         modules.update(extra)
     saved = {name: sys.modules.get(name) for name in list(modules) + list(PROJECT_MODULES)}
-    saved.update({name: mod for name, mod in sys.modules.items() if name.startswith('driving.')})
+    saved.update({name: mod for name, mod in sys.modules.items() if _fresh(name)})
     for name in list(sys.modules):
-        if name in PROJECT_MODULES or name.startswith('driving.'):
+        if name in PROJECT_MODULES or _fresh(name):
             del sys.modules[name]
     sys.modules.update(modules)
     try:
         yield log
     finally:
         for name in list(sys.modules):
-            if name in modules or name in PROJECT_MODULES or name.startswith('driving.'):
+            if name in modules or name in PROJECT_MODULES or _fresh(name):
                 del sys.modules[name]
         for name, module in saved.items():
             if module is not None:
@@ -182,7 +187,28 @@ def write_config(path, **sections):
     return str(path)
 
 
+def pin_pipeline_config():
+    """Fixiert ``pipeline_config.load`` auf die Standardwerte und startet den Patch.
+
+    Dashboard-Tests sollen nicht von der ``pipeline_studio.json`` im Projekt abhaengen. Aufrufer muessen
+    ``.stop()`` aufrufen.
+    """
+    import copy
+    from unittest import mock
+    import pipeline_config
+    real_load = pipeline_config.load
+
+    def pinned(path=None):
+        # Nur die aktive Konfiguration (ohne Pfad) wird fixiert; Presets (load_preset -> load(pfad)) bleiben echt.
+        return copy.deepcopy(pipeline_config.DEFAULT) if path is None else real_load(path)
+
+    patcher = mock.patch.object(pipeline_config, 'load', side_effect=pinned)
+    patcher.start()
+    return patcher
+
+
 def fresh_import(name):
     if name in sys.modules:
         del sys.modules[name]
     return importlib.import_module(name)
+

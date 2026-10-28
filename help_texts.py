@@ -61,6 +61,9 @@ HELP = {
     'blur': ('Blur-Kernel', 'Einstellung',
              'Kantenlänge des Weichzeichners in Pixeln, der Maskenränder glättet und Rauschen unterdrückt, '
              'wobei hohe Werte schmale Linien unter die Binärschwelle von 50 % drücken können.'),
+    'blurgauss': ('Blur-Kernel (Gauß)', 'Einstellung',
+                  'Kantenlänge des Gauß-Weichzeichners in Pixeln (gerade Werte werden um 1 erhöht), der das '
+                  'Bildrauschen vor dem Blackhat-Filter dämpft, bei hohen Werten aber schmale Linien verwischt.'),
     'morph': ('Morph-Kernel', 'Einstellung',
               'Kantenlänge des Schließens (Dilatation und Erosion) in Pixeln, die kleine Lücken in der Maske '
               'schließt, aber bei hohen Werten Linien verbreitert.'),
@@ -111,3 +114,4 @@ def info(key, dbc, html, suffix=None):
 def label(text, key, dbc, html, className='c2c-kpi-label', suffix=None):
     """Beschriftung mit angehaengtem ⓘ."""
     return html.Div([text, ' ', *info(key, dbc, html, suffix)], className=className)
+

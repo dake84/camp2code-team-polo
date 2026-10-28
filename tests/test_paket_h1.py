@@ -506,9 +506,7 @@ class DashboardChartTests(unittest.TestCase):
         from test_dashboard_callbacks import FakeApplication, load_dashboard
         cls.module, cls.context, cls.ctx = load_dashboard()
         cls.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(cls.module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = cls.module.create_app(cls.fake)
+        cls.app = cls.module.create_app(cls.fake)
         cls.cb = cls.app.callbacks
 
     @classmethod
@@ -516,11 +514,12 @@ class DashboardChartTests(unittest.TestCase):
         cls.context.__exit__(None, None, None)
 
     def test_jedes_diagramm_hat_feste_hoehe_und_vollbild_geschwister(self):
-        components = list(self.app.layout.walk())
+        from test_dashboard_callbacks import layout_of
+        components = list(layout_of(self.app).walk())
         graphs = [c for c in components if type(c).__name__ == 'Graph']
         ids = {g.id for g in graphs}
         self.assertEqual(ids, {'freq-bars', 'freq-history', 'drive-history', 'replay-chart', 'sim-chart'})
-        boxes = {c.id: c for c in components if c.id and c.id.endswith('-box')}
+        boxes = {c.id: c for c in components if isinstance(c.id, str) and c.id.endswith('-box')}
         for graph in graphs:
             props = graph.props
             self.assertRegex(props['style']['height'], r'^\d+px$')
@@ -642,13 +641,13 @@ class RealDashChartTests(unittest.TestCase):
         cls.stubs.__enter__()
         module = hardware_stubs.fresh_import('Camp2CodeDashboard')
         cls.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = module.create_app(cls.fake)
+        cls.pin = hardware_stubs.pin_pipeline_config()
+        cls.app = module.create_app(cls.fake)
         cls.client = cls.app.server.test_client()
 
     @classmethod
     def tearDownClass(cls):
+        cls.pin.stop()
         cls.stubs.__exit__(None, None, None)
 
     def walk(self, node):
@@ -673,7 +672,8 @@ class RealDashChartTests(unittest.TestCase):
             self.assertNotIn('height', props['figure']['layout'])
             self.assertNotEqual(props['figure']['layout']['plot_bgcolor'], None)
             self.assertNotIn('padding', json.dumps(props['style']))
-        boxes = {n['props']['id'] for n in self.walk(layout) if n.get('type') == 'Div' and 'id' in n.get('props', {})}
+        boxes = {n['props']['id'] for n in self.walk(layout) if n.get('type') == 'Div'
+                 and isinstance(n.get('props', {}).get('id'), str)}
         self.assertTrue({'freq-bars-box', 'replay-chart-box', 'sim-chart-box'} <= boxes)
 
     def post(self, outputs, inputs, state, changed):
@@ -1051,3 +1051,4 @@ class StaticFileSearchTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

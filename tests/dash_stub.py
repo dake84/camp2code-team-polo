@@ -4,6 +4,7 @@ Erlaubt hardware- und browserfreie Tests der Callback-Registrierung und
 einzelner Callbacks, auch wenn Dash nicht installiert ist. Es wird nur die
 Teilmenge der API nachgebildet, die Camp2CodeDashboard verwendet.
 """
+import json
 import types
 from collections import namedtuple
 
@@ -58,6 +59,19 @@ class State(Dependency):
     pass
 
 
+class _Wildcard:
+    """Platzhalter fuer ALL/MATCH in Pattern-Matching-IDs (``{'type': 'x', 'key': ALL}``)."""
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+
+ALL = _Wildcard('ALL')
+MATCH = _Wildcard('MATCH')
+
+
 class _NoUpdate:
     def __repr__(self):
         return 'no_update'
@@ -71,9 +85,14 @@ class CallbackContext:
         self.triggered_id = None
         self.triggered = []
 
-    def set(self, component_id, prop='n_clicks'):
+    def set(self, component_id, prop='n_clicks', value=None):
+        """Setzt den ausloesenden Eingang; ``component_id`` darf eine Pattern-Matching-ID (dict) sein."""
         self.triggered_id = component_id
-        self.triggered = [{'prop_id': f'{component_id}.{prop}', 'value': None}] if component_id else []
+        if isinstance(component_id, dict):
+            text = json.dumps(component_id, sort_keys=True, separators=(',', ':'))
+        else:
+            text = component_id
+        self.triggered = [{'prop_id': f'{text}.{prop}', 'value': value}] if component_id else []
 
 
 ctx = CallbackContext()
@@ -131,6 +150,7 @@ def modules():
     html = _component_module('dash.html')
     dcc = _component_module('dash.dcc', {'send_file': lambda path: {'path': path}})
     dash.Dash, dash.Input, dash.Output, dash.State = Dash, Input, Output, State
+    dash.ALL, dash.MATCH = ALL, MATCH
     dash.ctx, dash.no_update, dash.html, dash.dcc = ctx, no_update, html, dcc
     dbc = _component_module('dash_bootstrap_components', {'themes': types.SimpleNamespace(DARKLY='darkly')})
     plotly = types.ModuleType('plotly')
@@ -139,3 +159,4 @@ def modules():
     plotly.graph_objects = go
     return {'dash': dash, 'dash.html': html, 'dash.dcc': dcc, 'dash_bootstrap_components': dbc,
             'plotly': plotly, 'plotly.graph_objects': go}
+

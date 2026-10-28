@@ -12,7 +12,6 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -83,7 +82,7 @@ class RegistryTests(unittest.TestCase):
     def test_verzeichnis(self):
         import processor_registry as reg
         live = [o['value'] for o in reg.processor_options(live_only=True)]
-        self.assertEqual(set(live), {'copilot', 'legacy'})
+        self.assertEqual(set(live), {'copilot', 'legacy', 'opus'})
         self.assertIn('mock', [o['value'] for o in reg.processor_options()])
         self.assertFalse(reg.is_live_processor('mock'))
         self.assertEqual(type(reg.create_processor('mock')).__name__, 'MockProcessor')
@@ -251,9 +250,7 @@ class DashboardSimTests(TempConfig):
         from test_dashboard_callbacks import FakeApplication, load_dashboard
         self.module, self.context, self.ctx = load_dashboard()
         self.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(self.module, 'load', return_value=pipeline_config.DEFAULT):
-            self.app = self.module.create_app(self.fake)
+        self.app = self.module.create_app(self.fake)
         self.cb = self.app.callbacks
 
     def tearDown(self):
@@ -335,3 +332,4 @@ class RealDashSimTests(TempConfig):
 
 if __name__ == '__main__':
     unittest.main()
+

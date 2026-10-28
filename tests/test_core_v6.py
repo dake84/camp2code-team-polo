@@ -105,7 +105,7 @@ class PipelineTests(unittest.TestCase):
         raw = hardware_stubs.test_image()
         before = raw.copy()
         result = self.module.CopilotLaneProcessor().process(raw, self.PARAMS)
-        self.assertEqual(set(result.stages), {'roi', 'hsv', 'mask', 'blur', 'morph', 'edges'})
+        self.assertEqual(set(result.stages), {'roi', 'hsv', 'mask', 'blur', 'binary', 'morph', 'edges'})
         self.assertTrue(np.shares_memory(result.stages['roi'], raw))
         self.assertIs(result.stages['edges'], result.processed_image)
         np.testing.assert_array_equal(raw, before)
@@ -188,3 +188,4 @@ class BaseCarLockTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

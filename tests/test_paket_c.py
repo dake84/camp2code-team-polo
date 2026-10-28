@@ -6,7 +6,6 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import numpy as np
 
@@ -75,9 +74,7 @@ class ReplayCallbackTests(unittest.TestCase):
         from test_dashboard_callbacks import FakeApplication, load_dashboard
         cls.module, cls.context, cls.ctx = load_dashboard()
         cls.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(cls.module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = cls.module.create_app(cls.fake)
+        cls.app = cls.module.create_app(cls.fake)
         cls.callbacks = cls.app.callbacks
 
     @classmethod
@@ -96,8 +93,8 @@ class ReplayCallbackTests(unittest.TestCase):
         self.assertEqual(tab, 'pipeline')
         self.assertIn('Referenz A', source)
         self.ctx.set('ab-run')
-        status = self.callbacks['ab_calibrate'](None, 1, None, 'copilot', [0.15, 0.55], [100, 130], [80, 255],
-                                                [40, 255], 3, 5, [50, 100], ['on'], ['on'], ['on'], ['on'], [], ['on'])
+        from test_dashboard_callbacks import studio_controls
+        status = self.callbacks['ab_calibrate'](None, 1, None, 'copilot', *studio_controls('copilot'))
         self.assertTrue(status[0].startswith('A/B auf Frame'), status[0])
 
     def test_session_takt_allein_rendert_nicht(self):
@@ -108,3 +105,4 @@ class ReplayCallbackTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

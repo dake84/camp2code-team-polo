@@ -37,6 +37,7 @@ def register(key, label, module, class_name, live=False):
 
 register('copilot', 'Mit Diagnosebildern (Copilot)', 'pipeline_processors', 'CopilotLaneProcessor', live=True)
 register('legacy', 'Ohne Diagnosebilder (Legacy)', 'pipeline_processors', 'LaneProcessor', live=True)
+register('opus', 'Modus Opus (dunkle Linie)', 'pipeline_processors', 'OpusLaneProcessor', live=True)
 register('mock', 'MOCK · Testprozessor (nur Simulation)', 'mock_processor', 'MockProcessor', live=False)
 
 
@@ -79,3 +80,26 @@ def key_for_class(name):
 def label_for(key):
     spec = _SPECS.get(key)
     return spec.label if spec is not None else str(key)
+
+
+
+def processor_class(key):
+    """Klasse eines Prozessors (ohne Instanz). Unbekannte Schluessel fuehren zu ``ValueError``."""
+    spec = _SPECS.get(key)
+    if spec is None:
+        raise ValueError(f'Unbekannter Prozessor: {key}')
+    return getattr(importlib.import_module(spec.module), spec.class_name)
+
+
+def processor_stages(key):
+    """Stufenbeschreibung (``PipelineStage``) eines Prozessors fuer das Pipeline Studio.
+
+    Das Dashboard erzeugt Karten und Regler ausschliesslich aus dieser Beschreibung.
+    Prozessoren ohne ``dashboard_stages()`` zeigen nur Rohbild und Linien.
+    """
+    cls = processor_class(key)
+    describe = getattr(cls, 'dashboard_stages', None)
+    if describe is not None:
+        return tuple(describe())
+    from pipeline_processors import PipelineStage, STAGE_OVERLAY, STAGE_RAW
+    return (PipelineStage(STAGE_RAW, 'Rohbild'), PipelineStage(STAGE_OVERLAY, 'Linien', 'lanes'))

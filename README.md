@@ -38,13 +38,21 @@ Nur **eine** Instanz starten. Legacy-Dashboards (`legacy/dashboards/`) und `Dash
 |---|---|
 | Steuerleiste (immer sichtbar) | Kamera-/Fahr-/REC-Status, Frame-ID, Fahrmodus, **START**, **STOP**, Bergung, REC |
 | Driving Cockpit | Livebild mit Linien und Reglerrichtung, Stellwert, Soll-/Rohwinkel, Speed-Steuerwert, Diagnose |
-| Pipeline Studio | 8 Stufen mit Reglern, Freeze, A/B-Vergleich, Presets (nur im Stillstand änderbar) |
+| Pipeline Studio | Stufen und Regler je Bildprozessor (Legacy/Copilot: 9, Modus Opus: 10), Freeze, A/B-Vergleich, Presets (nur im Stillstand änderbar) |
 | Telemetrie & Performance | Soll/Ist-Frequenzen, Verläufe, Linienanzahl, Datenalter, Latenzen, CPU/RAM |
 | Recording & Events | Aufzeichnungsstatus, Zähler, Ereignisprotokoll |
 | Replay Lab | Session/Ringbuffer, Timeline, Klick-Navigation, Play/Pause, Ereignissprung mit Vor-/Nachlauf, Export |
 
 Bergung: „Bergung aktivieren“, dann **Leertaste halten** + W/S/A/D. Ohne Tastensignal stoppt der
 Watchdog nach 0,35 s. Autonomer Fahrmodus und Bergung schließen sich gegenseitig aus.
+
+## Dashboard erweitern
+
+Das Control Center besteht aus einer Shell und je Reiter einer Klasse (`dashboard/tabs/`, Aufbau siehe
+[ARCHITECTURE.md](ARCHITECTURE.md), Abschnitt 7). Neuer Reiter: Klasse von `DashboardTab` ableiten und in
+`dashboard/tabs/__init__.py` eintragen. Neuer Bildprozessor mit eigenen Stufen: `dashboard_stages()` in der
+Klasse beschreiben und in `processor_registry.py` eintragen; das Pipeline Studio zeigt Karten und Regler
+automatisch.
 
 ## Tests
 
@@ -85,3 +93,4 @@ Fahrmodus nicht automatisch (nur die Bergung hat einen Watchdog). Physischen Abs
 * Der Live-Ringbuffer (60 Frames) ist gleitend; für lange Analysen Sessions aufzeichnen.
 * Bergung und A/B-Referenz sind nicht für mehrere gleichzeitige Browser ausgelegt.
 * Dash-Version auf dem Pi ist nicht in `requirements.txt` erfasst; getestet mit Dash 4.4 (Sandbox).
+

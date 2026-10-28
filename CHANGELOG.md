@@ -1,4 +1,28 @@
 # Changelog
+## 6.7 – Dashboard als Plug-ins, dynamisches Pipeline Studio, Modus Opus
+* **Dashboard in Tab-Klassen zerlegt:** `Camp2CodeDashboard.py` (vorher ca. 1400 Zeilen mit allen Layouts und
+  Callbacks) startet nur noch; Aufbau im Paket `dashboard/` (Shell + `tabs/`: Driving, Pipeline, Telemetry,
+  Recording, Replay, Settings, je Klasse von `DashboardTab`). Neuer Tab = neue Klasse. Das Paket importiert
+  Dash nie selbst (Dash-Bausteine über `DashboardContext`). Callback-Namen, Komponenten-IDs (außer Pipeline
+  Studio), Takte und Verhalten der übrigen Tabs unverändert.
+* **Pipeline Studio dynamisch:** Prozessoren beschreiben ihre Stufen, Regler und Schalter selbst
+  (`dashboard_stages()`, `PipelineStage`, `PipelineControl`); das Studio erzeugt daraus Karten mit
+  Pattern-Matching-IDs. Prozessorwechsel und Preset-Laden bauen die Karten neu auf (`rebuild_stage_cards`),
+  Reglerwerte bleiben erhalten, nicht angezeigte Regler (HSV bei Opus) behalten ihren Wert. Neue Karte
+  „Binarisierung“ (Stufe `binary` des Legacy-/Copilot-Prozessors, bisher nicht sichtbar). Der Prozessor-
+  Wähler steht jetzt über den Karten. Der Replay-Frame im Studio wird mit dem gewählten Prozessor verarbeitet
+  (vorher immer Copilot).
+* **Modus Opus** (`OpusLaneProcessor`, Schlüssel `opus`, fahrfreigegeben): dunkle Linien über Graustufen,
+  CLAHE, Gauß-Blur, Blackhat und Otsu statt starrer HSV-Farbe; Stufen Graustufen, CLAHE, Blackhat, Otsu-
+  Schwelle, neue abschaltbare Schritte `clahe`, `blackhat`, `threshold`. Blackhat-Kernel fest 15 px.
+* **Layout je Seitenaufruf neu gebaut:** ein Neuladen im Browser zeigt die wirksamen Studio-Einstellungen. Das
+  Studio wendet unveränderte Werte nicht erneut an (Dash ruft Wildcard-Callbacks beim Laden auf).
+* **Fix `assets/visibility.js`:** `pageshow` vor dem Rendern des Layouts löste „Cannot read properties of
+  undefined“ aus; gesetzt wird jetzt erst, wenn das Layout steht.
+* **Tests:** Strukturtests mit Pattern-Matching-IDs, `tests/test_dashboard_plugins.py` (Stufenbeschreibung,
+  Opus, Plug-ins, echtes Dash über HTTP). Konfiguration der Dashboard-Tests unabhängig von
+  `pipeline_studio.json` (`hardware_stubs.pin_pipeline_config`). Hinweis: die Patch-Skripte
+  `scripts/paket_*_patch.py` zielen auf den alten Monolithen und sind nicht mehr anwendbar.
 ## 6.6 – Paket H1 (PAKET-H1)
 * **Diagramme:** feste Höhe nur als `style.height` am `dcc.Graph` (kein `layout.height`, kein Padding am
   Plotly-Element), Vollbild-Schalter als Geschwister in einer Leiste über dem Diagramm, jedes Diagramm startet
@@ -189,3 +213,4 @@ Referenzen auf entfernte Klassen, Startskripte). Bestehende Tests isoliert (kein
 - `FollowLine`: PID-Zeit und Zustandsfortschreibung korrigiert.
 - `DrivingMode`: Start-/Stop-Thread-Lifecycle verbessert.
 - `CameraSensor`: leere Frames und Ressourcenfreigabe behandelt; zyklisches Debug-JPEG entfernt.
+

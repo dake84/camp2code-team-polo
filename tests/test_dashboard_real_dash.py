@@ -9,7 +9,6 @@ import json
 import os
 import sys
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 HAS_DASH = all(importlib.util.find_spec(m) for m in ('dash', 'dash_bootstrap_components', 'plotly'))
@@ -25,13 +24,13 @@ class RealDashTests(unittest.TestCase):
         cls.stubs.__enter__()
         module = hardware_stubs.fresh_import('Camp2CodeDashboard')
         cls.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = module.create_app(cls.fake)
+        cls.pin = hardware_stubs.pin_pipeline_config()
+        cls.app = module.create_app(cls.fake)
         cls.client = cls.app.server.test_client()
 
     @classmethod
     def tearDownClass(cls):
+        cls.pin.stop()
         cls.stubs.__exit__(None, None, None)
 
     def test_seite_und_layout(self):
@@ -42,7 +41,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_abhaengigkeiten(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 30)  # PAKET-G  # PAKET-F  # PAKET-C
+        self.assertEqual(len(deps), 31)  # 30 bisherige + rebuild_stage_cards (Pipeline Studio dynamisch)
 
     def post(self, outputs, inputs, state, changed):
         output = ('..' + '...'.join(f'{i}.{p}' for i, p in outputs) + '..' if len(outputs) > 1
@@ -100,3 +99,4 @@ class RealDashTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -33,11 +33,15 @@ auffällige Frames) · `~/c2c-sim-SESSION.csv` (je Frame und Prozessor).
 
 ```python
 # processor_registry.py (oder beim Import des eigenen Moduls)
-register('opus', 'Modus Opus (Suchfenster + Gedächtnis)', 'modus_opus', 'ModusOpusProcessor', live=False)
+register('mein_prozessor', 'Mein Prozessor', 'mein_modul', 'MeinProzessor', live=False)
 ```
 
 Anforderungen an die Klasse: `process(raw, params) -> PipelineResult` mit `lanes` als
 `(m, b)` (`y = m*x + b` im ROI). `live=False` = nur Simulation/A/B; erst nach Tests auf `True`.
+
+Für das Pipeline Studio zusätzlich `dashboard_stages()` als Klassenmethode (Stufen, Regler, Schalter, siehe
+`pipeline_processors.py` und ARCHITECTURE.md 7.2). Ohne Beschreibung zeigt das Studio nur Rohbild und Linien.
+Eingetragen und fahrfreigegeben (`live=True`) ist der `OpusLaneProcessor` (Schlüssel `opus`).
 
 ## Offline (Laptop, ohne Hardware)
 
@@ -63,3 +67,4 @@ Simulation funktionieren. Benötigt: Python 3.11+, `opencv-python`, `numpy`, `da
   ist nicht gemessen.
 * Änderungen an Quelle, Prozessor, Parameterquelle, Frame-Bereich oder Vorlauf verwerfen das Ergebnis; Play ist
   erst nach erfolgreicher Berechnung möglich.
+

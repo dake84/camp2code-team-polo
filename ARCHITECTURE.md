@@ -14,7 +14,7 @@ flowchart LR
   end
   subgraph SENSE[Sensorik]
     CS[CameraSensor\nThread camera-sensor]
-    PP[LaneProcessor /\nCopilotLaneProcessor]
+    PP[LaneProcessor / CopilotLaneProcessor /\nOpusLaneProcessor]
     LD[LaneDetector]
   end
   subgraph STORE[Zentraler Speicher]
@@ -60,7 +60,7 @@ flowchart LR
 | Replay | `replay_hud.py`, `replay_selection.py` | HUD auf Bildkopie, Frame-ID-Bereiche |
 | Darstellung | `dashboard_overlay.py`, `dashboard_steering.py` | gemeinsame Zeichenfunktionen (Live + Replay) |
 | Anwendung | `car_application.py` | erzeugt und beendet alles genau einmal |
-| Dashboard | `Camp2CodeDashboard.py`, `assets/` | fünf Ansichten, ausschließlich über `CarApplication` |
+| Dashboard | `Camp2CodeDashboard.py` (Start), `dashboard/` (Shell + Tab-Klassen), `assets/` | sechs Ansichten als Plug-ins, ausschließlich über `CarApplication` |
 
 ## 3. Vererbung
 
@@ -71,6 +71,8 @@ Loggable (CarLogger)
 Camera (basisklassen_cam) ── CameraSensor
 Infrared ── InfraredSensor          Ultrasonic ── UltrasonicSensor
 LaneProcessor ── CopilotLaneProcessor
+             └── OpusLaneProcessor (dunkle Linien: Blackhat + Otsu)
+DashboardTab (abc) ── DrivingTab · PipelineTab · TelemetryTab · RecordingTab · ReplayTab · SettingsTab
 DrivingMode (abc)
 ├── CameraMode · PSControllerMode · KeyboardMode
 ├── ModeOne ── ModeTwo
@@ -144,6 +146,40 @@ Nur der Takt des sichtbaren Tabs ist aktiv (`tab_intervals`); ein verborgener Br
 (`assets/visibility.js`). Aktionen laufen über `handle_actions` → `CarApplication`; Buttons zeigen den
 Zustand aus `CarApplication`, nicht den letzten Klick.
 
+### 7.1 Aufbau als Plug-ins (ab 6.7)
+
+```
+Camp2CodeDashboard.py     Start: Dash-Bausteine bereitstellen, create_app(), Server (keine Callbacks)
+dashboard/
+├── app.py                build_app(): Kontext + Shell + Tabs zusammenstecken
+├── context.py            DashboardContext: Anwendung, Dash-Bausteine, Widget-Helfer (Dependency Injection)
+├── helpers.py            reine Hilfsfunktionen (Kodierung, Formatierung, Diagramm-Dicts)
+├── shell.py              Steuerleiste, Kennzahlen, Bergung, jump-url, globale Stores, Takte
+└── tabs/                 je Reiter eine Klasse von DashboardTab (Layout + Callbacks)
+    driving.py · pipeline.py · telemetry.py · recording.py · replay.py · settings.py
+```
+
+* Ein Tab liefert `layout()` und `register_callbacks(app)`; `tab_id` ist der Schlüssel in
+  `main-tabs.active_tab`, `poll_interval_ms` erzeugt den eigenen Takt `tick-<tab_id>`.
+* Neuer Tab = neue Klasse + Eintrag in `tabs/__init__.py` (oder `create_app(app, tabs=(...))`).
+* Das Paket `dashboard` importiert Dash nie selbst; die Bausteine kommen über den Kontext. Dieselben Klassen
+  laufen daher mit echtem Dash und mit der Test-Attrappe.
+* Jede Komponenten-ID und jeder Output gehört genau einem Tab. Einziger tabübergreifender Callback:
+  `replay_to_studio` (Navigation Replay/Recording → Pipeline Studio, Besitzer: `ReplayTab`).
+* Die Layout-Funktion wird je Seitenaufruf neu ausgeführt; ein Neuladen zeigt die wirksamen Studio-Einstellungen.
+
+### 7.2 Pipeline Studio: Stufen kommen aus dem Prozessor
+
+Das Studio kennt keine Stufen mehr fest. Jeder Prozessor beschreibt sie in `dashboard_stages()`
+(`PipelineStage`: Schlüssel, Titel, Schalter, `PipelineControl`-Regler; reserviert: `raw` und `overlay`, die
+das Dashboard selbst liefert). `processor_registry.processor_stages(key)` stellt die Beschreibung bereit;
+`PipelineTab` baut daraus Karten, Regler und Schalter mit Pattern-Matching-IDs
+(`{'type': 'pipeline-stage-image', 'stage': ...}`, `pipeline-control`, `pipeline-switch`, `pipeline-inspect`).
+Prozessorwechsel und Preset-Laden bauen die Karten neu auf (`rebuild_stage_cards`), Reglerwerte bleiben
+erhalten; Regler, die der Prozessor nicht zeigt (z. B. HSV bei Modus Opus), behalten ihren Wert.
+Regler schreiben in die Studio-Konfiguration (`crop`, `hue`, `sat`, `val`, `blur`, `morph`, `canny`,
+`enabled`); neue Schalter eines Prozessors landen in `enabled`.
+
 ## 8. Session-Format v2
 
 ```
@@ -172,3 +208,4 @@ Sessions v1 (V5.4/5.5) werden gelesen; ohne ROI-Angabe zeichnet das HUD keine Li
 | Fahrregelung „Verwendet PID-Regler“ | nur `FollowLine` (IR); `CameraMode` nutzt Proportionalverstärkung `steering_gain` |
 | „Ein Thread pro Komponente“ | zutreffend; zusätzlich `telemetry-sampler` und `recovery-watchdog` |
 | IR/US optional | IR/US-Threads werden im Dashboard-Betrieb nicht gestartet; Werte in `frames.csv` daher leer |
+

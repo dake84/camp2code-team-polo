@@ -2,7 +2,6 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -13,9 +12,7 @@ class PaketETests(unittest.TestCase):
         from test_dashboard_callbacks import FakeApplication, load_dashboard
         cls.module, cls.context, cls.ctx = load_dashboard()
         cls.fake = FakeApplication()
-        import pipeline_config
-        with patch.object(cls.module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = cls.module.create_app(cls.fake)
+        cls.app = cls.module.create_app(cls.fake)
         cls.callbacks = cls.app.callbacks
 
     @classmethod
@@ -47,3 +44,4 @@ class PaketETests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

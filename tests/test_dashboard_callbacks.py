@@ -4,6 +4,7 @@ Geprueft werden vollstaendige Callback-Registrierung, Komponenten-IDs,
 doppelte Outputs, Callback-Signaturen und das Verhalten zentraler Callbacks
 mit einer Fake-Anwendung. Es wird kein Motor angesteuert.
 """
+import json
 import os
 import sys
 import tempfile
@@ -109,13 +110,57 @@ class FakeApplication:
         return camera
 
 
+class DashboardSession:
+    """Haelt Hardware-/Dash-Attrappen und die fixierte Pipeline-Konfiguration; ``__exit__`` raeumt alles auf."""
+
+    def __init__(self, context, pin):
+        self.context, self.pin = context, pin
+
+    def __exit__(self, *exc):
+        self.pin.stop()
+        return self.context.__exit__(*exc)
+
+
+def layout_of(app):
+    """Layout-Baum; die Anwendung setzt eine Layout-Funktion (jeder Seitenaufruf baut neu)."""
+    return app.layout() if callable(app.layout) else app.layout
+
+
+def id_key(component_id):
+    """Vergleichbarer Schluessel fuer String- und Pattern-Matching-IDs (dict)."""
+    return json.dumps(component_id, sort_keys=True, default=repr) if isinstance(component_id, dict) else component_id
+
+
+def studio_controls(processor='copilot', values=None, switches=None):
+    """(Regler-IDs, Regler-Werte, Schalter-IDs, Schalter-Werte) wie Dash sie liefert, aus der Prozessorbeschreibung.
+
+    Standardwerte aus ``pipeline_config.DEFAULT``; ``values``/``switches`` ueberschreiben einzelne Eintraege.
+    """
+    import pipeline_config
+    from processor_registry import processor_stages
+    values, switches = dict(values or {}), dict(switches or {})
+    stages = processor_stages(processor)
+    control_ids = [{'type': 'pipeline-control', 'key': c.key} for s in stages for c in s.controls]
+    control_values = [values.get(i['key'], pipeline_config.DEFAULT[i['key']]) for i in control_ids]
+    switch_ids = [{'type': 'pipeline-switch', 'key': s.switch} for s in stages if s.switch]
+    switch_values = [['on'] if switches.get(i['key'], pipeline_config.DEFAULT['enabled'].get(i['key'], True))
+                     else [] for i in switch_ids]
+    return control_ids, control_values, switch_ids, switch_values
+
+
+def stage_image_ids(processor='copilot'):
+    from processor_registry import processor_stages
+    return [{'type': 'pipeline-stage-image', 'stage': s.key} for s in processor_stages(processor)]
+
+
 def load_dashboard():
-    """Importiert Camp2CodeDashboard mit Dash-Attrappe (ohne Hardware)."""
+    """Importiert Camp2CodeDashboard mit Dash-Attrappe (ohne Hardware, Pipeline-Konfiguration = Standard)."""
     extra = dash_stub.modules()
     context = hardware_stubs.installed(extra=extra)
     context.__enter__()
+    pin = hardware_stubs.pin_pipeline_config()
     module = hardware_stubs.fresh_import('Camp2CodeDashboard')
-    return module, context, extra['dash'].ctx
+    return module, DashboardSession(context, pin), extra['dash'].ctx
 
 
 class DashboardStructureTests(unittest.TestCase):
@@ -125,8 +170,7 @@ class DashboardStructureTests(unittest.TestCase):
         cls.cwd = os.getcwd()
         cls.module, cls.context, cls.ctx = load_dashboard()
         cls.app_state = FakeApplication()
-        with patch.object(cls.module, 'load', return_value=__import__('pipeline_config').DEFAULT):
-            cls.app = cls.module.create_app(cls.app_state)
+        cls.app = cls.module.create_app(cls.app_state)
         os.chdir(cls.tmp.name)
         cls.callbacks = cls.app.callbacks
 
@@ -140,27 +184,37 @@ class DashboardStructureTests(unittest.TestCase):
         self.app_state.calls.clear()
 
     def layout_ids(self):
-        return [c.id for c in self.app.layout.walk() if c.id is not None]
+        return [c.id for c in layout_of(self.app).walk() if c.id is not None]
 
     def test_ids_eindeutig(self):
-        duplicates = [i for i, n in Counter(self.layout_ids()).items() if n > 1]
+        duplicates = [i for i, n in Counter(id_key(i) for i in self.layout_ids()).items() if n > 1]
         self.assertEqual(duplicates, [])
 
     def test_alle_abhaengigkeiten_im_layout(self):
-        ids = set(self.layout_ids())
-        missing = {(name, d.component_id) for name, cb in self.callbacks.items()
-                   for d in cb.outputs + cb.inputs + cb.states if d.component_id not in ids}
+        """String-IDs muessen im Layout stehen; Pattern-IDs (``ALL``) brauchen mindestens eine passende Komponente."""
+        ids = self.layout_ids()
+        plain = {i for i in ids if isinstance(i, str)}
+        patterns = [i for i in ids if isinstance(i, dict)]
+
+        def present(component_id):
+            if isinstance(component_id, str):
+                return component_id in plain
+            fixed = {k: v for k, v in component_id.items() if not isinstance(v, dash_stub._Wildcard)}
+            return any(all(i.get(k) == v for k, v in fixed.items()) for i in patterns)
+        missing = {(name, id_key(d.component_id)) for name, cb in self.callbacks.items()
+                   for d in cb.outputs + cb.inputs + cb.states if not present(d.component_id)}
         self.assertEqual(missing, set())
 
     def test_keine_doppelten_outputs(self):
-        outputs = Counter((d.component_id, d.component_property) for cb in self.callbacks.values() for d in cb.outputs)
+        outputs = Counter((id_key(d.component_id), d.component_property)
+                          for cb in self.callbacks.values() for d in cb.outputs)
         self.assertEqual([k for k, n in outputs.items() if n > 1], [])
 
     def test_kein_output_als_eigener_input(self):
         for name, cb in self.callbacks.items():
-            self.assertFalse(set(cb.outputs) & {tuple(i) for i in cb.inputs}, name)
-            overlap = {tuple(o) for o in cb.outputs} & {tuple(i) for i in cb.inputs}
-            self.assertEqual(overlap, set(), name)
+            outputs = {(id_key(o.component_id), o.component_property) for o in cb.outputs}
+            inputs = {(id_key(i.component_id), i.component_property) for i in cb.inputs}
+            self.assertEqual(outputs & inputs, set(), name)
 
     def test_signaturen_passen_zu_abhaengigkeiten(self):
         import inspect
@@ -175,7 +229,7 @@ class DashboardStructureTests(unittest.TestCase):
                 self.assertEqual(len(positional), expected, name)
 
     def test_erwartete_callbacks_registriert(self):
-        expected = {'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
+        expected = {'rebuild_stage_cards', 'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
                     'recording_view', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
                     'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_playback', 'sim_render', 'kpi_bar', 'settings_apply', 'settings_fill'}  # PAKET-H1  # PAKET-G  # PAKET-F  # PAKET-C
@@ -219,7 +273,8 @@ class DashboardStructureTests(unittest.TestCase):
         self.assertTrue(all(v is no for v in self.callbacks['cockpit_view'](1, 'pipeline', None)))
         self.assertTrue(all(v is no for v in self.callbacks['telemetry_view'](1, 'drive')))
         self.assertTrue(all(v is no for v in self.callbacks['recording_view'](1, None, 'drive')))
-        self.assertTrue(all(v is no for v in self.callbacks['pipeline_view'](1, 'overlay', None, 'drive', None)))
+        hidden = self.callbacks['pipeline_view'](1, 'overlay', None, 'drive', 0, stage_image_ids(), 'copilot', None)
+        self.assertTrue(all(v is no or (isinstance(v, list) and all(x is no for x in v)) for v in hidden))
 
     def test_cockpit_kodiert_nur_neue_frames(self):
         self.app_state._running = False
@@ -240,21 +295,129 @@ class DashboardStructureTests(unittest.TestCase):
 
     def test_pipeline_inspector_ohne_doppelte_kodierung(self):
         self.app_state.publish(11)
-        result = self.callbacks['pipeline_view'](1, 'roi', None, 'pipeline', None)
-        stages = result[:8]
-        inspector = result[16]
-        self.assertEqual(inspector, stages[1])
-        frozen = self.callbacks['pipeline_view'](2, 'roi', 11, 'pipeline', result[-1])
-        self.assertIs(frozen[0], self.module.no_update)
+        ids = stage_image_ids()
+        names = [i['stage'] for i in ids]
+        images, infos, inspector, title, label, _lock, key = self.callbacks['pipeline_view'](
+            1, 'roi', None, 'pipeline', 0, ids, 'copilot', None)
+        self.assertEqual(len(images), len(ids))
+        self.assertEqual(inspector, images[names.index('roi')])       # Inspector = Karte, nur einmal kodiert
+        self.assertEqual(title, 'ROI')
+        self.assertEqual(infos[names.index('roi')], 'Verfügbar')
+        self.assertIsNone(images[names.index('hsv')])                  # Stufe nicht veroeffentlicht
+        frozen = self.callbacks['pipeline_view'](2, 'roi', 11, 'pipeline', 0, ids, 'copilot', key)
+        self.assertEqual(frozen[0], [self.module.no_update] * len(ids))
+
+    def test_pipeline_stufen_folgen_dem_prozessor(self):
+        """Dieselbe Funktion bedient Prozessoren mit anderen Stufen (Karten kommen aus der Beschreibung)."""
+        self.app_state.publish(12)
+        ids = stage_image_ids('opus')
+        images, infos, inspector, title, *_ = self.callbacks['pipeline_view'](
+            1, 'blackhat', None, 'pipeline', 0, ids, 'opus', None)
+        self.assertEqual(len(images), len(ids))
+        self.assertEqual(title, 'Blackhat (dunkle Linie)')
+        self.assertIsNone(inspector)                                    # Fake-Frame hat keine Blackhat-Stufe
+        names = [i['stage'] for i in ids]
+        self.assertTrue(images[names.index('raw')].startswith('data:image'))
+        # Inspector auf eine Stufe, die der Prozessor nicht hat: Rueckfall auf die Linien
+        fallback = self.callbacks['pipeline_view'](2, 'hsv', None, 'pipeline', 0, ids, 'opus', None)
+        self.assertEqual(fallback[3], 'Linien')
 
     def test_konfiguration_wird_angewendet(self):
-        self.ctx.set('cfg-crop', 'value')
-        message = self.callbacks['configure'](None, None, 'copilot', [0.1, 0.9], [100, 130], [80, 255],
-                                              [40, 255], 3, 5, [50, 100], ['on'], ['on'], [], ['on'], [], ['on'])
+        self.ctx.set('cfg-processor', 'value')
+        control_ids, control_values, switch_ids, switch_values = studio_controls(
+            'copilot', {'crop': [0.1, 0.9]}, {'blur': False, 'canny': False})
+        message = self.callbacks['configure'](None, None, 'copilot', control_values, switch_values,
+                                              control_ids, switch_ids)
         self.assertIn('übernommen', message)
         settings = self.app_state.calls[-1][1]
+        self.assertEqual(settings['crop'], [0.1, 0.9])
         self.assertEqual(settings['enabled'], {'roi': True, 'mask': True, 'blur': False, 'morph': True,
                                                'canny': False, 'lanes': True})
+
+    def test_speichern_und_nicht_sichtbare_regler_bleiben_erhalten(self):
+        """Modus Opus zeigt keine HSV-Regler; deren Werte gehen beim Uebernehmen nicht verloren."""
+        self.ctx.set('cfg-save')
+        control_ids, control_values, switch_ids, switch_values = studio_controls('opus', {'blur': 5})
+        self.assertNotIn('hue', [i['key'] for i in control_ids])
+        message = self.callbacks['configure'](None, 1, 'opus', control_values, switch_values,
+                                              control_ids, switch_ids)
+        self.assertIn('gespeichert', message)
+        action, settings = self.app_state.calls[-1]
+        self.assertEqual(action, 'save_pipeline')
+        self.assertEqual((settings['processor'], settings['blur']), ('opus', 5))
+        self.assertEqual(settings['hue'], __import__('pipeline_config').DEFAULT['hue'])
+        self.assertTrue({'clahe', 'blackhat', 'threshold'} <= set(settings['enabled']))
+
+    def test_karten_werden_aus_dem_prozessor_aufgebaut(self):
+        from processor_registry import processor_options, processor_stages
+        self.ctx.set('cfg-processor', 'value')
+        for option in processor_options(live_only=True):
+            key = option['value']
+            control_ids, control_values, switch_ids, switch_values = studio_controls('copilot')
+            cards, version = self.callbacks['rebuild_stage_cards'](
+                key, None, control_ids, control_values, switch_ids, switch_values)
+            components = list(cards.walk())
+            stages = processor_stages(key)
+            ids = [c.id for c in components if isinstance(c.id, dict)]
+            for kind in ('pipeline-stage-image', 'pipeline-stage-info', 'pipeline-inspect'):
+                self.assertEqual([i['stage'] for i in ids if i['type'] == kind], [s.key for s in stages], key)
+            self.assertEqual([i['key'] for i in ids if i['type'] == 'pipeline-control'],
+                             [c.key for s in stages for c in s.controls], key)
+            self.assertEqual([i['key'] for i in ids if i['type'] == 'pipeline-switch'],
+                             [s.switch for s in stages if s.switch], key)
+            self.assertGreater(version, 0)
+        _, first = self.callbacks['rebuild_stage_cards']('opus', None, [], [], [], [])
+        _, second = self.callbacks['rebuild_stage_cards']('opus', None, [], [], [], [])
+        self.assertNotEqual(first, second)           # neue Version -> Anzeige rendert die neuen Bilder
+
+    def test_neue_karten_uebernehmen_aktuelle_reglerwerte(self):
+        self.ctx.set('cfg-processor', 'value')
+        control_ids, control_values, switch_ids, switch_values = studio_controls(
+            'copilot', {'blur': 9, 'canny': [10, 20]}, {'morph': False})
+        cards, _ = self.callbacks['rebuild_stage_cards']('opus', None, control_ids, control_values,
+                                                         switch_ids, switch_values)
+        values = {c.id['key']: c.props.get('value') for c in cards.walk()
+                  if isinstance(c.id, dict) and c.id['type'] == 'pipeline-control'}
+        switches = {c.id['key']: c.props.get('value') for c in cards.walk()
+                    if isinstance(c.id, dict) and c.id['type'] == 'pipeline-switch'}
+        self.assertEqual((values['blur'], values['canny']), (9, [10, 20]))
+        self.assertEqual(switches['morph'], [])
+        self.assertEqual(switches['clahe'], ['on'])
+
+    def test_preset_laden_baut_die_karten_mit_den_preset_werten(self):
+        import pipeline_config
+        preset = pipeline_config.load()
+        preset.update(processor='opus', blur=7)
+        with patch.object(pipeline_config, 'list_presets', return_value=['p1']), \
+                patch.object(pipeline_config, 'load_preset', return_value=preset):
+            self.ctx.set('preset-load')
+            processor, data, options, message = self.callbacks['preset_actions'](
+                1, None, 'pipeline', 'p1', None, 'copilot', *studio_controls('copilot'))
+        self.assertEqual(processor, 'opus')
+        self.assertIn('Geladen', message)
+        self.assertEqual([o['value'] for o in options], ['__active__', 'p1'])
+        self.ctx.set('pipeline-preset-data', 'data')
+        cards, _ = self.callbacks['rebuild_stage_cards']('opus', data, [], [], [], [])
+        values = {c.id['key']: c.props.get('value') for c in cards.walk()
+                  if isinstance(c.id, dict) and c.id['type'] == 'pipeline-control'}
+        self.assertEqual(values['blur'], 7)
+        self.app_state._running = True
+        try:
+            with patch.object(pipeline_config, 'load_preset', return_value=preset):
+                self.ctx.set('preset-load')
+                refused = self.callbacks['preset_actions'](1, None, 'pipeline', 'p1', None, 'copilot',
+                                                           *studio_controls('copilot'))
+            self.assertEqual(refused[3], 'Laden nur im Stillstand')
+            self.assertIs(refused[0], self.module.no_update)
+        finally:
+            self.app_state._running = False
+
+    def test_inspector_ignoriert_neu_erzeugte_karten(self):
+        no = self.module.no_update
+        self.ctx.set({'type': 'pipeline-inspect', 'stage': 'edges'}, 'n_clicks', 1)
+        self.assertEqual(self.callbacks['inspect']([None, 1]), 'edges')
+        self.ctx.set({'type': 'pipeline-inspect', 'stage': 'edges'}, 'n_clicks', None)   # frisch gerendert
+        self.assertIs(self.callbacks['inspect']([None, None]), no)
 
     def test_telemetrie_ohne_messwerte(self):
         self.app_state.car.camera_data = None
@@ -300,3 +463,4 @@ class DashboardStructureTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

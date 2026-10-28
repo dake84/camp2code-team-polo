@@ -7,6 +7,59 @@ import numpy as np
 
 from lane_detector import LaneDetector
 
+# Schluessel, die nicht der Prozessor, sondern das Dashboard liefert:
+#   raw     = unveraendertes Kamerabild
+#   overlay = Rohbild mit eingezeichneten Linien (dashboard_overlay)
+STAGE_RAW = 'raw'
+STAGE_OVERLAY = 'overlay'
+DASHBOARD_STAGES = (STAGE_RAW, STAGE_OVERLAY)
+
+
+@dataclass(frozen=True)
+class PipelineControl:
+    """Ein Regler im Pipeline Studio.
+
+    ``key`` ist zugleich der Schluessel in der Studio-Konfiguration
+    (``pipeline_studio.json``: crop, hue, sat, val, blur, morph, canny).
+    ``pair=True`` ergibt einen Bereichsregler (zwei Werte), sonst einen einfachen Regler.
+    ``help_key`` verweist auf einen Hilfetext (help_texts.HELP); ohne Angabe wird ``key`` versucht.
+    """
+
+    key: str
+    label: str
+    minimum: float = 0
+    maximum: float = 100
+    step: float = 1
+    pair: bool = False
+    help_key: str | None = None
+
+
+@dataclass(frozen=True)
+class PipelineStage:
+    """Eine sichtbare Stufe der Pipeline (eine Karte im Pipeline Studio).
+
+    ``key`` ist der Schluessel im ``PipelineResult.stages`` (oder ein reservierter
+    Dashboard-Schluessel, siehe ``DASHBOARD_STAGES``). ``switch`` ist der Schluessel
+    in ``enabled`` (Schalter "Schritt aktiv"); ohne Angabe ist die Stufe nicht abschaltbar.
+    """
+
+    key: str
+    title: str
+    switch: str | None = None
+    controls: tuple = ()
+
+
+def validate_stages(stages):
+    """Prueft eine Stufenbeschreibung (eindeutige Stufen-, Regler- und Schalterschluessel)."""
+    stages = tuple(stages)
+    for label, values in (('Stufe', [s.key for s in stages]),
+                          ('Regler', [c.key for s in stages for c in s.controls]),
+                          ('Schalter', [s.switch for s in stages if s.switch])):
+        duplicates = sorted({v for v in values if values.count(v) > 1})
+        if duplicates:
+            raise ValueError(f'{label} mehrfach beschrieben: {duplicates}')
+    return stages
+
 
 @dataclass(frozen=True)
 class PipelineResult:
@@ -48,6 +101,31 @@ class LaneProcessor:
     """
 
     name = "Legacy"
+
+    # Regler wie bisher im Studio; die Beschreibung gehoert zur Klasse, damit das
+    # Dashboard keine Stufen mehr fest kennt.
+    CROP = PipelineControl('crop', 'ROI (unten / oben, Anteil)', 0, 1, 0.01, True)
+    BLUR = PipelineControl('blur', 'Blur-Kernel', 1, 15)
+    MORPH = PipelineControl('morph', 'Morph-Kernel', 1, 15)
+    CANNY = PipelineControl('canny', 'Canny-Schwellen', 0, 255, 1, True)
+
+    @classmethod
+    def dashboard_stages(cls):
+        """Stufen in Pipeline-Reihenfolge, so wie sie im Pipeline Studio erscheinen."""
+        return validate_stages((
+            PipelineStage(STAGE_RAW, 'Rohbild'),
+            PipelineStage('roi', 'ROI', 'roi', (cls.CROP,)),
+            PipelineStage('hsv', 'HSV (Falschfarben)', None, (
+                PipelineControl('hue', 'Hue', 0, 179, 1, True),
+                PipelineControl('sat', 'Saturation', 0, 255, 1, True),
+                PipelineControl('val', 'Value', 0, 255, 1, True))),
+            PipelineStage('mask', 'Farbmaske', 'mask'),
+            PipelineStage('blur', 'Blur', 'blur', (cls.BLUR,)),
+            PipelineStage('binary', 'Binarisierung'),
+            PipelineStage('morph', 'Morphologie', 'morph', (cls.MORPH,)),
+            PipelineStage('edges', 'Canny', 'canny', (cls.CANNY,)),
+            PipelineStage(STAGE_OVERLAY, 'Linien', 'lanes'),
+        ))
 
     def __init__(self):
         self.detector = LaneDetector()
@@ -255,6 +333,24 @@ class OpusLaneProcessor(LaneProcessor):
 
     name = "Modus Opus"
 
+    # Eigener Hilfetext: hier ist der Blur ein Gauss-Filter vor dem Blackhat, kein Maskenrand-Glaetter.
+    BLUR = PipelineControl('blur', 'Blur-Kernel (Gauß)', 1, 15, help_key='blurgauss')
+
+    @classmethod
+    def dashboard_stages(cls):
+        return validate_stages((
+            PipelineStage(STAGE_RAW, 'Rohbild'),
+            PipelineStage('roi', 'ROI', 'roi', (cls.CROP,)),
+            PipelineStage('gray', 'Graustufen'),
+            PipelineStage('clahe', 'CLAHE (lokaler Kontrast)', 'clahe'),
+            PipelineStage('blur', 'Gaussian Blur', 'blur', (cls.BLUR,)),
+            PipelineStage('blackhat', 'Blackhat (dunkle Linie)', 'blackhat'),
+            PipelineStage('threshold', 'Otsu-Schwelle', 'threshold'),
+            PipelineStage('morph', 'Morphologie', 'morph', (cls.MORPH,)),
+            PipelineStage('edges', 'Canny', 'canny', (cls.CANNY,)),
+            PipelineStage(STAGE_OVERLAY, 'Linien', 'lanes'),
+        ))
+
     def process(
         self,
         raw: np.ndarray,
@@ -444,3 +540,4 @@ class OpusLaneProcessor(LaneProcessor):
             lanes=lanes,
             stages=stages,
         )
+

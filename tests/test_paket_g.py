@@ -136,9 +136,7 @@ class DashboardTests(unittest.TestCase):
         cls.fake = FakeApplication()
         cls.fake.policy = None
         cls.fake.set_speed_policy = lambda policy: setattr(cls.fake, 'policy', policy)
-        import pipeline_config
-        with patch.object(cls.module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.app = cls.module.create_app(cls.fake)
+        cls.app = cls.module.create_app(cls.fake)
         cls.cb = cls.app.callbacks
 
     @classmethod
@@ -193,8 +191,9 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(hud[0].startswith('data:image') and hud[0] != plain[0])
 
     def test_info_ziele_existieren(self):
-        components = list(self.app.layout.walk())
-        ids = {c.id for c in components if c.id}
+        from test_dashboard_callbacks import layout_of
+        components = list(layout_of(self.app).walk())
+        ids = {c.id for c in components if c.id and isinstance(c.id, str)}
         targets = [c.props['target'] for c in components if type(c).__name__ == 'Popover']
         self.assertGreaterEqual(len(targets), 20)
         self.assertEqual([t for t in targets if t not in ids], [])
@@ -216,12 +215,12 @@ class RealDashJumpTests(unittest.TestCase):
         cls.fake = FakeApplication()
         for frame_id in range(10, 14):
             cls.fake.publish(frame_id)
-        import pipeline_config
-        with patch.object(module, 'load', return_value=pipeline_config.DEFAULT):
-            cls.client = module.create_app(cls.fake).server.test_client()
+        cls.pin = hardware_stubs.pin_pipeline_config()
+        cls.client = module.create_app(cls.fake).server.test_client()
 
     @classmethod
     def tearDownClass(cls):
+        cls.pin.stop()
         cls.stubs.__exit__(None, None, None)
 
     def test_sprung_ueber_http(self):
@@ -243,3 +242,4 @@ class RealDashJumpTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
