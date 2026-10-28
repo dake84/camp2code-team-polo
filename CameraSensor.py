@@ -105,10 +105,10 @@ class CameraSensor(Camera):
                 blur = max(1, int(self.processing_parameters[4]))
                 img_blur = blur_img(mask, blur_value = (blur,blur))
                 
-                binary = cv2.adaptiveThreshold(img_blur,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,2)
+                #binary = cv2.adaptiveThreshold(img_blur,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,2)
 
                 morph_kernel_parameter = ((self.processing_parameters[5],self.processing_parameters[5]))
-                img_morph_kernel = morph_kernel_filter(binary, morph_kernel=morph_kernel_parameter)
+                img_morph_kernel = morph_kernel_filter(img_blur, morph_kernel=morph_kernel_parameter)
 
                 # Kantenerkennung
                 #img_kanten = kanten_erkennung(img_morph_kernel, minmaxVal = (50,100))

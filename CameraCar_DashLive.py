@@ -26,7 +26,7 @@ from DeepCar import DeepCar
 
 
 # Config
-DEFAULT_HSV = {'h': (100, 130), 's': (80, 255), 'v': (50, 255), 'crop': (0.2, 0.8), 'blur': 3, 'morph_kernel': 5}
+DEFAULT_HSV = {'h': (100, 130), 's': (115, 255), 'v': (50, 255), 'crop': (0.15, 0.65), 'blur': 4, 'morph_kernel': 4}
 
 SCALE = 0.5
 TARGET_FPS = 15
