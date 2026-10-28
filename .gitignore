@@ -241,3 +241,4 @@ src-*.txt
 scripts/src-*.txt
 sourcecode.txt
 camp2code-full-source.txt
+pipeline_presets/kurve-vor-bett.json
