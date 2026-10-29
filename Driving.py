@@ -751,14 +751,14 @@ class DashboardManualMode(DrivingMode):
         logger = logging.getLogger(self.__class__.__name__)
         cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
         super().__init__(name, car, logger, cfg)
-        self._current_speed = 0
-        self._current_angle = 90
+        self._current_speed = 30  # Standard-Geschwindigkeit
+        self._current_angle = 90  # Standard: Geradeaus
 
     def _run_condition(self) -> bool:
         return True
 
     def _run(self) -> bool:
-        # Hält den aktuellen per Dashboard gesetzten Fahrbefehl aufrecht
+        # Hält permanent den aktuellen Lenkwinkel bei Tempo 30 (oder dem gewählten Wert)
         self._car.drive(self._current_speed, self._current_angle)
         time.sleep(0.05)
         return True
