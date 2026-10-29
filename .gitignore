@@ -28,6 +28,7 @@ share/python-wheels/
 *.jpeg
 MANIFEST
 Data_AI
+Training_Data
 
 # PyInstaller
 #   Usually these files are written by a python script from a template
@@ -230,3 +231,4 @@ new_config.json
 *.log.*
 Driving copy.py
 camera_test.jpg
+*.csv*

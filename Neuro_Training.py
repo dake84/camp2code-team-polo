@@ -22,6 +22,7 @@ def import_data(data_path=Path('Data_AI'), lane_filter=True):
     """
     Durchsucht den übergeordneten data_path nach allen Unterordnern,
     die eine 'data.csv' enthalten, und lädt die Trainingsdaten.
+    Wendet Horizontal-Spiegelung, Helligkeits- und Kontrast-Augmentation an.
     """
     data_path = Path(data_path)
     X = []
@@ -35,7 +36,6 @@ def import_data(data_path=Path('Data_AI'), lane_filter=True):
     sub_folders = sorted([p.parent for p in data_path.glob('*/data.csv')])
 
     if not sub_folders:
-        # Falls die Ordnerstruktur noch eine Ebene tiefer verschachtelt sein könnte:
         sub_folders = sorted([p.parent for p in data_path.rglob('data.csv')])
 
     if not sub_folders:
@@ -51,7 +51,6 @@ def import_data(data_path=Path('Data_AI'), lane_filter=True):
 
         data = pd.read_csv(csv_path)
 
-        # Optional: Nur Daten mit 2 erkannten Linien verwenden
         if lane_filter:
             try:
                 data = data[data['lane_count'] == 2]
@@ -72,18 +71,15 @@ def import_data(data_path=Path('Data_AI'), lane_filter=True):
                 print(f'Warnung: {image_name} in {folder_path.name} nicht gefunden -> übersprungen.')
                 continue
 
-            # Direkt mit OpenCV als BGR laden
             image = cv2.imread(str(image_path))
             if image is None:
                 print(f'Warnung: {image_name} konnte nicht gelesen werden -> übersprungen.')
                 continue
 
-            # Beim allerersten Bild Maße für alle nachfolgenden fixieren
             if image_height is None:
                 image_height, image_width, image_dimension = image.shape
                 print(f'Modell-Eingangsmaße festgelegt: H={image_height}, B={image_width}, C={image_dimension}')
 
-            # Einheitliche Größe absichern
             if (image.shape[0], image.shape[1]) != (image_height, image_width):
                 image = cv2.resize(image, (image_width, image_height))
 
@@ -94,22 +90,32 @@ def import_data(data_path=Path('Data_AI'), lane_filter=True):
             print(f'{folder_path.name}: keine Bilder gefunden -> übersprungen.')
             continue
 
-        # Nur Zeilen behalten, deren Bilddatei existierte
         data = data.iloc[valid_indices]
 
+        # 1. Originaldaten
         X_arr = np.array(images, dtype=np.float32)
-        X_flipped = tf.image.flip_left_right(X_arr).numpy()
-
         Y_arr = data[['speed', 'steering_angle']].to_numpy(dtype=np.float32)
 
+        # 2. Horizontal spiegeln (Winkel invertieren: 180 - Winkel)
+        X_flipped = tf.image.flip_left_right(X_arr).numpy()
         Y_flipped = Y_arr.copy()
         Y_flipped[:, 1] = 180.0 - Y_flipped[:, 1]
 
-        X.append(X_arr)
-        X.append(X_flipped)
+        # 3. Helligkeit & Kontrast auf Originale anwenden
+        X_aug = tf.image.random_brightness(X_arr, max_delta=20.0)
+        X_aug = tf.image.random_contrast(X_aug, lower=0.8, upper=1.2)
+        X_aug = tf.clip_by_value(X_aug, 0.0, 255.0).numpy()
+        Y_aug = Y_arr.copy()
 
-        Y.append(Y_arr)
-        Y.append(Y_flipped)
+        # 4. Helligkeit & Kontrast auf gespiegelte Bilder anwenden
+        X_flipped_aug = tf.image.random_brightness(X_flipped, max_delta=20.0)
+        X_flipped_aug = tf.image.random_contrast(X_flipped_aug, lower=0.8, upper=1.2)
+        X_flipped_aug = tf.clip_by_value(X_flipped_aug, 0.0, 255.0).numpy()
+        Y_flipped_aug = Y_flipped.copy()
+
+        # Alle 4 Varianten zusammenführen
+        X.extend([X_arr, X_flipped, X_aug, X_flipped_aug])
+        Y.extend([Y_arr, Y_flipped, Y_aug, Y_flipped_aug])
 
     if not X:
         raise ValueError(f'Keine verwendbaren Daten in {data_path.resolve()} gefunden.')
@@ -128,17 +134,17 @@ def write_txt(txt_path, lines, mode='a'):
 
 def train_deepcar(data_path=Path('Data_AI'),
                   lane_filter=True,
-                  epochs=100,                                  # nur noch Obergrenze
-                  learning_rate=0.001,                         # als Parameter für die .txt
+                  epochs=100,
+                  learning_rate=0.001,
                   batch_size=32,
                   train_split=0.70,
                   validate_split=0.15,
-                  patience=8,                                  # Epochen ohne Verbesserung bis Abbruch
-                  min_delta=0.01):                             # Mindestverbesserung val_loss (MSE), sonst = Stagnation
+                  patience=8,
+                  min_delta=0.01):
 
     data_path = Path(data_path)
 
-    # Daten einlesen (alle Unterordner mit data.csv werden vorab geladen)
+    # Daten einlesen (alle Unterordner mit data.csv werden geladen und augmentiert)
     X, Y, fig_heigt, fig_width, fig_dim, loaded_folders = import_data(
         data_path=data_path,
         lane_filter=lane_filter
@@ -166,51 +172,39 @@ def train_deepcar(data_path=Path('Data_AI'),
         f'test_split: {round(1 - train_split - validate_split, 2)}',
         f'early_stopping patience: {patience}',
         f'early_stopping min_delta: {min_delta}',
-        'augmentation: flip_left_right, steering_angle = 180 - steering_angle',
+        'augmentation: flip_left_right (180 - angle), random_brightness (+/- 20), random_contrast (0.8 - 1.2)',
         'color_space: BGR (OpenCV native)',
         'cropping: top=60, bottom=40, left=0, right=0',
     ], mode='w')
 
     # DataFrame für Pandas
     data = pd.DataFrame(Y, columns=['speed', 'steering_angle'])
-    # Visualisierung
     g = sns.pairplot(data=data[['speed', 'steering_angle']])
     g.savefig(save_path / 'pairplot_speed_steering.png', dpi=150)
     plt.close('all')
 
-    # Einmal Checken wie die Shapes sind
     print('X shape:', X.shape)
     print('Y shape:', Y.shape)
     print('Erster Output:', Y[0])
 
-    # Datensätze mischen:
+    # Datensätze mischen
     indices = np.random.permutation(len(X))
-
     X = X[indices]
     Y = Y[indices]
 
-    # Dataset für model aufbauen
+    # Dataset für Modell aufbauen
     dataset = tf.data.Dataset.from_tensor_slices((X, Y))
+    dataset = dataset.shuffle(buffer_size=len(X), seed=42, reshuffle_each_iteration=False)
 
-    # Daten mischen
-    dataset = dataset.shuffle(
-        buffer_size=len(X),
-        seed=42,
-        reshuffle_each_iteration=False
-    )
-
-    # Anzahl Daten
     n = len(X)
     n_train = int(train_split * n)
     n_validate = int(validate_split * n)
 
-    # Aufteilung in Trainingsdaten, Testdaten und Validierungsdaten
-    train_ds = dataset.take(n_train)             # Trainingsdaten
-    remaining_ds = dataset.skip(n_train)         # Alles, was nicht in train_ds steckt
-    validate_ds = remaining_ds.take(n_validate)  # Validierung
-    test_ds = remaining_ds.skip(n_validate)      # Testdaten
+    train_ds = dataset.take(n_train)
+    remaining_ds = dataset.skip(n_train)
+    validate_ds = remaining_ds.take(n_validate)
+    test_ds = remaining_ds.skip(n_validate)
 
-    # Datenumfang in .txt
     write_txt(txt_path, [
         '',
         '[Daten]',
@@ -226,7 +220,6 @@ def train_deepcar(data_path=Path('Data_AI'),
     model = Sequential(
         [
             Input(shape=(fig_heigt, fig_width, fig_dim)),
-            # Schneidet oben 60 Pixel (Wände) und unten 40 Pixel (Platine) weg:
             Cropping2D(cropping=((60, 40), (0, 0))),
             Rescaling(1./255),
             Conv2D(24, 5, strides=2, activation='relu'),
@@ -252,7 +245,6 @@ def train_deepcar(data_path=Path('Data_AI'),
 
     model.summary()
 
-    # Modellaufbau in .txt
     summary_lines = []
     model.summary(print_fn=lambda line, **kwargs: summary_lines.append(line))
     write_txt(txt_path, ['', '[Modell]', *summary_lines])
@@ -263,13 +255,12 @@ def train_deepcar(data_path=Path('Data_AI'),
 
     print(train_ds.element_spec)
 
-    # Callbacks: Abbruch bei Stagnation von val_loss
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        min_delta=min_delta,          # kleinere Verbesserungen zählen als Stagnation
-        patience=patience,            # so viele Epochen ohne echte Verbesserung -> Abbruch
-        restore_best_weights=True,    # Setzt das Modell automatisch auf die besten Gewichte zurück
-        verbose=1                     # gibt aus, in welcher Epoche gestoppt wurde
+        min_delta=min_delta,
+        patience=patience,
+        restore_best_weights=True,
+        verbose=1
     )
 
     callbacks = [
@@ -277,11 +268,10 @@ def train_deepcar(data_path=Path('Data_AI'),
         ModelCheckpoint(
             filepath=str(save_path / 'best_deepcar.keras'),
             monitor='val_loss',
-            save_best_only=True       # Speichert nur, wenn val_loss besser als je zuvor ist
+            save_best_only=True
         )
     ]
 
-    # epochs ist nur die Obergrenze, EarlyStopping bricht vorher ab
     history = model.fit(
         train_ds,
         validation_data=validate_ds,
@@ -289,7 +279,7 @@ def train_deepcar(data_path=Path('Data_AI'),
         callbacks=callbacks
     )
 
-    model.save(save_path / 'deepcar.keras')   # vollständiges Modell: Architektur + Gewichte
+    model.save(save_path / 'deepcar.keras')
 
     test_loss, test_mae = model.evaluate(test_ds)
     print(f'Test-MSE: {test_loss:.4f}  Test-MAE: {test_mae:.4f}')
@@ -308,10 +298,9 @@ def train_deepcar(data_path=Path('Data_AI'),
     # TFLite-Export
     tflite_path = save_path / 'deepcar.tflite'
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]   # Gewichte als int8, Datei ca. 4x kleiner
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
     tflite_path.write_bytes(converter.convert())
 
-    # Kontrolle: Keras vs. TFLite an einem Testbild
     interp = tf.lite.Interpreter(model_path=str(tflite_path)); interp.allocate_tensors()
     inp, out = interp.get_input_details()[0], interp.get_output_details()[0]
     x, y = next(iter(test_ds.unbatch().batch(1)))
@@ -319,15 +308,10 @@ def train_deepcar(data_path=Path('Data_AI'),
     keras_out, tflite_out, soll = model.predict(x, verbose=0)[0], interp.get_tensor(out['index'])[0], y.numpy()[0]
     print('Keras :', keras_out); print('TFLite:', tflite_out); print('Soll  :', soll)
 
-    # Plotte die Ergebnisse
     h = history.history; ep = np.arange(1, len(h['loss']) + 1); best = int(np.argmin(h['val_loss'])) + 1
-
-    # Tatsächlich trainierte Epochen / früh gestoppt?
     epochs_trained = len(h['loss'])
     stopped_early = epochs_trained < epochs
-    print(f'Trainierte Epochen: {epochs_trained} von max. {epochs} -> früh gestoppt: {stopped_early}')
 
-    # Ergebnisse in .txt
     write_txt(txt_path, [
         '',
         '[Ergebnisse]',
@@ -364,7 +348,6 @@ def train_deepcar(data_path=Path('Data_AI'),
     plt.close(fig)
 
     names = ['speed', 'steering_angle']
-
     fig, ax = plt.subplots(2, 2, figsize=(13, 9))
     for i, name in enumerate(names):
         lim = [y_true[:, i].min(), y_true[:, i].max()]
@@ -398,12 +381,11 @@ def train_deepcar(data_path=Path('Data_AI'),
 if __name__ == '__main__':
     print('Starting DeepCar Training...')
 
-    # Dein gewünschter Datenordner:
     daten_ordner = Path(r'C:\Users\LtCHa\Desktop\Coding\DeepCar\Training_Data')
 
     model, history = train_deepcar(
         data_path=daten_ordner,
-        lane_filter=True,
+        lane_filter=False,
         epochs=100,
         patience=8,
         min_delta=0.01
