@@ -869,7 +869,7 @@ class CameraMode(DrivingMode):
 
             driving_parameter = self.driving_parameter(steering_angle_raw)
 
-            steering_gain = .7 # self._cfg.get_float('steering_gain', 2)
+            steering_gain = 1.2 # self._cfg.get_float('steering_gain', 2)
             steering_angle = int(max(45, min(135, 90 + (driving_parameter[0] - 90) * steering_gain)))
             speed = driving_parameter[1]
 

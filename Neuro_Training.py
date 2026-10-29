@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime                                      
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -31,6 +31,12 @@ def import_data(data_path=Path('Data_AI'),
     for sub_folder_value in sub_folder_list:
 
         csv_path = data_path / sub_folder_value / 'data.csv'
+
+        # Pfad prüfen, bevor gelesen wird
+        print('CSV-Pfad:', csv_path.resolve())
+        if not csv_path.is_file():
+            raise FileNotFoundError(f'CSV-Datei nicht gefunden: {csv_path.resolve()}')
+
         data = pd.read_csv(csv_path)
 
         # Optional: Nur Daten mit 2 erkannten Linien verwenden
@@ -79,11 +85,16 @@ def import_data(data_path=Path('Data_AI'),
             images.append(image)
             valid_indices.append(idx)
 
+        # Ordner überspringen, falls kein einziges Bild gefunden wurde
+        if not images:
+            print(f'{sub_folder_value}: keine Bilder gefunden -> übersprungen.')
+            continue
+
         # Nur Datenzeilen behalten, deren Bilddatei tatsächlich vorhanden war
         data = data.iloc[valid_indices]
 
         X_arr = np.array(images, dtype=np.float32)
-        X_flipped = tf.image.flip_left_right(X_arr)
+        X_flipped = tf.image.flip_left_right(X_arr).numpy()
 
         Y_arr = data[['speed', 'steering_angle']].to_numpy(dtype=np.float32)
 
@@ -96,13 +107,17 @@ def import_data(data_path=Path('Data_AI'),
         Y.append(Y_arr)
         Y.append(Y_flipped)
 
+    # Abbruch mit klarer Meldung, falls insgesamt keine Daten vorhanden sind
+    if not X:
+        raise ValueError(f'Keine verwendbaren Daten in {data_path.resolve()} für {sub_folder_list} gefunden.')
+
     X = np.concatenate(X, axis=0)
     Y = np.concatenate(Y, axis=0)
 
     return X, Y, image_height, image_width, image_dimension
 
 
-def write_txt(txt_path, lines, mode='a'):                      
+def write_txt(txt_path, lines, mode='a'):
     '''Schreibt Zeilen in die Parameter-/Ergebnis-.txt.'''
     with open(txt_path, mode, encoding='utf-8') as f:
         f.write('\n'.join(lines) + '\n')
@@ -111,11 +126,13 @@ def write_txt(txt_path, lines, mode='a'):
 def train_deepcar(data_path=Path('Data_AI'),
                   sub_folder_list=['2026-10-28_10-52-41'],
                   lane_filter=True,
-                  epochs=100,
+                  epochs=100,                                  # nur noch Obergrenze
                   learning_rate=0.001,                         # als Parameter für die .txt
-                  batch_size=32,                               
-                  train_split=0.70,                            
-                  validate_split=0.15):                        
+                  batch_size=32,
+                  train_split=0.70,
+                  validate_split=0.15,
+                  patience=8,                                  # Epochen ohne Verbesserung bis Abbruch
+                  min_delta=0.01):                             # Mindestverbesserung val_loss (MSE), sonst = Stagnation
 
     # eigener Trainingsordner Data_AI/Training_Datum_Uhrzeit
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -131,12 +148,14 @@ def train_deepcar(data_path=Path('Data_AI'),
         f'data_path: {data_path}',
         f'sub_folder_list: {sub_folder_list}',
         f'lane_filter: {lane_filter}',
-        f'epochs: {epochs}',
+        f'epochs (max): {epochs}',
         f'learning_rate: {learning_rate}',
         f'batch_size: {batch_size}',
         f'train_split: {train_split}',
         f'validate_split: {validate_split}',
         f'test_split: {round(1 - train_split - validate_split, 2)}',
+        f'early_stopping patience: {patience}',
+        f'early_stopping min_delta: {min_delta}',
         'augmentation: flip_left_right, steering_angle = 180 - steering_angle',
     ], mode='w')
 
@@ -179,8 +198,8 @@ def train_deepcar(data_path=Path('Data_AI'),
 
     # Anzahl Daten
     n = len(X)
-    n_train = int(train_split * n)                            
-    n_validate = int(validate_split * n)                      
+    n_train = int(train_split * n)
+    n_validate = int(validate_split * n)
 
     # Aufteilung in Trainingsdaten, Testdaten und Validierungsdaten
     train_ds = dataset.take(n_train)             # Trainingsdaten
@@ -221,7 +240,7 @@ def train_deepcar(data_path=Path('Data_AI'),
     )
 
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),   
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
         loss='mse',
         metrics=['mae']
     )
@@ -233,40 +252,43 @@ def train_deepcar(data_path=Path('Data_AI'),
     model.summary(print_fn=lambda line, **kwargs: summary_lines.append(line))
     write_txt(txt_path, ['', '[Modell]', *summary_lines])
 
-    train_ds    = train_ds.shuffle(1000).batch(batch_size).prefetch(tf.data.AUTOTUNE)   
+    train_ds    = train_ds.shuffle(1000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
     validate_ds = validate_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     test_ds     = test_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     print(train_ds.element_spec)
 
-    # --- HIER ERGÄNZEN: Callbacks definieren ---
+    # Callbacks: Abbruch bei Stagnation von val_loss
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        min_delta=min_delta,          # kleinere Verbesserungen zählen als Stagnation
+        patience=patience,            # so viele Epochen ohne echte Verbesserung -> Abbruch
+        restore_best_weights=True,    # Setzt das Modell automatisch auf die besten Gewichte zurück
+        verbose=1                     # gibt aus, in welcher Epoche gestoppt wurde
+    )
+
     callbacks = [
-        EarlyStopping(
-            monitor='val_loss',
-            patience=12,              # Wartet 12 Epochen nach dem besten Punkt ab
-            restore_best_weights=True # Setzt das Modell automatisch auf die besten Gewichte zurück
-        ),
+        early_stopping,
         ModelCheckpoint(
-            filepath=save_path / 'best_deepcar.keras',
+            filepath=str(save_path / 'best_deepcar.keras'),
             monitor='val_loss',
             save_best_only=True       # Speichert nur, wenn val_loss besser als je zuvor ist
         )
     ]
 
-    # --- Callbacks an model.fit übergeben ---
+    # epochs ist nur die Obergrenze, EarlyStopping bricht vorher ab
     history = model.fit(
         train_ds,
         validation_data=validate_ds,
         epochs=epochs,
-        callbacks=callbacks           # <-- Hier hinzugefügt
+        callbacks=callbacks
     )
 
-    
     # Modell speichern und testen (nach model.fit)
     # - MAE (Mean Absolute Error) - Absolute Fehler des Outputs, da hier nicht skaliert -> etwa 1 bis 2 grad -> OK
     # - MSE (Mean Squared Error) - Die Einheit ist das Quadrat der Zielwerte, deshalb ist der MSE schwer direkt zu lesen.
     #   Besser lesbar ist die Wurzel daraus, der RMSE: (Wurzel(MSE))
-    
+
     model.save(save_path / 'deepcar.keras')   # vollständiges Modell: Architektur + Gewichte
 
     test_loss, test_mae = model.evaluate(test_ds)
@@ -300,10 +322,17 @@ def train_deepcar(data_path=Path('Data_AI'),
     # Plotte die Ergebnisse
     h = history.history; ep = np.arange(1, len(h['loss']) + 1); best = int(np.argmin(h['val_loss'])) + 1
 
+    # Tatsächlich trainierte Epochen / früh gestoppt?
+    epochs_trained = len(h['loss'])
+    stopped_early = epochs_trained < epochs
+    print(f'Trainierte Epochen: {epochs_trained} von max. {epochs} -> früh gestoppt: {stopped_early}')
+
     # Ergebnisse in .txt
     write_txt(txt_path, [
         '',
         '[Ergebnisse]',
+        f'trainierte Epochen: {epochs_trained} von max. {epochs}',
+        f'früh gestoppt (EarlyStopping): {stopped_early}',
         f'beste Epoche (val_loss): {best}',
         f'val_loss (beste Epoche): {h["val_loss"][best - 1]:.4f}',
         f'Test-MSE: {test_loss:.4f}',
@@ -369,7 +398,12 @@ def train_deepcar(data_path=Path('Data_AI'),
 if __name__ == '__main__':
     print('this is the main')
 
-    model, history = train_deepcar(data_path=Path('Data_AI'),
-                                   sub_folder_list=['2026-10-28_10-52-41'],
+    # Pfad relativ zum Ordner dieses Skripts -> unabhängig vom Terminal-Arbeitsverzeichnis
+    base_path = Path(__file__).resolve().parent
+
+    model, history = train_deepcar(data_path=base_path / 'Data_AI',
+                                   sub_folder_list=['2026-10-28_10-06-38'],
                                    lane_filter=True,
-                                   epochs=100)
+                                   epochs=100,          # Obergrenze
+                                   patience=8,          # Abbruch nach 8 Epochen ohne Verbesserung
+                                   min_delta=0.01)      # Verbesserung < 0.01 MSE = Stagnation
