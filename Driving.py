@@ -745,6 +745,29 @@ class KeyboardMode(DrivingMode):
                 self._stop_event.set()
                 break
 
+class DashboardManualMode(DrivingMode):
+    def __init__(self, name="Dashboard Manuell", car: Optional[BaseCar] = None, cfg: Optional[ConfigReader.ConfigReader] = None):
+        car = car if car is not None else CameraCar()
+        logger = logging.getLogger(self.__class__.__name__)
+        cfg = cfg if cfg is not None else ConfigReader.ConfigReader("cameracar_controller")
+        super().__init__(name, car, logger, cfg)
+        self._current_speed = 0
+        self._current_angle = 90
+
+    def _run_condition(self) -> bool:
+        return True
+
+    def _run(self) -> bool:
+        # Hält den aktuellen per Dashboard gesetzten Fahrbefehl aufrecht
+        self._car.drive(self._current_speed, self._current_angle)
+        time.sleep(0.05)
+        return True
+
+    def set_command(self, speed: int, angle: int):
+        with self._lock:
+            self._current_speed = speed
+            self._current_angle = angle
+
 ### PS Controller
 # Mode: PS-Controller
 class PSControllerMode(DrivingMode):

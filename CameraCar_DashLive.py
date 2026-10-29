@@ -19,9 +19,6 @@ from Save_Data_AI import SaveData_4_AI
 
 from CameraCar import CameraCar, CameraData, CameraDataProcessed
 from CameraSensor import CameraSensor
-
-from CameraCar import CameraCar, CameraData, CameraDataProcessed
-from CameraSensor import CameraSensor
 from DeepCar import DeepCar
 
 
@@ -72,15 +69,6 @@ class ImageStream:
             frame = self.car.camera_data.raw_image
         else:
             frame = self.car.camera_data.process_image
-            # camera_data_processed = self.car.camera_data_processed
-
-            # if camera_data_processed is None:
-            #     return
-
-            # frame = camera_data_processed.process_image_lines
-            # line_data = camera_data_processed.line_data
-            # steering_angle = camera_data_processed.steering_angle
-            # speed = camera_data_processed.speed
 
         if frame is None or frame.size == 0:
             return
@@ -158,7 +146,8 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
                     options=[
                         {'label': 'Fahrmodus 1 - Bilderkennung', 'value': 'fahrmodus_1'},
                         {'label': 'Fahrmodus 2 - AI', 'value': 'fahrmodus_2'},
-                        {'label': 'Fahrmodus 3 - PS Controller', 'value': 'fahrmodus_ps'}
+                        {'label': 'Fahrmodus 3 - PS Controller', 'value': 'fahrmodus_ps'},
+                        {'label': 'Fahrmodus 4 - Dashboard Steuerung', 'value': 'fahrmodus_manual'}
                     ],
                     value='fahrmodus_1',
                     clearable=False,
@@ -168,6 +157,21 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
                 dcc.Store(id='fahrmodus_state', data=False),
                 dbc.Button('Datenaufnahme starten', id='button_save_data', n_clicks=0, color='primary', className='mt-4'),
                 dcc.Store(id='save_data_state', data=False)
+            ], md=4)
+        ]),
+
+        dbc.Row([
+            dbc.Col([
+                html.H4("Manuelle Steuerung", className="mt-4"),
+                dbc.ButtonGroup([
+                    dbc.Button('Links', id='btn-left', color='secondary', n_clicks=0),
+                    dbc.Button('Vorwärts', id='btn-forward', color='primary', n_clicks=0),
+                    dbc.Button('Rechts', id='btn-right', color='secondary', n_clicks=0),
+                ], className='mb-2 d-block'),
+                dbc.ButtonGroup([
+                    dbc.Button('Stopp', id='btn-stop', color='danger', n_clicks=0),
+                    dbc.Button('Rückwärts', id='btn-backward', color='warning', n_clicks=0),
+                ]),
             ], md=4)
         ]),
 
@@ -217,17 +221,14 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
         if running:
             for m in modes.values():
                 m.stop()
-
             return False, 'Fahrmodus starten', 'success', False
 
         mode = modes.get(selected)
-
         if mode is None:
             log.warning(f'{selected} ist nicht implementiert')
             return False, 'Fahrmodus starten', 'success', False
 
         mode.start()
-
         return True, 'Fahrmodus stoppen', 'danger', True
 
     @app.callback(
@@ -244,18 +245,44 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
             return False, 'Datenaufnahme starten', 'primary'
 
         save_data.start()
-
         return True, 'Datenaufnahme stoppen', 'danger'
+
+    # Callback für die manuellen Dashboard-Steuerungsbuttons
+    @app.callback(
+        Input('btn-forward', 'n_clicks'),
+        Input('btn-backward', 'n_clicks'),
+        Input('btn-left', 'n_clicks'),
+        Input('btn-right', 'n_clicks'),
+        Input('btn-stop', 'n_clicks'),
+        prevent_initial_call=True
+    )
+    def control_car(fwd, bwd, left, right, stop):
+        from dash import callback_context
+        ctx = callback_context
+        if not ctx.triggered:
+            return
+        
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        manual_mode = modes.get('fahrmodus_manual')
+        
+        if not manual_mode or not manual_mode.is_running():
+            return
+
+        if button_id == 'btn-forward':
+            manual_mode.set_command(speed=40, angle=90)
+        elif button_id == 'btn-backward':
+            manual_mode.set_command(speed=-40, angle=90)
+        elif button_id == 'btn-left':
+            manual_mode.set_command(speed=30, angle=60)
+        elif button_id == 'btn-right':
+            manual_mode.set_command(speed=30, angle=120)
+        elif button_id == 'btn-stop':
+            manual_mode.set_command(speed=0, angle=90)
 
     return app
 
 
 def shutdown(modes, car, sensor, save_data, threads, stop_event):
-    # Reihenfolge:
-    # SaveData_4_AI -> Driving -> CameraCar -> CameraSensor -> eigene Threads
-
-    # Speichere Sliderdaten in config.json
-
     if not _shutdown_lock.acquire(blocking=False):
         return
 
@@ -275,7 +302,6 @@ def shutdown(modes, car, sensor, save_data, threads, stop_event):
 
     for t in threads:
         t.join(timeout=2)
-
         if t.is_alive():
             log.warning('Thread %s läuft noch', t.name)
 
@@ -283,16 +309,16 @@ def shutdown(modes, car, sensor, save_data, threads, stop_event):
 
 
 def main():
-
-    car = DeepCar()  # DeepCar statt CameraCar: Kamera/Motoren nur EINMAL öffnen
+    car = DeepCar()
     sensor = CameraSensor(car)
     save_data = SaveData_4_AI(car=car, frequency=5.0)
 
+    # Hier ist Punkt 4 korrekt eingerückt im Dictionary hinterlegt:
     modes = {
         'fahrmodus_1': Driving.CameraMode(car=car),
         'fahrmodus_2': Driving.DeepCarMode(car=car),
         'fahrmodus_ps': Driving.PSControllerMode(car=car),
-        'fahrmodus_4': Driving.KeyboardMode(car=car)
+        'fahrmodus_manual': Driving.DashboardManualMode(car=car)
     }
 
     stream_pre_processing = ImageStream(car, sensor, modes.get('fahrmodus_1'), use_raw_data=True)
@@ -320,7 +346,6 @@ def main():
             on_stop=lambda: shutdown(modes, car, sensor, save_data, threads, stop_event)
         )
 
-        # Reloader aus, sonst öffnet ein zweiter Prozess die Kamera
         app.run(host='0.0.0.0', debug=False, use_reloader=False)
 
     finally:
@@ -329,21 +354,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-    # 1: [X] Sensor-Funktion bauen (Thread-sicher, vgl. InfraredSensor:43) zum Aufnehmen der Slider-Einstellungen
-    # 2: [X] Sensor an App übergeben ('update_filter') zur Übergabe der Filterwerte
-    # 3: [HOLD] inkl. Switch RGBBHRGREYHSV...
-    # 4: [X] Im Sensor die Bildbearbeitung durchführen und img_processed setzen in datapacket
-    # 5: inkl. Linienerkennung einmalen in img_processed
-    #    --- Wenn nur eine Linie zu sehen ist - Linie rechts im Bild -> Lenke rechts und fahre langsam bis wieder zwei linien zu sehen sind - Analog ander seite
-    # 6: [X] Start Drive/Stop Drive Button (Analog Dashboard_Live_Data.py) Zeile: 460 - 475, 331ff
-    # 7: [X] Start Button: Fange an Bilder zu speichern
-    #    --- Unterordner (fig) erstellen, dann Timestamp (Ordnername), in einem eigenen Thread laufen lassen, Speicherfrequenz, time.sleep(frequenz - Delta t) Delta t ist speicherdauer
-    #    --- Bild braucht eindeutigen Namen - Parameter in Tabelle (Spalte 1 dann Bildname (eindeutig), Parameter)
-    #    --- Bild nur speicher, wenn bedingung erfüllt ist zB 2 Fahrbahnlinien sind da
-    # 8: [X] Button: Manuel Fahren, Driving Mode umschalten
-
-    '''
-    slider für blur, morph kernel
-    '''
