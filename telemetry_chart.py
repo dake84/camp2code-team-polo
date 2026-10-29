@@ -58,8 +58,17 @@ def _trace(name, rows, column, now, lane, **style):
     x, y = series(rows, column, now)
     if not has_values(y):
         return None
-    trace = dict(type='scatter', mode='lines', name=name, x=x, y=y, connectgaps=False,
-                 yaxis='y' if lane == 1 else f'y{lane}', legendgroup=f'lane{lane}')
+    trace = dict(
+        type='scatter',
+        mode='lines',
+        name=name,
+        x=x,
+        y=y,
+        connectgaps=False,
+        yaxis='y' if lane == 1 else f'y{lane}',
+        legendgroup=f'lane{lane}',
+        hovertemplate='%{y:.1f}<extra></extra>',
+    )
     trace.update(style)
     return trace
 
@@ -96,15 +105,78 @@ def build_figure(now, camera_target, freqs, latency, system, driving):
     if not traces:
         return None
     layout = dict(
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor=BG, font={'color': '#e9f1ff'},
-        margin=dict(l=55, r=55, t=110, b=45), hovermode='x unified', uirevision=UIREVISION,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor=BG,
+        font={'color': '#e9f1ff'},
+
+        hoverlabel=dict(
+            bgcolor='#172238',
+            bordercolor='#3a4766',
+            font={
+                'color': '#e9f1ff',
+                'size': 12,
+            },
+            namelength=-1,
+        ),
+
+        margin=dict(l=55, r=55, t=110, b=45),
+        hovermode='x unified',
+        uirevision=UIREVISION,
         legend=dict(orientation='h', y=1.07, yanchor='bottom', x=0),
-        xaxis=dict(AXIS, title={'text': 'Sekunden vor jetzt'}, range=[-WINDOW_S, 0], anchor='y4'),
-        yaxis=dict(AXIS, domain=list(LANES[0][1]), rangemode='tozero', title={'text': 'Hz'}),
-        yaxis2=dict(AXIS, domain=list(LANES[1][1]), rangemode='tozero', title={'text': 'ms'}, anchor='x'),
-        yaxis3=dict(AXIS, domain=list(LANES[2][1]), title={'text': 'Grad / Steuerwert'}, anchor='x'),
-        yaxis5=dict(AXIS, overlaying='y3', side='right', range=[0, 3], title={'text': 'Linien'}, showgrid=False),
-        yaxis4=dict(AXIS, domain=list(LANES[3][1]), range=[0, 100], title={'text': '% / °C'}, anchor='x'),
-        annotations=[dict(text=title, xref='paper', yref='paper', x=0, y=top, xanchor='left', yanchor='bottom',
-                          showarrow=False, font={'size': 12, 'color': '#9aa8bf'}) for title, (_bottom, top) in LANES])
+
+        xaxis=dict(
+            AXIS,
+            title={'text': 'Sekunden vor jetzt'},
+            range=[-WINDOW_S, 0],
+            anchor='y4',
+        ),
+        yaxis=dict(
+            AXIS,
+            domain=list(LANES[0][1]),
+            rangemode='tozero',
+            title={'text': 'Hz'},
+        ),
+        yaxis2=dict(
+            AXIS,
+            domain=list(LANES[1][1]),
+            rangemode='tozero',
+            title={'text': 'ms'},
+            anchor='x',
+        ),
+        yaxis3=dict(
+            AXIS,
+            domain=list(LANES[2][1]),
+            title={'text': 'Grad / Steuerwert'},
+            anchor='x',
+        ),
+        yaxis5=dict(
+            AXIS,
+            overlaying='y3',
+            side='right',
+            range=[0, 3],
+            title={'text': 'Linien'},
+            showgrid=False,
+        ),
+        yaxis4=dict(
+            AXIS,
+            domain=list(LANES[3][1]),
+            range=[0, 100],
+            title={'text': '% / °C'},
+            anchor='x',
+        ),
+        annotations=[
+            dict(
+                text=title,
+                xref='paper',
+                yref='paper',
+                x=0,
+                y=top,
+                xanchor='left',
+                yanchor='bottom',
+                showarrow=False,
+                font={'size': 12, 'color': '#9aa8bf'},
+            )
+            for title, (_bottom, top) in LANES
+        ],
+    )
     return {'data': traces, 'layout': layout}
