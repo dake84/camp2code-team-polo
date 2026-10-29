@@ -33,10 +33,13 @@ class DeepCar(CameraCar):
         self._input_details = self._interpreter.get_input_details()
         self._output_details = self._interpreter.get_output_details()
 
+        print(self._input_details)
+        print(self._output_details)
+
     def data_transformation(self, image):
 
         # Auf gleiche Bildgröße wie beim Training bringen
-        #image = cv2.resize(image,(160, 120))
+        image = cv2.resize(image,(320, 240))
 
         # Datentyp wie beim Training
         image = image.astype(np.float32)
