@@ -29,6 +29,17 @@ def _float(value):
         return None
 
 
+def _row_size(row):
+    """PAKET-H3: Verarbeitungsgroesse einer frames.csv-Zeile; None bei Sessions vor Revision 4 (nie raten)."""
+    width, height = _int(row.get('process_width')), _int(row.get('process_height'))
+    return (width, height) if width and height and width > 0 and height > 0 else None
+
+
+def _cam_size(cam):
+    size = getattr(cam, 'process_size', None)
+    return (int(size[0]), int(size[1])) if size else None
+
+
 def fps_info(frames, manifest=None):
     """PAKET-H1: Median-fps der Aufnahme: aus dem Manifest (capture.median_fps) oder aus den Zeitstempeln."""
     value = ((manifest or {}).get('capture') or {}).get('median_fps')
@@ -59,6 +70,7 @@ class SourceFrame:
     then_lane_count: int | None = None
     then_status: str | None = None
     then_lanes: tuple = field(default_factory=tuple)
+    process_size: tuple | None = None   # PAKET-H3: Groesse des Verarbeitungsbilds (None = unbekannt)
 
 
 class SessionSource:
@@ -103,6 +115,7 @@ class SessionSource:
             then_lane_count=_int(row.get('lane_count')),
             then_status=row.get('data_status') or None,
             then_lanes=lanes,
+            process_size=_row_size(row),
         )
 
     def image(self, index):
@@ -151,6 +164,7 @@ class RingbufferSource:
             then_lane_count=sum(lane is not None for lane in lanes),
             then_status='complete' if drive is not None else 'no_driving_state',
             then_lanes=lanes,
+            process_size=_cam_size(cam),
         )
 
     def image(self, index):

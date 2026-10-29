@@ -38,6 +38,9 @@
         "height": 240,
         "width": 320,
         "colormode": "bgr",
-        "hough_threshold": 30
+        "hough_threshold": 30,
+        "frame_rate": 0,
+        "exposure_value": 1.0,
+        "downscale": "auto"
     }
 }

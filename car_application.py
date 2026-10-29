@@ -24,6 +24,7 @@ from CameraSensor import CameraSensor
 import config_store  # PAKET-H1
 import runtime_settings  # PAKET-H1B
 import system_stats  # PAKET-H2
+import camera_geometry  # PAKET-H3
 from driving_health import DrivingHealthMonitor
 from pipeline_config import save
 from recovery_control import RecoveryControl
@@ -72,6 +73,7 @@ class CarApplication:
         self.system = system_stats.SystemSampler(fps_source=self._camera_hz)
         # PAKET-H1: Fahrzeugzustand fuer die Kamera (Aufnahmemoment) und gespeicherte Einstellungen
         self._attach_vehicle_mode()
+        self._fit_ring_buffer()  # PAKET-H3
         self._apply_stored_settings()
         self.settings_revision = 0  # PAKET-H1B: zaehlt Aenderungen (Simulation liest danach neu)
         self._apply_stored_runtime_settings()
@@ -206,6 +208,30 @@ class CarApplication:
     def vehicle_mode(self):
         """PAKET-H1: (Modus, Winkel, Speed); unveraenderte Signatur, siehe vehicle_state()."""
         return self.vehicle_state()[:3]
+
+    def _fit_ring_buffer(self):
+        """PAKET-H3: Ringbuffer-Laenge an die Bildgroesse anpassen (RAM-Budget) und die Kamerainfo an den Recorder
+        geben (Manifest). Fehler duerfen den Start nie verhindern; ohne Kamerainfo bleibt alles wie bisher."""
+        try:
+            getter = getattr(self.sensor, 'camera_info', None)
+            info = getter() if callable(getter) else None
+            if not isinstance(info, dict):
+                return
+            try:
+                self.recorder.camera_info = getter
+            except AttributeError:
+                pass
+            capture = info.get('capture_size')
+            history = self.car.frame_history
+            if not capture or not callable(getattr(history, 'resize', None)):
+                return
+            length = camera_geometry.ring_length(capture, info.get('process_size'))
+            if length != getattr(history, 'maxlen', length):
+                history.resize(length)
+                log.info('Ringbuffer: %d Frames (Aufnahme %s, Verarbeitung %s)', length, capture,
+                         info.get('process_size') or 'wie Aufnahme')
+        except Exception:
+            log.exception('Ringbuffer-Laenge nicht anpassbar - Standardwert bleibt')
 
     def _attach_vehicle_mode(self):
         """PAKET-H1: der CameraSensor liest den Fahrzeugzustand je Frame ueber diesen Provider."""

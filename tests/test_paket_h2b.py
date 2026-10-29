@@ -227,12 +227,12 @@ class RecorderH2bTests(unittest.TestCase):
             recorder.capture_once()
             recorder._thread = SimpleNamespace(is_alive=lambda: False, join=lambda timeout=None: None)
             recorder.stop()
-            self.assertEqual(FIELDS[-1], 'vehicle_mode_key')
+            self.assertIn('vehicle_mode_key', FIELDS)  # PAKET-H3
             _, rows = load_session(recorder.path.name, folder)
             self.assertEqual(rows[0]['vehicle_mode_key'], 'camera')
             manifest = json.loads((recorder.path / 'manifest.json').read_text())
             self.assertEqual(manifest['schema_version'], 2)
-            self.assertEqual(manifest['schema_revision'], 3)
+            self.assertEqual(manifest['schema_revision'], 4)  # PAKET-H3
             self.assertIn('vehicle_mode_key', manifest['revision_note'])
             # alte Session (Revision 2): Spalte fehlt, bleibt lesbar, kein Name statt falscher Name
             old = os.path.join(folder, 'session_alt')

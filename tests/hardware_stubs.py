@@ -126,6 +126,7 @@ def build(log=None, frames=None):
         def __init__(self, *args, **kwargs):
             self._frames = list(frames or [])
             self.released = 0
+            self.init_kwargs = dict(kwargs)   # PAKET-H3
 
         def get_frame(self):
             if not self._frames:
@@ -138,6 +139,30 @@ def build(log=None, frames=None):
         def set_camera_controls(self, controls):
             log.record('camera_controls', controls)
 
+    # PAKET-H3: Dual-Stream-Methoden der Kamera-Attrappe (nur aktiv, wenn small_size uebergeben wird)
+    Camera.dual_ok = True                    # False = "Konfiguration abgelehnt" (Software-Verkleinern)
+    Camera.metadata = {'exposure_us': None, 'gain': None, 'digital_gain': None, 'frame_duration_us': None,
+                       'lux': None, 'sensor_timestamp_ns': None}
+
+    def _small_size(self):
+        size = self.init_kwargs.get('small_size')
+        return tuple(size) if size else None
+
+    def _get_frames(self):
+        import cv2
+        main = self.get_frame()
+        size = _small_size(self)
+        small = cv2.resize(main, size, interpolation=cv2.INTER_AREA) if size else None
+        return main, small
+
+    def _get_size(self):
+        return (self.init_kwargs.get('width') or 640, self.init_kwargs.get('height') or 480)
+
+    Camera.get_frames = _get_frames
+    Camera.get_metadata = lambda self: dict(self.metadata)
+    Camera.get_small_size = _small_size
+    Camera.get_size = _get_size
+    Camera.small_source = property(lambda self: (('camera' if self.dual_ok else 'software') if _small_size(self) else None))
     cam.Camera = Camera
     return {'basisklassen': hw, 'basisklassen_cam': cam}, log
 

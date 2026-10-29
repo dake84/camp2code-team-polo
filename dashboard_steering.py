@@ -2,6 +2,8 @@
 import math
 import cv2
 
+from camera_geometry import ui_scale  # PAKET-H3
+
 
 def draw_steering_overlay(image, angle):
     """Zeichnet eine kleine Lenkrichtungsanzeige auf eine Bildkopie."""
@@ -9,10 +11,11 @@ def draw_steering_overlay(image, angle):
         return image
     result = image.copy()
     h, w = result.shape[:2]
+    k = ui_scale(h)   # PAKET-H3: Strichstaerke und Schrift wachsen mit der Bildhoehe
     radius = max(15, min(h, w) // 13)
     center = (max(radius + 12, w - radius - 14), radius + 16)
     cv2.circle(result, center, radius + 6, (20, 30, 45), -1, cv2.LINE_AA)
-    cv2.circle(result, center, radius, (160, 180, 200), 2, cv2.LINE_AA)
+    cv2.circle(result, center, radius, (160, 180, 200), max(1, round(2 * k)), cv2.LINE_AA)
     try:
         degrees = float(angle)
         if not math.isfinite(degrees):
@@ -21,10 +24,10 @@ def draw_steering_overlay(image, angle):
         delta = math.radians(degrees - 90)
         end = (int(center[0] + radius * .78 * math.sin(delta)),
                int(center[1] - radius * .78 * math.cos(delta)))
-        cv2.line(result, center, end, (0, 220, 255), 3, cv2.LINE_AA)
+        cv2.line(result, center, end, (0, 220, 255), max(1, round(3 * k)), cv2.LINE_AA)
         label = f'{degrees:.0f} deg'
     except (TypeError, ValueError, OverflowError):
         label = 'n/a'
-    cv2.putText(result, label, (max(5, center[0] - radius), center[1] + radius + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(result, label, (max(5, center[0] - radius), center[1] + radius + int(20 * k)),
+                cv2.FONT_HERSHEY_SIMPLEX, .45 * k, (255, 255, 255), max(1, round(k)), cv2.LINE_AA)
     return result

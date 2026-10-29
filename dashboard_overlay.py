@@ -13,11 +13,38 @@ import cv2
 import numpy as np
 
 from LenkwinkelKalkulator import steering_line_from_lanes
+from camera_geometry import convert_lanes, roi_top_px, ui_scale  # PAKET-H3
 
 LANE_COLORS = ((50, 230, 100), (20, 200, 255))
 ROI_COLOR = (255, 200, 0)
 STEERING_LINE_COLOR = (255, 80, 255)
 TEXT_COLOR = (245, 245, 245)
+
+
+def _px(image, base):
+    """PAKET-H3: Linien-/Schriftstaerke in Pixeln, an die Bildhoehe angepasst (bis 240 Pixel wie bisher)."""
+    return max(1, int(round(base * ui_scale(image.shape[0]))))
+
+
+def _at(image, x, y):
+    """PAKET-H3: Textposition, an die Bildhoehe angepasst (bis 240 Pixel wie bisher)."""
+    k = ui_scale(image.shape[0])
+    return int(round(x * k)), int(round(y * k))
+
+
+def lanes_for_raw(camera, lanes, shape, top):
+    """PAKET-H3: Linien aus dem Verarbeitungsbild in das Bild der Form ``shape`` (grosses Aufnahmebild) umrechnen.
+
+    ``camera.process_size`` ist die Groesse des Bildes, in dem die Linien gelten; ``top`` ist die obere ROI-Zeile
+    im Zielbild. Ohne ``process_size`` (aeltere Daten) oder bei gleicher Groesse bleiben die Linien unveraendert.
+    Die gespeicherten Linien werden nie geaendert (es entsteht ein neues Tupel).
+    """
+    size = getattr(camera, 'process_size', None)
+    height, width = shape[:2]
+    if not size or tuple(size) == (width, height):
+        return tuple(lanes or ())
+    src_top = roi_top_px(size[1], getattr(camera, 'crop', (0.1, 0.9)))
+    return convert_lanes(lanes, (size[0], size[1]), (width, height), src_top, top)
 
 
 def as_bgr_copy(image):
@@ -49,13 +76,14 @@ def _finite_lane(lane):
 
 def draw_roi(image, top, bottom):
     h, w = image.shape[:2]
-    cv2.rectangle(image, (0, top), (w - 1, max(top, bottom - 1)), ROI_COLOR, 1)
+    cv2.rectangle(image, (0, top), (w - 1, max(top, bottom - 1)), ROI_COLOR, _px(image, 1))
 
 
 def draw_lanes(image, lanes, top, bottom, thickness=2):
     """Zeichnet Linien ``y = m*x + b`` (ROI-Koordinaten) auf das Bild, auf den ROI begrenzt."""
     h, w = image.shape[:2]
     roi_h = max(1, bottom - top)
+    thickness = _px(image, thickness)  # PAKET-H3
     drawn = 0
     for index, lane in enumerate(lanes or ()):
         lane = _finite_lane(lane)
@@ -85,19 +113,28 @@ def draw_steering_line(image, lanes, top, bottom):
     if line is None:
         return False
     (x0, y0), (x1, y1) = line
-    cv2.line(image, (int(x0), int(y0) + top), (int(x1), int(y1) + top), STEERING_LINE_COLOR, 2, cv2.LINE_AA)
+    cv2.line(image, (int(x0), int(y0) + top), (int(x1), int(y1) + top), STEERING_LINE_COLOR, _px(image, 2), cv2.LINE_AA)
     return True
 
 _OUTLINE_OFFSETS = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
 
 def put_text(image, text, origin, scale=0.48, color=TEXT_COLOR):
     """Text mit schwarzer Kontur. Die Kontur ist derselbe duenne Text in acht Nachbarpositionen,
-    damit Kontur und Fuellung denselben Zeichenabstand haben (Dicke 3 verschob die Buchstaben)."""
+    damit Kontur und Fuellung denselben Zeichenabstand haben (Dicke 3 verschob die Buchstaben).
+
+    PAKET-H3: Schriftgroesse, Strichstaerke und Konturabstand wachsen mit der Bildhoehe (bis 240 Pixel
+    unveraendert); ``origin`` ist bereits in Bildpixeln.
+    """
     text = str(text)
+    k = ui_scale(image.shape[0])
     x, y = int(origin[0]), int(origin[1])
+    step = max(1, int(round(k)))
+    thickness = max(1, int(round(k)))
     for dx, dy in _OUTLINE_OFFSETS:
-        cv2.putText(image, text, (x + dx, y + dy), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 1, cv2.LINE_AA)
-    cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
+        cv2.putText(image, text, (x + dx * step, y + dy * step), cv2.FONT_HERSHEY_SIMPLEX, scale * k, (0, 0, 0),
+                    thickness, cv2.LINE_AA)
+    cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale * k, color, thickness, cv2.LINE_AA)
+
 
 def render_overlay(camera, driving, processed=False):
     """Zeigt ROI, erkannte Geraden und Fahrentscheidung auf einer Bildkopie.
@@ -119,6 +156,8 @@ def render_overlay(camera, driving, processed=False):
         top, bottom = roi_rows(camera, h)
         draw_roi(result, top, bottom)
     lanes = driving.lanes if driving.lanes is not None else ()
+    if not processed:   # PAKET-H3: Linien gelten im Verarbeitungsbild
+        lanes = lanes_for_raw(camera, lanes, result.shape, top)
     draw_lanes(result, lanes, top, bottom)
     draw_steering_line(result, lanes, top, bottom)
     parts = [f'Frame {camera.frame_id}']
@@ -130,7 +169,7 @@ def render_overlay(camera, driving, processed=False):
     speed = getattr(driving, 'speed', None)
     if speed is not None:
         parts.append(f'Speed {float(speed):.0f}')
-    put_text(result, '  '.join(parts), (8, 22))
+    put_text(result, '  '.join(parts), _at(result, 8, 22))
     return result
 
 
@@ -153,9 +192,12 @@ def render_calibration_overlay(camera, processed=False):
         top, bottom = roi_rows(camera, h)
         draw_roi(result, top, bottom)
     lanes = tuple(camera.lanes or ())
+    if not processed:   # PAKET-H3: Linien gelten im Verarbeitungsbild
+        lanes = lanes_for_raw(camera, lanes, result.shape, top)
     draw_lanes(result, lanes, top, bottom)
     draw_steering_line(result, lanes, top, bottom)
     count = sum(_finite_lane(lane) is not None for lane in lanes)
-    put_text(result, f'Frame {camera.frame_id}  Linien {count}', (8, 22))
-    put_text(result, 'OHNE FAHRENTSCHEIDUNG', (8, max(45, h - 12)), 0.45, (0, 255, 255))
+    put_text(result, f'Frame {camera.frame_id}  Linien {count}', _at(result, 8, 22))
+    put_text(result, 'OHNE FAHRENTSCHEIDUNG',
+             (_at(result, 8, 0)[0], max(_at(result, 0, 45)[1], h - _px(result, 12))), 0.45, (0, 255, 255))
     return result

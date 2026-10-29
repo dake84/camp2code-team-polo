@@ -1,4 +1,31 @@
 # Changelog
+## 6.10 – Paket H3 (PAKET-H3)
+* **Dual-Stream** (`basisklassen_cam.py`, optional): grosses Bild („main“, RGB888) für Aufnahme und Anzeige, kleines Bild
+  („lores“, YUV420, Zeilen-Stride beachtet) für die Bildverarbeitung, beide aus DERSELBEN Aufnahme (`capture_arrays`);
+  neue Methoden `get_frames()`, `get_metadata()`, `get_small_size()`, `get_sizes()`, `get_stream_info()`,
+  `sensor_modes()` (aus Picamera2, nichts festgeschrieben), `set_frame_rate()`, `set_exposure_value()`. Lehnt die Kamera
+  die Konfiguration ab oder ist das Backend OpenCV/USB, verkleinert die Software (INTER_AREA) mit Hinweis im Log. Der
+  Konstruktor ohne neue Argumente und alle bisherigen Methoden verhalten sich unverändert.
+* **`cam_sensor` in `config.json`** (nur dort einstellbar; Settings-Oberfläche folgt in H3b): `width`/`height` = Aufnahme;
+  neu `process_width`/`process_height` (Verarbeitung, nicht größer als die Aufnahme, gleiches Seitenverhältnis),
+  `downscale` = `auto|camera|software` (Standard `auto`: Dual-Stream, sonst Software), `frame_rate` (feste Kamera-fps über
+  FrameDurationLimits, 0/fehlend = Automatik), `exposure_value` (Standard 1.0). `scan_frequency` (Takt der Kameraschleife)
+  und `frame_rate` (Takt der Kamera) sind verschieden; die Schleife wird nie schneller getaktet, als die Kamera liefert,
+  und verarbeitet dieselbe Aufnahme (gleicher Sensor-Zeitstempel) nie zweimal. Ohne neue Einträge bleibt das Verhalten
+  wie bisher; fehlerhafte Werte ergeben Standardwerte (`camera_settings.py`).
+* **Datenmodell:** `CameraData.process_size`, `.process_source`, `.exposure_us`, `.gain`, `.frame_duration_us`, `.lux`
+  (Standardwerte, alte Aufrufer bleiben gültig). Linien gelten im VERARBEITUNGSBILD; zum Zeichnen auf dem großen Bild
+  rechnet `camera_geometry.convert_lanes` um (Overlay, HUD, Replay, Simulation, Pipeline Studio, Spurqualität). Gespeicherte
+  Werte werden nie geändert. Schrift und Linienstärke wachsen mit der Bildhöhe (bis 240 Pixel unverändert); Bilder breiter
+  als 1280 Pixel werden nur für die Übertragung an den Browser verkleinert. Ringbuffer-Länge nach RAM-Budget
+  (`camera_geometry.ring_length`, 60 Frames bei 320x240 wie bisher, bei größeren Bildern weniger, mindestens 10).
+* **Sessions Revision 4:** neue Spalten `process_width`, `process_height`, `process_source`, `exposure_us`, `gain`; Manifest
+  `camera` (Aufloesungen, eingestellte und gemessene Bildrate). Revision 2 und 3 bleiben lesbar (fehlende Spalten = unbekannt).
+* **Simulation und A/B-Labor** rechnen auf der damaligen Verarbeitungsgröße (Software-Verkleinern aus dem gespeicherten
+  Bild; kleine Abweichung zum damaligen Kamerabild, siehe SIMULATION.md).
+* `scripts/cam_check.py` prüft auf dem Pi Sensor-Modi und Dual-Stream ohne Fahren. Nicht enthalten (H3b): Settings-Karte,
+  „Übernehmen + Neustart“, Telemetrie-Kachel.
+
 ## 6.9 – Paket H2 (PAKET-H2)
 * **Fünf Reiter:** „Recording & Events“ entfällt (`dashboard/tabs/recording.py` gelöscht, Callback `recording_view` und alle
   IDs `record-*`, `session-stats`, `event-list`, `tick-record` entfernt). Aufnahmezustand und Zähler (Frames, Lücken, fehlende

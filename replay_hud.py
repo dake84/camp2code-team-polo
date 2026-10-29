@@ -20,6 +20,7 @@ import math
 import cv2
 import mode_registry
 
+from camera_geometry import convert_lanes, ui_scale  # PAKET-H3
 from dashboard_overlay import draw_lanes, draw_roi, draw_steering_line, put_text
 
 
@@ -203,7 +204,11 @@ def row_from_camera(camera, driving=None, events=None):
            'vehicle_mode': getattr(camera, 'vehicle_mode', None),
            'vehicle_angle': getattr(camera, 'vehicle_angle', None),
            'vehicle_speed': getattr(camera, 'vehicle_speed', None),
-           'vehicle_mode_key': getattr(camera, 'vehicle_mode_key', None)}
+           'vehicle_mode_key': getattr(camera, 'vehicle_mode_key', None),
+           # PAKET-H3: Linien gelten im Verarbeitungsbild (Groesse + ROI-Anteil fuer die Umrechnung)
+           'process_width': (getattr(camera, 'process_size', None) or (None, None))[0],
+           'process_height': (getattr(camera, 'process_size', None) or (None, None))[1],
+           'roi_high': getattr(camera, 'crop', (None, None))[1]}
     if events:
         codes = []
         for event in _frame_events(row, events):
@@ -226,8 +231,23 @@ def legend_block(html, className='c2c-hud-legend mt-2 small'):
                         className=className)
 
 
-def _text_width(text, scale):
-    return cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)[0][0]
+def _text_width(text, scale, k=1.0):
+    return cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale * k, max(1, int(round(k))))[0][0]
+
+
+def _lanes_on_image(row, lanes, width, height, top):
+    """PAKET-H3: Linien einer Zeile in das gespeicherte (grosse) Bild umrechnen.
+
+    Die Linien in frames.csv gelten im Verarbeitungsbild (``process_width`` x ``process_height``). Fehlen diese
+    Spalten (Sessions vor Revision 4) oder stimmen sie mit dem Bild ueberein, bleiben die Linien unveraendert.
+    ``top`` ist die obere ROI-Zeile im gespeicherten Bild (``roi_top_px``).
+    """
+    pw, ph = _integer(row, 'process_width'), _integer(row, 'process_height')
+    if not pw or not ph or pw <= 0 or ph <= 0 or (pw, ph) == (width, height):
+        return lanes
+    high = _number(row, 'roi_high')
+    src_top = max(0, min(ph, int(ph * (1 - high)))) if high is not None else int(round(top * ph / height))
+    return list(convert_lanes(lanes, (pw, ph), (width, height), src_top, top))
 
 
 def draw_hud(image, row, events=None, footer=None):
@@ -236,15 +256,24 @@ def draw_hud(image, row, events=None, footer=None):
     ``events``: Ereignisse (dicts oder HealthEvent) fuer die Stopp-Ursache. ``footer``: Kennzeichnung unten
     im Bild (z. B. "DAMALS", "JETZT (Simulation)"), damit sie das HUD oben nicht ueberlagert.
     Alle Texte sind ASCII (cv2.putText).
+
+    PAKET-H3: Schrift, Linienstaerke und Abstaende wachsen mit der Bildhoehe (bis 240 Pixel wie bisher); Linien aus
+    dem Verarbeitungsbild werden auf das grosse Bild umgerechnet (nur fuer die Anzeige, gespeicherte Werte bleiben).
     """
     if image is None or getattr(image, 'size', 0) == 0:
         return image
     result = image.copy()
     height, width = result.shape[:2]
+    k = ui_scale(height)
+
+    def px(value):
+        return int(round(value * k))
+
     lanes = decode_lanes(row)
     top, bottom = _integer(row, 'roi_top_px'), _integer(row, 'roi_bottom_px')
     geometry_known = top is not None and bottom is not None and 0 <= top < bottom <= height
     if geometry_known:
+        lanes = _lanes_on_image(row, lanes, width, height, top)
         draw_roi(result, top, bottom)
         draw_lanes(result, lanes, top, bottom, thickness=3)
         draw_steering_line(result, lanes, top, bottom)
@@ -255,36 +284,36 @@ def draw_hud(image, row, events=None, footer=None):
         theta = math.radians(max(-70, min(70, stell - 90)))
         length = int(height * .35)
         target = (int(origin[0] + length * math.sin(theta)), int(origin[1] - length * math.cos(theta)))
-        cv2.arrowedLine(result, origin, target, (40, 210, 255), 3, cv2.LINE_AA, tipLength=.13)
+        cv2.arrowedLine(result, origin, target, (40, 210, 255), px(3), cv2.LINE_AA, tipLength=.13)
     shade = result.copy()
-    cv2.rectangle(shade, (0, 0), (width, min(height, 76)), (12, 20, 32), -1)
+    cv2.rectangle(shade, (0, 0), (width, min(height, px(76))), (12, 20, 32), -1)
     cv2.addWeighted(shade, .68, result, .32, 0, result)
     frame_text = 'FRAME ' + ascii_text(row.get('frame_id', '?'))
-    put_text(result, frame_text, (12, 23), .6)
+    put_text(result, frame_text, (px(12), px(23)), .6)
     if speed is not None:
         speed_text = 'STEUER-SPEED ' + signed(speed)
-        put_text(result, speed_text, (max(12 + _text_width(frame_text, .6) + 12,
-                                          width - _text_width(speed_text, .45) - 10), 23), .45)
+        put_text(result, speed_text, (max(px(12) + _text_width(frame_text, .6, k) + px(12),
+                                          width - _text_width(speed_text, .45, k) - px(10)), px(23)), .45)
     line = angle_line(stell, soll, roh)
     if line:
-        put_text(result, line, (12, 46), .45)
+        put_text(result, line, (px(12), px(46)), .45)
     label, kind = vehicle_state(row, events)
     label = ascii_text(label)
     key = row.get('vehicle_mode_key') or None
     name = ascii_text(mode_registry.short_label(key)) if key else ''
     if name:
-        x = width - _text_width(name, .45) - 10
-        if x > 12 + _text_width(line, .45) + 10:      # nie die Winkelzeile überlagern
-            put_text(result, name, (x, 46), .45, (255, 220, 160))    
-    put_text(result, label, (12, 67), .5, STATE_COLORS[kind])
+        x = width - _text_width(name, .45, k) - px(10)
+        if x > px(12) + _text_width(line, .45, k) + px(10):      # nie die Winkelzeile ueberlagern
+            put_text(result, name, (x, px(46)), .45, (255, 220, 160))
+    put_text(result, label, (px(12), px(67)), .5, STATE_COLORS[kind])
     if not geometry_known and any(lane is not None for lane in lanes):
-        put_text(result, 'LINIEN: ROI UNBEKANNT', (12 + _text_width(label, .5) + 12, 67), .4)
+        put_text(result, 'LINIEN: ROI UNBEKANNT', (px(12) + _text_width(label, .5, k) + px(12), px(67)), .4)
     base = height
     if footer:
-        cv2.rectangle(result, (0, height - 22), (width, height), (40, 28, 12), -1)
-        put_text(result, ascii_text(footer)[:70], (10, height - 7), .45, (0, 255, 255))
-        base = height - 22
+        cv2.rectangle(result, (0, height - px(22)), (width, height), (40, 28, 12), -1)
+        put_text(result, ascii_text(footer)[:70], (px(10), height - px(7)), .45, (0, 255, 255))
+        base = height - px(22)
     if row.get('event_codes'):
-        cv2.rectangle(result, (0, base - 32), (width, base), (15, 30, 100), -1)
-        put_text(result, 'EVENT: ' + ascii_text(row['event_codes'])[:55], (10, base - 10), .45)
+        cv2.rectangle(result, (0, base - px(32)), (width, base), (15, 30, 100), -1)
+        put_text(result, 'EVENT: ' + ascii_text(row['event_codes'])[:55], (px(10), base - px(10)), .45)
     return result

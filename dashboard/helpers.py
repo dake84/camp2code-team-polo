@@ -32,10 +32,22 @@ def mode_options():
     """PAKET-H2B: Dropdown-Optionen je Seitenaufruf aus dem Register."""
     return mode_registry.dropdown_options()
 
-def uri(image, quality=70):
-    """Kodiert ein Bild als JPEG-Data-URI (eine Kodierung je Bild und Tick)."""
+MAX_UI_WIDTH = 1280      # PAKET-H3: breitere Bilder werden nur fuer die Uebertragung an den Browser verkleinert
+
+
+def uri(image, quality=70, max_width=None):
+    """Kodiert ein Bild als JPEG-Data-URI (eine Kodierung je Bild und Tick).
+
+    PAKET-H3: Bilder breiter als ``max_width`` (Standard ``MAX_UI_WIDTH``) werden NUR fuer die Uebertragung an den
+    Browser verkleinert (INTER_AREA); das Original (Ringbuffer, Aufnahme) bleibt unveraendert.
+    """
     if image is None or getattr(image, 'size', 0) == 0:
         return None
+    limit = MAX_UI_WIDTH if max_width is None else max_width
+    if limit and image.shape[1] > limit:
+        scale = limit / image.shape[1]
+        image = cv2.resize(image, (int(limit), max(1, int(round(image.shape[0] * scale)))),
+                           interpolation=cv2.INTER_AREA)
     ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii') if ok else None
 
@@ -138,9 +150,11 @@ def lane_quality(records):
         raw = camera.raw_image
         if raw is None or not getattr(raw, 'size', 0) or camera.frame_id < 0:
             continue
-        top, bottom = camera.roi_rows(raw.shape[0])
+        size = getattr(camera, 'process_size', None)   # PAKET-H3: Linien gelten im Verarbeitungsbild
+        width, height = (size[0], size[1]) if size else (raw.shape[1], raw.shape[0])
+        top, bottom = camera.roi_rows(height)
         total += 1
-        good += lanes_plausible(camera.lanes, raw.shape[1], max(1, bottom - top))
+        good += lanes_plausible(camera.lanes, width, max(1, bottom - top))
     return good / total if total else None
 
 

@@ -19,7 +19,7 @@ flowchart LR
   end
   subgraph STORE[Zentraler Speicher]
     CC[CameraCar\ncamera_data · driving_state]
-    RB[FrameRingBuffer\n60 FrameRecords]
+    RB[FrameRingBuffer\n60 FrameRecords (PAKET-H3: nach Bildgroesse)]
   end
   subgraph CTRL[Fahrregelung]
     CM[CameraMode\nThread je Fahrt]
@@ -100,6 +100,15 @@ ROI-Bild, Ursprung oben links des ROI. Vollbild: `y_voll = y + roi_top_px`,
 
 **Veränderbarkeit:** Veröffentlichte Arrays (Rohbild, Zwischenbilder) werden nicht verändert.
 Zwischenbilder werden ohne Kopie veröffentlicht; alle Zeichenfunktionen arbeiten auf Kopien.
+
+## 4b. Aufnahme- und Verarbeitungsbild (PAKET-H3)
+`CameraData.raw_image` ist das große Aufnahmebild (Anzeige, Aufnahme), die Bildverarbeitung läuft auf dem kleinen Bild
+(`CameraData.process_size`, Herkunft `process_source`: `camera` = zweiter Kamera-Stream, `software`, `none`). Die Linien
+(`lanes`, `DrivingState.lanes`, `frames.csv`) gelten im **Verarbeitungsbild**, ROI-Versatz dort `int(process_height ·
+(1 − crop_oben))`. Umrechnung auf das große Bild (`y = m·x + b`, `sx = Breite_groß/Breite_klein`, `sy = Höhe_groß/Höhe_klein`):
+`m' = m·sy/sx`, `b' = sy·b + sy·top_klein − top_groß` (`camera_geometry.convert_lanes`). Die Fahrregelung (`CameraMode`) rechnet
+unverändert im Verarbeitungsbild. Konfiguration: `cam_sensor.*` (siehe CHANGELOG 6.10); `scan_frequency` = Schleifentakt,
+`frame_rate` = Kamera-Bildrate. Ringbuffer-Länge nach RAM-Budget (60 Frames bei 320x240).
 
 ## 5. Threads und Lebenszyklus
 

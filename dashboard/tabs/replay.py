@@ -37,6 +37,18 @@ def parse_drive_key(key):
     return number if number >= 0 else None
 
 
+def record_process_size(record):
+    """PAKET-H3: Verarbeitungsgroesse eines Replay-Datensatzes (frames.csv-Zeile oder FrameRecord); None = unbekannt."""
+    if isinstance(record, dict):
+        try:
+            width, height = int(float(record.get('process_width'))), int(float(record.get('process_height')))
+        except (TypeError, ValueError):
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+    size = getattr(getattr(record, 'camera', None), 'process_size', None)
+    return (int(size[0]), int(size[1])) if size else None
+
+
 class ReplayTab(DashboardTab):
     tab_id = 'replay'
     label = 'Replay Lab'
@@ -416,7 +428,8 @@ class ReplayTab(DashboardTab):
                     params = parameters_from_record(record.camera.processing_parameters)
                     processor = processor_key(record.camera.processor_name)
                     frame_id = record.camera.frame_id
-                ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id), params, processor)
+                ab.freeze(SimpleNamespace(raw_image=image, frame_id=frame_id,
+                                          process_size=record_process_size(record)), params, processor)
             except (ValueError, TypeError, OSError, cv2.error) as exc:
                 return no_update, f'Übergabe nicht möglich: {exc}', no_update, no_update, no_update, no_update
             source = 'Live-Ringbuffer' if name in (None, LIVE) else name

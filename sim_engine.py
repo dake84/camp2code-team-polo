@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from processor_registry import create_processor, label_for
 from replay_car import ReplayCar
+from camera_geometry import downscale_image  # PAKET-H3
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class SimFrame:
     then_plausible: bool | None
     then_status: str | None
     captured_ns: int = 0  # PAKET-H1: aufgezeichneter Zeitstempel (Grundlage der Wiedergabe)
+    process_size: tuple | None = None  # PAKET-H3: Groesse des Verarbeitungsbilds (Linien gelten dort)
 
     @property
     def angle_delta(self):
@@ -222,8 +224,12 @@ class SimEngine:
                 mode._pre_run()          # wie START: Vorwert 90 Grad, Timer neu
                 armed = True
             t0 = time.perf_counter()
+            # PAKET-H3: auf der damaligen Verarbeitungsgroesse rechnen. Das Verkleinern erfolgt per Software
+            # aus dem gespeicherten JPEG; das damalige Kamerabild kam bei Dual-Stream aus dem zweiten
+            # Kamera-Stream - kleine Pixelabweichungen sind moeglich (siehe SIMULATION.md).
+            small = downscale_image(raw, frame.process_size)
             try:
-                processed = processor.process(raw, params)
+                processed = processor.process(small, params)
             except (ValueError, TypeError, IndexError) as exc:
                 result.errors += 1
                 log.debug('Prozessorfehler Frame %s: %s', frame.frame_id, exc)
@@ -233,7 +239,8 @@ class SimEngine:
             car.camera_data = CameraData(
                 process_image=processed.processed_image, raw_image=raw, timestamp=frame.wall_ns,
                 frame_id=frame.frame_id, monotonic_ns=captured, crop=crop_from_params(params), lanes=lanes,
-                processing_parameters=params, processor_name=type(processor).__name__)
+                processing_parameters=params, processor_name=type(processor).__name__,
+                process_size=(small.shape[1], small.shape[0]), process_source='software')
             ok = mode._run()
             diag = mode.last_diagnostic if mode.last_diagnostic and mode.last_diagnostic.get('frame_id') == frame.frame_id else {}
             state = car.driving_state if car.driving_state is not None and car.driving_state.frame_id == frame.frame_id else None
@@ -243,7 +250,7 @@ class SimEngine:
                 result.events.append((frame.frame_id, f'Regler-Stopp (Simulation): {stop}'))
                 car.stop()
                 armed = False      # naechster Frame: Regler neu scharf, wie ein erneutes START
-            w, h = roi_size(params, raw.shape)
+            w, h = roi_size(params, small.shape)  # PAKET-H3
             then_plausible = (lanes_plausible(frame.then_lanes, w, h)
                               if frame.then_lane_count is not None else None)
             result.frames.append(SimFrame(
@@ -259,7 +266,8 @@ class SimEngine:
                 stop_reason=stop, process_ms=process_ms,
                 then_raw_angle=frame.then_raw_angle, then_car_angle=frame.then_car_angle,
                 then_speed=frame.then_speed, then_lane_count=frame.then_lane_count,
-                then_plausible=then_plausible, then_status=frame.then_status))
+                then_plausible=then_plausible, then_status=frame.then_status,
+                process_size=(small.shape[1], small.shape[0])))
         result.duration_s = time.perf_counter() - started
         lo_id, hi_id = ids[first], ids[last]
         result.events.extend((fid, f'{code} (damals)') for fid, code, _ in getattr(source, 'events', ())

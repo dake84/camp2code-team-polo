@@ -37,10 +37,14 @@ import cv2
 from replay_hud import encode_lanes
 
 SCHEMA_VERSION = 2
-SCHEMA_REVISION = 3
+SCHEMA_REVISION = 4
 REVISION_NOTE = ('Revision 1: Paket B bis G. Revision 2 (Paket H1): Spalten vehicle_mode, vehicle_angle, '
                  'vehicle_speed; Manifest capture.median_fps. Revision 3 (Paket H2b): Spalte vehicle_mode_key. '
-                 'Aeltere Sessions ohne diese Spalten bleiben lesbar; ohne vehicle_mode_key zeigt das HUD keinen Modusnamen.')
+                 'Revision 4 (Paket H3): Spalten process_width, process_height, process_source, exposure_us, gain; '
+                 'Linien (lanes_json, lane0_m ...) gelten im Verarbeitungsbild; Manifest camera (Aufloesungen, '
+                 'Bildrate). '
+                 'Aeltere Sessions ohne diese Spalten bleiben lesbar (fehlende Werte = unbekannt); ohne '
+                 'vehicle_mode_key zeigt das HUD keinen Modusnamen.')
 FIELDS = (
     'frame_id', 'image_filename', 'data_status', 'driving_active', 'driving_mode',
     'camera_timestamp_ns', 'camera_monotonic_ns', 'processing_ns',
@@ -51,7 +55,8 @@ FIELDS = (
     'lane_count', 'lanes_json', 'lane0_m', 'lane0_b', 'lane1_m', 'lane1_b',
     'ir_1', 'ir_2', 'ir_3', 'ir_4', 'ir_5', 'infrared_age_ns',
     'ultrasonic_cm', 'ultrasonic_age_ns', 'event_codes',
-    'vehicle_mode', 'vehicle_angle', 'vehicle_speed', 'vehicle_mode_key'
+    'vehicle_mode', 'vehicle_angle', 'vehicle_speed', 'vehicle_mode_key',
+    'process_width', 'process_height', 'process_source', 'exposure_us', 'gain'   # PAKET-H3 (Revision 4)
 )
 EVENT_FIELDS = ('timestamp_ns', 'frame_id', 'code', 'detail')
 
@@ -98,6 +103,8 @@ class SessionRecorder:
         self.count = 0
         self._frame_times = []  # PAKET-H1: camera_monotonic_ns der geschriebenen Frames
         self._frame_ids = set()  # PAKET-H2: IDs der geschriebenen Frames (has_frame)
+        self.camera_info = None   # PAKET-H3: optionale Funktion -> dict (CameraSensor.camera_info)
+        self._camera_seen = None  # PAKET-H3: Groessen des zuletzt geschriebenen Frames
         self.gap_frames = 0
         self.missing_decisions = 0
         self.skipped_empty = 0
@@ -185,12 +192,48 @@ class SessionRecorder:
             stats['median_fps'] = round(1e9 / median, 2)
         return stats
 
+    def _camera_manifest(self):
+        """PAKET-H3: Aufloesungen sowie eingestellte und gemessene Bildrate der Kamera fuer das Manifest."""
+        info = {}
+        provider = self.camera_info
+        if callable(provider):
+            try:
+                info = dict(provider() or {})
+            except Exception:
+                info = {}
+        seen = self._camera_seen or {}
+
+        def pair(width, height):
+            try:
+                return [int(width), int(height)] if width not in (None, '') and height not in (None, '') else None
+            except (TypeError, ValueError):
+                return None
+
+        rate = info.get('frame_rate_set')
+        return {
+            'capture_size': pair(seen.get('image_width'), seen.get('image_height'))
+            or (list(info['capture_size']) if info.get('capture_size') else None),
+            'process_size': pair(seen.get('process_width'), seen.get('process_height')),
+            'process_source': seen.get('process_source') or None,
+            'frame_rate_set_hz': rate,
+            'frame_rate_mode': ('fest' if rate else 'automatisch') if 'frame_rate_set' in info else 'unbekannt',
+            'frame_rate_measured_median_hz': self._capture_stats()['median_fps'],
+            'exposure_value': info.get('exposure_value'),
+            'downscale': info.get('downscale'),
+            'note': ('Linien in frames.csv gelten im Verarbeitungsbild (process_width x process_height), nicht im '
+                     'gespeicherten Bild. process_source: camera = zweiter Kamera-Stream (YUV420), software = '
+                     'verkleinert, none = nicht verkleinert. Aus dem gespeicherten Bild per Software verkleinerte '
+                     'Bilder (Simulation) weichen von einem Kamera-Stream leicht ab. Gemessene Rate: Median aus '
+                     'den Zeitstempeln der gespeicherten Frames.'),
+        }
+
     def _write_manifest(self, status):
         manifest = {
             'schema_version': SCHEMA_VERSION,
             'schema_revision': SCHEMA_REVISION,
             'revision_note': REVISION_NOTE,
             'capture': self._capture_stats(),
+            'camera': self._camera_manifest(),  # PAKET-H3
             'created_at': self._created_at,
             'updated_at': datetime.now().isoformat(),
             'status': status,
@@ -202,7 +245,9 @@ class SessionRecorder:
             'recorder': {'interval_s': self.interval, 'commit_grace_s': self.commit_grace_ns / 1e9,
                          'jpeg_quality': self.jpeg_quality,
                          'ringbuffer_maxlen': getattr(getattr(self.car, 'frame_history', None), 'maxlen', None)},
-            'lane_model': 'y = m*x + b; x,y in Pixeln im ROI; Vollbild: y_voll = y + roi_top_px',
+            'lane_model': 'y = m*x + b; x,y in Pixeln im ROI; Vollbild: y_voll = y + roi_top_px; '
+                          'ab Revision 4 im Verarbeitungsbild (process_width x process_height), ROI-Versatz dort '
+                          'int(process_height * (1 - roi_high))',
             'time_definitions': TIME_DEFINITIONS,
             'data_status': DATA_STATUS,
             'frames_fields': list(FIELDS),
@@ -323,6 +368,10 @@ class SessionRecorder:
             vehicle_angle=getattr(cam, 'vehicle_angle', None),
             vehicle_speed=getattr(cam, 'vehicle_speed', None),
             vehicle_mode_key=getattr(cam, 'vehicle_mode_key', None),
+            process_width=(getattr(cam, 'process_size', None) or (None, None))[0],   # PAKET-H3
+            process_height=(getattr(cam, 'process_size', None) or (None, None))[1],
+            process_source=getattr(cam, 'process_source', None),
+            exposure_us=getattr(cam, 'exposure_us', None), gain=getattr(cam, 'gain', None),
         )
         return {key: _blank(value) for key, value in row.items()}
 
@@ -380,6 +429,9 @@ class SessionRecorder:
                 target.unlink(missing_ok=True)
             raise
         self.count += len(rows)
+        if rows:   # PAKET-H3: Groessen fuer das Manifest
+            self._camera_seen = {key: rows[-1].get(key) for key in (
+                'image_width', 'image_height', 'process_width', 'process_height', 'process_source')}
         self._frame_times.extend(int(r['camera_monotonic_ns']) for r in rows
                                  if r.get('camera_monotonic_ns') not in ('', None))  # PAKET-H1
         self._frame_ids.update(int(r['frame_id']) for r in rows)  # PAKET-H2

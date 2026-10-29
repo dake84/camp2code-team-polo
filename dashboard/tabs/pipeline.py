@@ -354,14 +354,15 @@ class PipelineTab(DashboardTab):
                         info, no_update)
             diagnostic = FALLBACK_PROCESSOR if processor == 'legacy' else processor  # Legacy liefert keine Stufen
             try:
-                result = create_processor(diagnostic).process(raw, params)
+                # PAKET-H3: auf der damaligen Verarbeitungsgroesse rechnen (Software-Verkleinern)
+                result = create_processor(diagnostic).process(ab.downscale(raw), params)
             except (ValueError, TypeError, IndexError, cv2.error) as exc:
                 return ([None] * count, [''] * count, None, f'Replay-Frame nicht verarbeitbar: {exc}',
                         label, info, None)
             enabled = params[7] if len(params) > 7 else {}
             crop = tuple(params[3]) if enabled.get('roi', True) else (0.0, 1.0)
             view = SimpleNamespace(raw_image=raw, frame_id=frame_id, crop=crop, lanes=result.lanes,
-                                   process_image=result.processed_image)
+                                   process_image=result.processed_image, process_size=ab.process_size())
             stages = dict(result.stages)
             stages[STAGE_RAW] = raw
             images, infos, shown, title = self.render_stages(stage_ids, processor, inspected, stages, view,

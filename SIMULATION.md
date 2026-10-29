@@ -68,3 +68,11 @@ Simulation funktionieren. Benötigt: Python 3.11+, `opencv-python`, `numpy`, `da
 * Änderungen an Quelle, Prozessor, Parameterquelle, Frame-Bereich oder Vorlauf verwerfen das Ergebnis; Play ist
   erst nach erfolgreicher Berechnung möglich.
 
+## Verarbeitungsgröße (PAKET-H3)
+Aufnahmen ab Revision 4 speichern das große Bild (`image_width` x `image_height`) und die Verarbeitungsgröße
+(`process_width` x `process_height`). Die Simulation und das A/B-Labor verkleinern das gespeicherte Bild per Software
+(INTER_AREA) auf diese Größe und rechnen dort; Linien gelten im Verarbeitungsbild und werden nur für die Anzeige auf das große
+Bild umgerechnet. **Abweichung zur Aufnahme:** Kam das damalige kleine Bild aus dem zweiten Kamera-Stream (`process_source =
+camera`, ISP-Skalierung und YUV420), unterscheidet es sich leicht von dem aus dem JPEG verkleinerten Bild (Pixelwerte, Kanten,
+JPEG-Artefakte); einzelne Linien und Winkel können minimal abweichen. Sessions ohne diese Spalten (Revision 2 und 3) werden
+wie bisher auf dem gespeicherten Bild gerechnet.

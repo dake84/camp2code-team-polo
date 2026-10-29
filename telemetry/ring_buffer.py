@@ -29,6 +29,14 @@ class FrameRingBuffer:
     def maxlen(self) -> int:
         return self._items.maxlen
 
+    def resize(self, maxlen: int) -> None:
+        """PAKET-H3: Laenge aendern (RAM-Budget je nach Bildgroesse); behaelt die neuesten Eintraege."""
+        if maxlen < 1:
+            raise ValueError("maxlen muss positiv sein")
+        with self._lock:
+            if maxlen != self._items.maxlen:
+                self._items = deque(self._items, maxlen=maxlen)
+
     def add_camera(self, data: CameraData) -> None:
         # Nur Referenzen speichern. Bereits publizierte Bilder nicht veraendern!
         with self._lock:

@@ -44,6 +44,17 @@ class CameraData:
     vehicle_angle: float | None = None
     vehicle_speed: float | None = None
     vehicle_mode_key: str | None = None
+    # PAKET-H3: getrennte Aufnahme-/Verarbeitungsgroesse. ``raw_image`` ist das grosse Aufnahmebild;
+    # ``process_size`` = (Breite, Hoehe) des Bildes, auf dem der Prozessor die Linien ermittelt hat. ``lanes``
+    # (und ``DrivingState.lanes``) gelten in DIESEM Bild; zum Zeichnen auf dem grossen Bild werden sie umgerechnet
+    # (camera_geometry.convert_lanes). None = unbekannt (aeltere Daten): dann gelten die Linien im Aufnahmebild.
+    process_size: tuple[int, int] | None = None
+    process_source: str | None = None       # 'camera' (zweiter Stream) | 'software' | 'none' (nicht verkleinert)
+    # Kamera-Metadaten dieser Aufnahme (None = unbekannt)
+    exposure_us: float | None = None        # Belichtungszeit in Mikrosekunden
+    gain: float | None = None               # analoge Verstaerkung
+    frame_duration_us: float | None = None  # Bilddauer in Mikrosekunden
+    lux: float | None = None
 
     def roi_rows(self, height: int | None = None) -> tuple[int, int]:
         """Liefert (oben, unten) des ROI in Vollbild-Pixeln wie im LaneProcessor."""
