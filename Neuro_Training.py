@@ -14,30 +14,40 @@ import tensorflow as tf
 import cv2
 
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Input, Rescaling, Conv2D, Flatten, Dropout, Dense, Cropping2D  # <-- Cropping2D ergänzt
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint  # <-- Diese Zeile muss hier stehen!
+from tensorflow.keras.layers import Input, Rescaling, Conv2D, Flatten, Dropout, Dense, Cropping2D
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 
-def import_data(data_path=Path('Data_AI'),
-                sub_folder_list=['2026-10-28_10-52-41'],
-                lane_filter=True):
-
+def import_data(data_path=Path('Data_AI'), lane_filter=True):
+    """
+    Durchsucht den übergeordneten data_path nach allen Unterordnern,
+    die eine 'data.csv' enthalten, und lädt die Trainingsdaten.
+    """
+    data_path = Path(data_path)
     X = []
     Y = []
 
-    # Bildgröße gilt für ALLE Unterordner
     image_height = None
     image_width = None
     image_dimension = None
 
-    for sub_folder_value in sub_folder_list:
+    # Alle Unterordner finden, die eine data.csv besitzen (sortiert nach Name/Datum)
+    sub_folders = sorted([p.parent for p in data_path.glob('*/data.csv')])
 
-        csv_path = data_path / sub_folder_value / 'data.csv'
+    if not sub_folders:
+        # Falls die Ordnerstruktur noch eine Ebene tiefer verschachtelt sein könnte:
+        sub_folders = sorted([p.parent for p in data_path.rglob('data.csv')])
 
-        # Pfad prüfen, bevor gelesen wird
-        print('CSV-Pfad:', csv_path.resolve())
-        if not csv_path.is_file():
-            raise FileNotFoundError(f'CSV-Datei nicht gefunden: {csv_path.resolve()}')
+    if not sub_folders:
+        raise FileNotFoundError(f'Keine Unterordner mit data.csv in {data_path.resolve()} gefunden.')
+
+    print(f'Gefundene Datensätze ({len(sub_folders)} Ordner):')
+    for sf in sub_folders:
+        print(f' - {sf.name}')
+
+    for folder_path in sub_folders:
+        csv_path = folder_path / 'data.csv'
+        print('Lese CSV-Pfad:', csv_path.resolve())
 
         data = pd.read_csv(csv_path)
 
@@ -46,51 +56,45 @@ def import_data(data_path=Path('Data_AI'),
             try:
                 data = data[data['lane_count'] == 2]
             except KeyError:
-                print('lane_count nicht vorhanden -> Daten werden nicht gefiltert.')
+                print(f'{folder_path.name}: lane_count nicht vorhanden -> Daten werden nicht gefiltert.')
 
-        # leere Unterordner überspringen (sonst Fehler bei flip_left_right)
         if data.empty:
-            print(f'{sub_folder_value}: keine Daten -> übersprungen.')
+            print(f'{folder_path.name}: keine passenden Datenzeilen -> übersprungen.')
             continue
 
         images = []
         valid_indices = []
 
         for idx, image_name in enumerate(data['image']):
+            image_path = folder_path / image_name
 
-            image_path = data_path / sub_folder_value / image_name
-
-            # Überspringen, falls das Bild nicht auf der Festplatte existiert
             if not image_path.is_file():
-                print(f'Warnung: {image_name} nicht gefunden -> übersprungen.')
+                print(f'Warnung: {image_name} in {folder_path.name} nicht gefunden -> übersprungen.')
                 continue
 
-            # Bild direkt mit OpenCV als BGR laden (entspricht dem Pi-Kamerabild)
+            # Direkt mit OpenCV als BGR laden
             image = cv2.imread(str(image_path))
             if image is None:
-                print(f'Warnung: {image_name} konnte nicht geladen werden -> übersprungen.')
+                print(f'Warnung: {image_name} konnte nicht gelesen werden -> übersprungen.')
                 continue
 
-            # Beim ersten Bild Originalgröße bestimmen
+            # Beim allerersten Bild Maße für alle nachfolgenden fixieren
             if image_height is None:
                 image_height, image_width, image_dimension = image.shape
-                print('Bildhöhe:', image_height)
-                print('Bildbreite:', image_width)
-                print('Bilddimension:', image_dimension)
+                print(f'Modell-Eingangsmaße festgelegt: H={image_height}, B={image_width}, C={image_dimension}')
 
-            # Sicherstellen, dass alle Bilder die gleiche Größe haben
+            # Einheitliche Größe absichern
             if (image.shape[0], image.shape[1]) != (image_height, image_width):
                 image = cv2.resize(image, (image_width, image_height))
 
             images.append(image)
             valid_indices.append(idx)
 
-        # Ordner überspringen, falls kein einziges Bild gefunden wurde
         if not images:
-            print(f'{sub_folder_value}: keine Bilder gefunden -> übersprungen.')
+            print(f'{folder_path.name}: keine Bilder gefunden -> übersprungen.')
             continue
 
-        # Nur Datenzeilen behalten, deren Bilddatei tatsächlich vorhanden war
+        # Nur Zeilen behalten, deren Bilddatei existierte
         data = data.iloc[valid_indices]
 
         X_arr = np.array(images, dtype=np.float32)
@@ -99,7 +103,7 @@ def import_data(data_path=Path('Data_AI'),
         Y_arr = data[['speed', 'steering_angle']].to_numpy(dtype=np.float32)
 
         Y_flipped = Y_arr.copy()
-        Y_flipped[:, 1] = 180 - Y_flipped[:, 1]
+        Y_flipped[:, 1] = 180.0 - Y_flipped[:, 1]
 
         X.append(X_arr)
         X.append(X_flipped)
@@ -107,14 +111,13 @@ def import_data(data_path=Path('Data_AI'),
         Y.append(Y_arr)
         Y.append(Y_flipped)
 
-    # Abbruch mit klarer Meldung, falls insgesamt keine Daten vorhanden sind
     if not X:
-        raise ValueError(f'Keine verwendbaren Daten in {data_path.resolve()} für {sub_folder_list} gefunden.')
+        raise ValueError(f'Keine verwendbaren Daten in {data_path.resolve()} gefunden.')
 
     X = np.concatenate(X, axis=0)
     Y = np.concatenate(Y, axis=0)
 
-    return X, Y, image_height, image_width, image_dimension
+    return X, Y, image_height, image_width, image_dimension, [sf.name for sf in sub_folders]
 
 
 def write_txt(txt_path, lines, mode='a'):
@@ -124,7 +127,6 @@ def write_txt(txt_path, lines, mode='a'):
 
 
 def train_deepcar(data_path=Path('Data_AI'),
-                  sub_folder_list=['2026-10-28_10-52-41'],
                   lane_filter=True,
                   epochs=100,                                  # nur noch Obergrenze
                   learning_rate=0.001,                         # als Parameter für die .txt
@@ -133,6 +135,14 @@ def train_deepcar(data_path=Path('Data_AI'),
                   validate_split=0.15,
                   patience=8,                                  # Epochen ohne Verbesserung bis Abbruch
                   min_delta=0.01):                             # Mindestverbesserung val_loss (MSE), sonst = Stagnation
+
+    data_path = Path(data_path)
+
+    # Daten einlesen (alle Unterordner mit data.csv werden vorab geladen)
+    X, Y, fig_heigt, fig_width, fig_dim, loaded_folders = import_data(
+        data_path=data_path,
+        lane_filter=lane_filter
+    )
 
     # eigener Trainingsordner Data_AI/Training_Datum_Uhrzeit
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -146,7 +156,7 @@ def train_deepcar(data_path=Path('Data_AI'),
         '',
         '[Parameter]',
         f'data_path: {data_path}',
-        f'sub_folder_list: {sub_folder_list}',
+        f'loaded_sub_folders: {loaded_folders}',
         f'lane_filter: {lane_filter}',
         f'epochs (max): {epochs}',
         f'learning_rate: {learning_rate}',
@@ -157,12 +167,9 @@ def train_deepcar(data_path=Path('Data_AI'),
         f'early_stopping patience: {patience}',
         f'early_stopping min_delta: {min_delta}',
         'augmentation: flip_left_right, steering_angle = 180 - steering_angle',
+        'color_space: BGR (OpenCV native)',
+        'cropping: top=60, bottom=40, left=0, right=0',
     ], mode='w')
-
-    # Daten einlesen
-    X, Y, fig_heigt, fig_width, fig_dim = import_data(data_path=data_path,
-                                                      sub_folder_list=sub_folder_list,
-                                                      lane_filter=lane_filter)
 
     # DataFrame für Pandas
     data = pd.DataFrame(Y, columns=['speed', 'steering_angle'])
@@ -172,13 +179,9 @@ def train_deepcar(data_path=Path('Data_AI'),
     plt.close('all')
 
     # Einmal Checken wie die Shapes sind
-    # x: Anzahl der Bilder, Pixel Höhe, Pixel Breite, Anzahl Farbkanäle
-    # y: Anzahl der Werte, Speed, Steeringangle
     print('X shape:', X.shape)
     print('Y shape:', Y.shape)
-
-    print('Erster Output:')
-    print(Y[0])
+    print('Erster Output:', Y[0])
 
     # Datensätze mischen:
     indices = np.random.permutation(len(X))
@@ -219,19 +222,19 @@ def train_deepcar(data_path=Path('Data_AI'),
         f'n_test: {n - n_train - n_validate}',
     ])
 
-    # Netz aufbauen (Shapes in den Kommentaren gelten für 120x160)
-        model = Sequential(
+    # Netz aufbauen
+    model = Sequential(
         [
             Input(shape=(fig_heigt, fig_width, fig_dim)),
             # Schneidet oben 60 Pixel (Wände) und unten 40 Pixel (Platine) weg:
             Cropping2D(cropping=((60, 40), (0, 0))),
             Rescaling(1./255),
             Conv2D(24, 5, strides=2, activation='relu'),
-            Conv2D(36, 5, strides=2, activation='relu'),   # -> (27, 37, 36)
-            Conv2D(48, 5, strides=2, activation='relu'),   # -> (12, 17, 48)
-            Conv2D(64, 3, activation='relu'),              # -> (10, 15, 64)
-            Conv2D(64, 3, activation='relu'),              # -> (8, 13, 64)
-            Flatten(),                                     # -> 6.656
+            Conv2D(36, 5, strides=2, activation='relu'),
+            Conv2D(48, 5, strides=2, activation='relu'),
+            Conv2D(64, 3, activation='relu'),
+            Conv2D(64, 3, activation='relu'),
+            Flatten(),
             Dropout(0.3),
             Dense(100, activation='relu'),
             Dense(50, activation='relu'),
@@ -285,11 +288,6 @@ def train_deepcar(data_path=Path('Data_AI'),
         epochs=epochs,
         callbacks=callbacks
     )
-
-    # Modell speichern und testen (nach model.fit)
-    # - MAE (Mean Absolute Error) - Absolute Fehler des Outputs, da hier nicht skaliert -> etwa 1 bis 2 grad -> OK
-    # - MSE (Mean Squared Error) - Die Einheit ist das Quadrat der Zielwerte, deshalb ist der MSE schwer direkt zu lesen.
-    #   Besser lesbar ist die Wurzel daraus, der RMSE: (Wurzel(MSE))
 
     model.save(save_path / 'deepcar.keras')   # vollständiges Modell: Architektur + Gewichte
 
@@ -398,14 +396,15 @@ def train_deepcar(data_path=Path('Data_AI'),
 
 
 if __name__ == '__main__':
-    print('this is the main')
+    print('Starting DeepCar Training...')
 
-    # Pfad relativ zum Ordner dieses Skripts -> unabhängig vom Terminal-Arbeitsverzeichnis
-    base_path = Path(__file__).resolve().parent
+    # Dein gewünschter Datenordner:
+    daten_ordner = Path(r'C:\Users\LtCHa\Desktop\Coding\DeepCar\Training_Data')
 
-    model, history = train_deepcar(data_path=base_path / 'Data_AI',
-                                   sub_folder_list=['2026-10-28_10-06-38'],
-                                   lane_filter=True,
-                                   epochs=100,          # Obergrenze
-                                   patience=8,          # Abbruch nach 8 Epochen ohne Verbesserung
-                                   min_delta=0.01)      # Verbesserung < 0.01 MSE = Stagnation
+    model, history = train_deepcar(
+        data_path=daten_ordner,
+        lane_filter=True,
+        epochs=100,
+        patience=8,
+        min_delta=0.01
+    )

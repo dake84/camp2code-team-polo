@@ -291,7 +291,8 @@ def main():
     modes = {
         'fahrmodus_1': Driving.CameraMode(car=car),
         'fahrmodus_2': Driving.DeepCarMode(car=car),
-        'fahrmodus_ps': Driving.PSControllerMode(car=car)
+        'fahrmodus_ps': Driving.PSControllerMode(car=car),
+        'fahrmodus_4': Driving.KeyboardMode(car=car)
     }
 
     stream_pre_processing = ImageStream(car, sensor, modes.get('fahrmodus_1'), use_raw_data=True)
