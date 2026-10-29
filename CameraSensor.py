@@ -102,17 +102,24 @@ class CameraSensor(Camera):
         """
         provider = self._mode_provider
         if provider is None:
-            return None, None, None
+            return None, None, None, None
         try:
-            mode, angle, speed = provider()
+
+            values = provider()
+            mode, angle, speed = values[:3]
+            key = values[3] if len(values) > 3 else None
             if mode not in ('idle', 'auto', 'manual', 'recovery'):
                 mode = None
-            return mode, angle, speed
+                key = None   # PAKET-H2B: ungültige Art -> auch kein Modusname
+            if not isinstance(key, str) or not key:
+                key = None
+            return mode, angle, speed, key
+
         except Exception:
             if not self._mode_provider_failed:
                 self._mode_provider_failed = True
                 self._log.warning('Fahrzeugzustand nicht lesbar (einmalige Meldung)', exc_info=True)
-            return None, None, None
+            return None, None, None, None
 
     def set_processor(self, name: str):
         """Wechselt zwischen Prozessor ohne ('legacy') und mit Diagnosebildern ('copilot').
@@ -146,7 +153,7 @@ class CameraSensor(Camera):
                 # Zeitstempel direkt nach der Aufnahme (Definition siehe models/camera_data.py).
                 captured_wall_ns = time.time_ns()
                 captured_mono_ns = time.monotonic_ns()
-                vehicle_mode, vehicle_angle, vehicle_speed = self._vehicle_snapshot()  # PAKET-H1
+                vehicle_mode, vehicle_angle, vehicle_speed, mode_key = self._vehicle_snapshot()  # PAKET-H1
                 # Leere Frames werden nicht an die Verarbeitung weitergereicht.
                 if image is None or image.size == 0:
                     self._log.warning('Leeres Kamerabild verworfen')
@@ -174,6 +181,7 @@ class CameraSensor(Camera):
                     processing_ns=time.monotonic_ns() - captured_mono_ns,
                     vehicle_mode=vehicle_mode, vehicle_angle=vehicle_angle,
                     vehicle_speed=vehicle_speed,
+                    vehicle_mode_key=mode_key
                 )
                 self._car.camera_data = cameradata
                 period = 1.0 / max(1, self.scan_frequency)

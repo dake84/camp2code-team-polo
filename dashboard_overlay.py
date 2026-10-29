@@ -88,11 +88,16 @@ def draw_steering_line(image, lanes, top, bottom):
     cv2.line(image, (int(x0), int(y0) + top), (int(x1), int(y1) + top), STEERING_LINE_COLOR, 2, cv2.LINE_AA)
     return True
 
+_OUTLINE_OFFSETS = ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1))
 
 def put_text(image, text, origin, scale=0.48, color=TEXT_COLOR):
-    cv2.putText(image, str(text), origin, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 3, cv2.LINE_AA)
-    cv2.putText(image, str(text), origin, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
-
+    """Text mit schwarzer Kontur. Die Kontur ist derselbe duenne Text in acht Nachbarpositionen,
+    damit Kontur und Fuellung denselben Zeichenabstand haben (Dicke 3 verschob die Buchstaben)."""
+    text = str(text)
+    x, y = int(origin[0]), int(origin[1])
+    for dx, dy in _OUTLINE_OFFSETS:
+        cv2.putText(image, text, (x + dx, y + dy), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 1, cv2.LINE_AA)
+    cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
 
 def render_overlay(camera, driving, processed=False):
     """Zeigt ROI, erkannte Geraden und Fahrentscheidung auf einer Bildkopie.

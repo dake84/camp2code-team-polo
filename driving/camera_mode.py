@@ -38,7 +38,7 @@ from mode_registry import register
 if TYPE_CHECKING:
     from CameraCar import CameraCar
 
-@register('camera', 'CameraMode (autonom)', order=10)
+@register('camera', 'CameraMode (autonom)', order=10, kind='auto', short='CameraMode')
 class CameraMode(DrivingMode):
     # Speed-Steuerwert des CameraMode. Wurde bewusst von 20 auf 30 erhoeht,
     # weil das Fahrzeug bei 20 nicht anfaehrt. Nicht ohne Absprache aendern;

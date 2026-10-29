@@ -21,7 +21,7 @@ import numpy as np
 PROJECT_MODULES = ('BaseCar', 'SonicCar', 'SensorCar', 'CameraCar', 'CameraSensor', 'InfraredSensor',
                    'UltrasonicSensor', 'Save_Data_AI', 'car_application', 'Driving', 'driving',
                    'pipeline_processors', 'lane_detector', 'pipeline_ab', 'session_recorder',
-                   'replay_hud', 'dashboard_overlay', 'Camp2CodeDashboard')
+                   'replay_hud', 'dashboard_overlay', 'Camp2CodeDashboard', 'mode_registry')
 
 
 def _fresh(name):

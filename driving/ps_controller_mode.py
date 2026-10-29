@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - abhaengig von der Plattform
 if TYPE_CHECKING:
     from BaseCar import BaseCar
 
-@register('ps_controller', 'PS Controller', order=20)
+@register('gamepad', 'PS Controller', order=20, kind='manual', short='Gamepad')
 class PSControllerMode(DrivingMode):
 
     def __init__(self, name='PS-Controller', car:Optional[BaseCar]=None, cfg:Optional[ConfigReader.ConfigReader]=None, device_path:str='/dev/input/event4'):

@@ -338,14 +338,14 @@ class RecorderH1Tests(unittest.TestCase):
                                vehicle_speed=-30) for i in range(1, 13)]
         cameras.insert(5, self.camera(99, base + 5 * 70_000_000 + 5_000_000))      # Ausreisser stoert den Median nicht
         recorder = self.record(sorted(cameras, key=lambda c: c.monotonic_ns))
-        self.assertEqual(FIELDS[-3:], ('vehicle_mode', 'vehicle_angle', 'vehicle_speed'))
+        self.assertEqual(FIELDS[-4:], ('vehicle_mode', 'vehicle_angle', 'vehicle_speed', 'vehicle_mode_key'))
         _, rows = load_session(recorder.path.name, self.root)
         first = rows[0]
         self.assertEqual((first['vehicle_mode'], first['vehicle_angle'], first['vehicle_speed']),
                          ('recovery', '105', '-30'))
         manifest = load_manifest(recorder.path.name, self.root)
         self.assertEqual(manifest['schema_version'], 2)
-        self.assertEqual(manifest['schema_revision'], 2)
+        self.assertEqual(manifest['schema_revision'], 3)
         self.assertIn('vehicle_mode', manifest['frames_fields'])
         fps = manifest['capture']['median_fps']
         self.assertAlmostEqual(fps, 1e9 / 70_000_000, delta=1.5)

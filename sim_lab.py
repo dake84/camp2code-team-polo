@@ -455,7 +455,7 @@ class SimLab:
                'lanes_json': encode_lanes(frame.lanes), 'vehicle_mode': 'auto',
                'data_status': 'complete' if frame.car_angle is not None else 'no_driving_state',
                'steering_angle': frame.raw_angle, 'requested_angle': frame.requested_angle,
-               'steering_angle_car': frame.car_angle, 'speed': frame.speed}
+               'steering_angle_car': frame.car_angle, 'speed': frame.speed, 'vehicle_mode_key': 'camera'}
         if frame.stop_reason:
             row['event_codes'] = 'STOP_REASON'
             row['stop_reason'] = frame.stop_reason

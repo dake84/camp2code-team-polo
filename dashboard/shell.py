@@ -13,7 +13,7 @@ import logging
 import event_log  # PAKET-H2
 import system_stats
 from help_texts import tip
-from .helpers import MODES, lane_quality
+from .helpers import mode_options, lane_quality
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class Shell:
                        dbc.Tooltip(id='global-rec-tooltip', target='global-rec-state',
                                    placement='bottom')],
                     xs=12, lg=4, className='mb-2 mb-lg-0'),
-            dbc.Col(dcc.Dropdown(id='mode', options=MODES, value='camera', clearable=False,
+            dbc.Col(dcc.Dropdown(id='mode', options=mode_options(), value='camera', clearable=False,
                                  className='c2c-dropdown'), xs=12, md=4, lg=3, className='mb-2 mb-md-0'),
             dbc.Col([dbc.Button('▶ START', id='global-start', color='success', className='me-2'),
                      dbc.Button('■ STOP', id='global-stop', color='danger', className='me-2'),

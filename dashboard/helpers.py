@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - abhaengig von der Installation
 
 LIVE = '__live__'
 ACTIVE_PRESET = '__active__'
-MODES = mode_registry.dropdown_options()
+#MODES = mode_registry.dropdown_options()
 IMAGE_STYLE = {'width': '100%', 'background': '#0b1220', 'borderRadius': '8px', 'objectFit': 'contain'}
 
 # PAKET-E: Diagramme als einfache dicts. go.Figure validiert jeden Trace in Python;
@@ -28,6 +28,9 @@ CHART_EVERY = 3          # Telemetrie-Diagramme nur jeden 3. Takt (ca. 2 s)
 CHART_WINDOW_S = 60      # Zeitfenster der Verlaeufe
 AXIS = dict(gridcolor='#2a3550', zerolinecolor='#3a4766', color='#c8d3e6')
 
+def mode_options():
+    """PAKET-H2B: Dropdown-Optionen je Seitenaufruf aus dem Register."""
+    return mode_registry.dropdown_options()
 
 def uri(image, quality=70):
     """Kodiert ein Bild als JPEG-Data-URI (eine Kodierung je Bild und Tick)."""

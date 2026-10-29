@@ -18,6 +18,7 @@ import json
 import math
 
 import cv2
+import mode_registry
 
 from dashboard_overlay import draw_lanes, draw_roi, draw_steering_line, put_text
 
@@ -92,6 +93,7 @@ LEGEND = (
     ('Linien', 'grün/gelb: erkannte Linien im ROI · magenta: Reglerrichtung · gelber Pfeil: Stellwert',
      'ROI-Rahmen cyan'),
     ('EVENT', 'Ereigniscodes dieses Frames (unten im Bild)', 'z. B. LANE_LOST'),
+    ('MODUS', 'Name des Fahrmodus im Aufnahmemoment (aus dem Register)', 'rechts in der Winkelzeile; ältere Aufnahmen: nicht angezeigt'),
 )
 
 
@@ -200,7 +202,8 @@ def row_from_camera(camera, driving=None, events=None):
            'data_status': 'complete' if driving is not None else 'no_driving_state',
            'vehicle_mode': getattr(camera, 'vehicle_mode', None),
            'vehicle_angle': getattr(camera, 'vehicle_angle', None),
-           'vehicle_speed': getattr(camera, 'vehicle_speed', None)}
+           'vehicle_speed': getattr(camera, 'vehicle_speed', None),
+           'vehicle_mode_key': getattr(camera, 'vehicle_mode_key', None)}
     if events:
         codes = []
         for event in _frame_events(row, events):
@@ -267,6 +270,12 @@ def draw_hud(image, row, events=None, footer=None):
         put_text(result, line, (12, 46), .45)
     label, kind = vehicle_state(row, events)
     label = ascii_text(label)
+    key = row.get('vehicle_mode_key') or None
+    name = ascii_text(mode_registry.short_label(key)) if key else ''
+    if name:
+        x = width - _text_width(name, .45) - 10
+        if x > 12 + _text_width(line, .45) + 10:      # nie die Winkelzeile überlagern
+            put_text(result, name, (x, 46), .45, (255, 220, 160))    
     put_text(result, label, (12, 67), .5, STATE_COLORS[kind])
     if not geometry_known and any(lane is not None for lane in lanes):
         put_text(result, 'LINIEN: ROI UNBEKANNT', (12 + _text_width(label, .5) + 12, 67), .4)

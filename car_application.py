@@ -49,6 +49,7 @@ class CarApplication:
         self._telemetry_thread = None
         self._closed = False
         self.active_mode = None
+        self._last_mode_key = None  # PAKET-H2B: zuletzt gestarteter Modus, bleibt nach STOP erhalten
         self._history = deque(maxlen=240)
         self._last_state_id = None
         # VERALTET: zweite Ereignisliste; Anzeige nutzt nur noch self.health.
@@ -104,7 +105,7 @@ class CarApplication:
             if self._closed:
                 raise RuntimeError('Anwendung bereits beendet')
             if key not in self.modes:
-                raise ValueError('Unbekannter Fahrmodus')
+                raise ValueError(f'Unbekannter Fahrmodus: {key!r}')  # PAKET-H2B: Schluessel in der Meldung
             if self.running():
                 raise RuntimeError('Zuerst aktiven Fahrmodus stoppen')
             self.recovery.disable()
@@ -112,12 +113,20 @@ class CarApplication:
             camera = self.car.camera_data
             self.health.mark_start(key, getattr(camera, 'frame_id', None))
             self._mode_started_ns = monotonic_ns()
-            self.modes[key].start()
-            self.active_mode = key
+            # PAKET-H2B: Schluessel VOR dem Start setzen (der Kamerathread liest ihn je Frame);
+            # bei einem Fehlschlag wird er zurueckgesetzt. Der Modus wird genau EINMAL gestartet.
+            previous = (self.active_mode, self._last_mode_key)
+            self.active_mode = self._last_mode_key = key
+            try:
+                self.modes[key].start()
+            except Exception:
+                self.active_mode, self._last_mode_key = previous
+                raise
 
     def _driving_since(self):
         """PAKET-C: Startzeit des laufenden Fahrmodus (monoton) oder None."""
         return self._mode_started_ns if self.running() else None
+
     def stop_modes(self):
         """STOP: synchron, damit der Stoppbefehl sofort an das Fahrzeug geht."""
         with self._lock:
@@ -127,7 +136,7 @@ class CarApplication:
                 if mode.is_running():
                     mode.stop()
             self.car.stop()
-            self.active_mode = None
+            self.active_mode = None  # _last_mode_key bleibt bewusst erhalten (Diagnose der letzten Fahrt)
 
     def enable_recovery(self):
         """Aktiviert die Bergung unter demselben Lock wie start_mode (kein Wettlauf)."""
@@ -174,30 +183,34 @@ class CarApplication:
         self.set_pipeline(config)
         save(config)
 
-    # ------------------------------------------------------------ Fahrzeugzustand, dauerhafte Einstellungen (PAKET-H1)
-    def vehicle_mode(self):
-        """PAKET-H1: (Modus, Winkel, Speed) des Fahrzeugs fuer den Kamerathread (je Frame).
+    def vehicle_state(self):
+        """PAKET-H2B: (Art, Winkel, Speed, Modus-Schluessel) fuer den Kamerathread (je Frame).
 
-        Nimmt bewusst NICHT das Anwendungs-Lock: ein STOP haelt es bis zu 2 s und wuerde die
-        Kameraschleife blockieren. Modus: recovery | manual (Gamepad) | auto (CameraMode) | idle.
-        Winkel/Speed sind die zuletzt gesendeten Stellwerte (Speed vorzeichenbehaftet).
+        Die Art kommt aus dem Register (kind): auto | manual; sonst recovery | idle.
+        Der Schluessel ist nur bei laufendem Fahrmodus gesetzt (sonst None).
+        Nimmt bewusst NICHT das Anwendungs-Lock (ein STOP haelt es bis zu 2 s).
         """
         car = self.car
         with car._lock:
-            angle = car.steering_angle
-            speed = car.speed
+            angle, speed = car.steering_angle, car.speed
+        key = None
         if self.recovery.enabled:
-            mode = 'recovery'
+            kind = 'recovery'
         elif self.running():
-            mode = 'auto' if self.active_mode == 'camera' else 'manual'
+            key = self.active_mode
+            kind = mode_registry.kind_of(key)  # auto | manual aus dem Register
         else:
-            mode = 'idle'
-        return mode, angle, speed
+            kind = 'idle'
+        return kind, angle, speed, key
+
+    def vehicle_mode(self):
+        """PAKET-H1: (Modus, Winkel, Speed); unveraenderte Signatur, siehe vehicle_state()."""
+        return self.vehicle_state()[:3]
 
     def _attach_vehicle_mode(self):
         """PAKET-H1: der CameraSensor liest den Fahrzeugzustand je Frame ueber diesen Provider."""
         try:
-            self.sensor.mode_provider = self.vehicle_mode
+            self.sensor.mode_provider = self.vehicle_state  # PAKET-H2B (vorher: vehicle_mode)
         except AttributeError:
             log.warning('Sensor ohne mode_provider - Fahrzeugzustand wird nicht aufgezeichnet')
 
@@ -205,7 +218,7 @@ class CarApplication:
         """PAKET-H1: dauerhafte Einstellungen laden; Fehler duerfen den Start nie verhindern."""
         try:
             policy = config_store.load_speed_policy()
-            mode = self.modes.get('camera')
+            mode = self.modes.get('camera')  # PAKET-H2B: bewusst CameraMode-spezifisch
             if mode is not None and hasattr(mode, 'speed_policy'):
                 mode.speed_policy = policy
             self.recorder.jpeg_quality = config_store.load_jpeg_quality()
@@ -264,11 +277,17 @@ class CarApplication:
         return counter.hz if age is not None and age < max_age_s else 0
 
     def speed_policy(self):
-        """Aktuelle Geschwindigkeitsstrategie des CameraMode (oder None)."""
+        """Aktuelle Geschwindigkeitsstrategie des CameraMode (oder None).
+
+        PAKET-H2B: bewusst CameraMode-spezifisch.
+        """
         return getattr(self.modes.get('camera'), 'speed_policy', None)
 
     def set_speed_policy(self, policy):
-        """Setzt die Geschwindigkeitsstrategie; nur im Stillstand."""
+        """Setzt die Geschwindigkeitsstrategie; nur im Stillstand.
+
+        PAKET-H2B: bewusst CameraMode-spezifisch.
+        """
         with self._lock:
             if self.running():
                 raise RuntimeError('Geschwindigkeit nur im Stillstand ändern')
@@ -306,17 +325,26 @@ class CarApplication:
     # ------------------------------------------------------------ Telemetrie
     @property
     def controller_poll_hz(self) -> float:
+        # PAKET-H2B: bewusst CameraMode-spezifisch
         mode = self.modes.get('camera')
         return float(getattr(mode, 'poll_frequency', getattr(mode, '_frequency', 0)) or 0)
+
+    def _reading_mode(self):
+        """PAKET-H2B: zuletzt gestarteter Fahrmodus, Rueckfall CameraMode.
+
+        Nach einem STOP bleibt so die Diagnose der letzten Fahrt sichtbar, und der Stopp-Grund
+        eines neuen Modus erscheint im Cockpit.
+        """
+        mode = self.modes.get(self._last_mode_key) if self._last_mode_key else None
+        return mode if mode is not None else self.modes.get('camera')
 
     def stop_reason(self):
         if self._requested_stop:
             return 'Benutzer-STOP'
-        mode = self.modes.get('camera')
-        return getattr(mode, 'last_stop_reason', None)
+        return getattr(self._reading_mode(), 'last_stop_reason', None)  # PAKET-H2B
 
     def last_diagnostic(self):
-        return getattr(self.modes.get('camera'), 'last_diagnostic', None)
+        return getattr(self._reading_mode(), 'last_diagnostic', None)  # PAKET-H2B
 
     def _sample_loop(self):
         """Erfasst die Historie unabhaengig von Dash-Callbacks."""

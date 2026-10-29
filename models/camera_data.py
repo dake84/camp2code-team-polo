@@ -43,6 +43,7 @@ class CameraData:
     vehicle_mode: str | None = None
     vehicle_angle: float | None = None
     vehicle_speed: float | None = None
+    vehicle_mode_key: str | None = None
 
     def roi_rows(self, height: int | None = None) -> tuple[int, int]:
         """Liefert (oben, unten) des ROI in Vollbild-Pixeln wie im LaneProcessor."""

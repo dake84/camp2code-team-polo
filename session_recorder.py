@@ -37,10 +37,10 @@ import cv2
 from replay_hud import encode_lanes
 
 SCHEMA_VERSION = 2
-SCHEMA_REVISION = 2  # PAKET-H1: Revision 2 = + vehicle_mode, vehicle_angle, vehicle_speed (Schema bleibt 2)
+SCHEMA_REVISION = 3
 REVISION_NOTE = ('Revision 1: Paket B bis G. Revision 2 (Paket H1): Spalten vehicle_mode, vehicle_angle, '
-                 'vehicle_speed; Manifest capture.median_fps. Aeltere Sessions ohne diese Spalten bleiben lesbar.')
-
+                 'vehicle_speed; Manifest capture.median_fps. Revision 3 (Paket H2b): Spalte vehicle_mode_key. '
+                 'Aeltere Sessions ohne diese Spalten bleiben lesbar; ohne vehicle_mode_key zeigt das HUD keinen Modusnamen.')
 FIELDS = (
     'frame_id', 'image_filename', 'data_status', 'driving_active', 'driving_mode',
     'camera_timestamp_ns', 'camera_monotonic_ns', 'processing_ns',
@@ -51,7 +51,7 @@ FIELDS = (
     'lane_count', 'lanes_json', 'lane0_m', 'lane0_b', 'lane1_m', 'lane1_b',
     'ir_1', 'ir_2', 'ir_3', 'ir_4', 'ir_5', 'infrared_age_ns',
     'ultrasonic_cm', 'ultrasonic_age_ns', 'event_codes',
-    'vehicle_mode', 'vehicle_angle', 'vehicle_speed',
+    'vehicle_mode', 'vehicle_angle', 'vehicle_speed', 'vehicle_mode_key'
 )
 EVENT_FIELDS = ('timestamp_ns', 'frame_id', 'code', 'detail')
 
@@ -322,6 +322,7 @@ class SessionRecorder:
             vehicle_mode=getattr(cam, 'vehicle_mode', None),
             vehicle_angle=getattr(cam, 'vehicle_angle', None),
             vehicle_speed=getattr(cam, 'vehicle_speed', None),
+            vehicle_mode_key=getattr(cam, 'vehicle_mode_key', None),
         )
         return {key: _blank(value) for key, value in row.items()}
 
