@@ -41,6 +41,10 @@
         "hough_threshold": 30,
         "frame_rate": 0,
         "exposure_value": 1.0,
-        "downscale": "auto"
+        "downscale": "auto",
+        "width": 1280,
+        "height": 960,
+        "process_width": 320,
+        "process_height": 240        
     }
 }
