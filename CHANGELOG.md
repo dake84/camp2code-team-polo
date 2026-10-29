@@ -1,4 +1,16 @@
 # Changelog
+## 6.11 – Paket H3b (PAKET-H3B)
+* **HUD-Stile:** Die Auswahl neben dem Livebild ersetzt den HUD-Schalter (gleiche ID `cockpit-hud`, gleiche Callback-Signatur,
+  34 Callbacks): *HUD aus*, *klassisch* (unverändert), *Jetpilot* (grünes Kompassband mit Stellwert, Soll-Raute und Roh-Punkt,
+  Speed-Leiter, Pipper, ROI-Eckklammern, SPUR LOCK) und *Arcade* (Spur-Teppich mit Chevrons, Tacho, Lenkregler, Zustands-Pillen,
+  Spur-Streak, Lenkspur). Replay Lab und Simulation folgen dem gewählten Stil (ohne Auswahl: klassisch).
+* `hud_render.py` zeichnet die neuen Stile aus denselben Werten wie das klassische HUD; `hud_style.py` hält Stil und Auswahl;
+  `replay_hud.draw_hud` ist die Weiche, `draw_hud_classic` das bisherige HUD. Schlägt ein neuer Stil fehl, erscheint das
+  klassische HUD (einmalige Meldung im Log).
+* Kamerawerte (Belichtung, Verstärkung, Lux, Bilddauer) kommen live aus `CameraData`; in `frames.csv` stehen nur Belichtung
+  und Verstärkung (ab Revision 4). Lenkspur und Spur-Streak brauchen einen Verlauf, der beim Anzeigen im Cockpit gesammelt
+  wird (90 s) und im Replay Lab fehlt.
+
 ## 6.10 – Paket H3 (PAKET-H3)
 * **Dual-Stream** (`basisklassen_cam.py`, optional): grosses Bild („main“, RGB888) für Aufnahme und Anzeige, kleines Bild
   („lores“, YUV420, Zeilen-Stride beachtet) für die Bildverarbeitung, beide aus DERSELBEN Aufnahme (`capture_arrays`);

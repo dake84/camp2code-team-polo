@@ -8,6 +8,8 @@ import system_stats
 from dashboard_overlay import render_calibration_overlay, render_overlay
 from dashboard_steering import draw_steering_overlay
 from replay_hud import draw_hud, row_from_camera
+import hud_render  # PAKET-H3B: HUD-Stile
+import hud_style
 from sim_lab import SimLab
 
 from ..helpers import IMAGE_STYLE, diagnostic_text, fmt
@@ -27,9 +29,9 @@ class DrivingTab(DashboardTab):
                 html.Div([dbc.Badge(id='drive-frame-badge', color='dark', className='me-2'),
                           html.Span(id='drive-age', className='small text-secondary'),
                           c.fs_button('drive-overlay'),
-                          dbc.Checklist(id='cockpit-hud', options=[{'label': 'HUD', 'value': 'on'}],
-                                        value=[], switch=True, inline=True,
-                                        className='d-inline-block ms-3 small'),
+                          dbc.Select(id='cockpit-hud', options=hud_style.OPTIONS, value='off', size='sm',
+                                     className='d-inline-block ms-3',
+                                     style={'width': 'auto', 'minWidth': '9.5rem'}),
                           *c.info('hud')], className='mb-2'),
                 html.Img(id='drive-overlay', style={**IMAGE_STYLE, 'maxHeight': '68vh'}),
                 c.legend(),
@@ -98,18 +100,21 @@ class DrivingTab(DashboardTab):
                 diagnostic = application.last_diagnostic() if hasattr(application, 'last_diagnostic') else None
                 stop_reason = application.stop_reason() if hasattr(application, 'stop_reason') else None
                 record = car.frame_history.latest_complete() if running else None
-                hud_on = bool(hud and 'on' in hud)
+                # PAKET-H3B: Auswahl statt Schalter; die alte Liste ['on'] bedeutet klassisch
+                hud_style_name = hud_style.set_current(hud)   # Replay Lab und Simulation folgen diesem Stil
+                hud_on = hud_style_name != 'off'
                 if record is not None:
-                    key = f'drive:{record.camera.frame_id}' + (':hud' if hud_on else '')
+                    key = f'drive:{record.camera.frame_id}' + (f':hud-{hud_style_name}' if hud_on else '')
                     shown = record.camera
                 else:
-                    key = f'cal:{getattr(camera, "frame_id", None)}' + (':hud' if hud_on else '')
+                    key = f'cal:{getattr(camera, "frame_id", None)}' + (f':hud-{hud_style_name}' if hud_on else '')
                     shown = camera
                 image = no_update
                 if key != rendered and shown is not None and shown.frame_id >= 0:
                     if hud_on:  # Replay-HUD-Stil fuer das Livebild
                         image = uri(draw_hud(shown.raw_image, row_from_camera(
-                            shown, record.driving if record is not None else None)))
+                            shown, record.driving if record is not None else None),
+                            style=hud_style_name, trail=hud_render.TRAIL))
                     else:
                         overlay = (render_overlay(record.camera, record.driving) if record is not None
                                    else render_calibration_overlay(camera))
