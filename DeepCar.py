@@ -44,22 +44,17 @@ class DeepCar(CameraCar):
         print(f'Modell-Input-Shape: {input_shape} -> Erwarte BxH: {self._input_width}x{self._input_height}')
 
     def data_transformation(self, image):
-
-        # 1. Farbraum von BGR (OpenCV) auf RGB (Keras-Training) konvertieren
-        if len(image.shape) == 3 and image.shape[2] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # 2. Auf exakte Modellgröße bringen (Breite, Höhe beachten!)
+        # 1. Kein Farbraumwechsel mehr nötig! Kamera ist BGR, Modell wurde mit BGR trainiert.
+        
+        # 2. Falls das Kamerabild nicht exakt 320x240 ist:
         if (image.shape[1], image.shape[0]) != (self._input_width, self._input_height):
             image = cv2.resize(image, (self._input_width, self._input_height))
 
-        # 3. Datentyp float32 (Bereich 0..255 bleibt erhalten, Rescaling übernimmt das Modell)
+        # 3. Typ float32 (Rescaling und Cropping macht das TFLite-Modell selbst)
         image = image.astype(np.float32)
 
-        # 4. Batch-Dimension hinzufügen: (H, W, 3) -> (1, H, W, 3)
-        image = np.expand_dims(image, axis=0)
-
-        return image
+        # 4. Batch-Dimension: (H, W, 3) -> (1, H, W, 3)
+        return np.expand_dims(image, axis=0)
 
     def predict(self, image):
 

@@ -11,8 +11,10 @@ warnings.filterwarnings('ignore')
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
+import cv2
+
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Input, Rescaling, Conv2D, Flatten, Dropout, Dense
+from tensorflow.keras.layers import Input, Rescaling, Conv2D, Flatten, Dropout, Dense, Cropping2D  # <-- Cropping2D ergänzt
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint  # <-- Diese Zeile muss hier stehen!
 
 
@@ -63,24 +65,22 @@ def import_data(data_path=Path('Data_AI'),
                 print(f'Warnung: {image_name} nicht gefunden -> übersprungen.')
                 continue
 
+            # Bild direkt mit OpenCV als BGR laden (entspricht dem Pi-Kamerabild)
+            image = cv2.imread(str(image_path))
+            if image is None:
+                print(f'Warnung: {image_name} konnte nicht geladen werden -> übersprungen.')
+                continue
+
             # Beim ersten Bild Originalgröße bestimmen
             if image_height is None:
-                first_image = tf.keras.utils.load_img(image_path)
-                first_image = tf.keras.utils.img_to_array(first_image)
-
-                image_height, image_width, image_dimension = first_image.shape
-
+                image_height, image_width, image_dimension = image.shape
                 print('Bildhöhe:', image_height)
                 print('Bildbreite:', image_width)
                 print('Bilddimension:', image_dimension)
 
-            # Alle Bilder auf diese Größe laden
-            image = tf.keras.utils.load_img(
-                image_path,
-                target_size=(image_height, image_width)
-            )
-
-            image = tf.keras.utils.img_to_array(image)
+            # Sicherstellen, dass alle Bilder die gleiche Größe haben
+            if (image.shape[0], image.shape[1]) != (image_height, image_width):
+                image = cv2.resize(image, (image_width, image_height))
 
             images.append(image)
             valid_indices.append(idx)
@@ -220,11 +220,13 @@ def train_deepcar(data_path=Path('Data_AI'),
     ])
 
     # Netz aufbauen (Shapes in den Kommentaren gelten für 120x160)
-    model = Sequential(
+        model = Sequential(
         [
             Input(shape=(fig_heigt, fig_width, fig_dim)),
+            # Schneidet oben 60 Pixel (Wände) und unten 40 Pixel (Platine) weg:
+            Cropping2D(cropping=((60, 40), (0, 0))),
             Rescaling(1./255),
-            Conv2D(24, 5, strides=2, activation='relu'),   # -> (58, 78, 24)
+            Conv2D(24, 5, strides=2, activation='relu'),
             Conv2D(36, 5, strides=2, activation='relu'),   # -> (27, 37, 36)
             Conv2D(48, 5, strides=2, activation='relu'),   # -> (12, 17, 48)
             Conv2D(64, 3, activation='relu'),              # -> (10, 15, 64)
