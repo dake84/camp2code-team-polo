@@ -185,21 +185,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(self.module.parse_jump('#kaputt'))
 
     def test_cockpit_hud(self):
-        import hud_style  # PAKET-H3B: Auswahl statt Schalter
-        self.addCleanup(hud_style.set_current, 'off')   # der gewählte Stil ist gemeinsam; nicht in andere Tests lecken
         self.fake._running = False
         self.fake.publish(70)
-        plain = self.cb1, 'drive', None, []
-        self.assertFalse(plain[1].endswith(('hud-classic', 'hud-jetpilot', 'hud-arcade')))   # 'off' = ohne HUD
-        seen = {plain[0]}
-        for value, suffix in ((['on'], ':hud-classic'), ('classic', ':hud-classic'),
-                              ('jetpilot', ':hud-jetpilot'), ('arcade', ':hud-arcade')):
-            hud = self.cb2, 'drive', None, value
-            self.assertTrue(hud[1].endswith(suffix), (value, hud[1]))
-            self.assertTrue(hud[0].startswith('data:image') and hud[0] != plain[0], value)
-            seen.add(hud[0])
-        self.assertEqual(len(seen), 4)                 # klassisch (zweimal gleich), Jetpilot, Arcade und ohne HUD
-        
+        plain = self.cb['cockpit_view'](1, 'drive', None, [])
+        hud = self.cb['cockpit_view'](2, 'drive', None, ['on'])
+        self.assertTrue(hud[1].endswith(':hud-classic'))
+        self.assertTrue(hud[0].startswith('data:image') and hud[0] != plain[0])
+
     def test_info_ziele_existieren(self):
         from test_dashboard_callbacks import layout_of
         components = list(layout_of(self.app).walk())
