@@ -189,7 +189,7 @@ class DashboardTests(unittest.TestCase):
         self.fake.publish(70)
         plain = self.cb['cockpit_view'](1, 'drive', None, [])
         hud = self.cb['cockpit_view'](2, 'drive', None, ['on'])
-        self.assertTrue(hud[1].endswith(':hud'))
+        self.assertTrue(hud[1].endswith(':hud-classic'))
         self.assertTrue(hud[0].startswith('data:image') and hud[0] != plain[0])
 
     def test_info_ziele_existieren(self):
