@@ -163,14 +163,14 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
         dbc.Row([
             dbc.Col([
                 html.H4("Manuelle Steuerung", className="mt-4"),
+                html.P("Standard: Fahrt mit Tempo 30 geradeaus (90°).", className="text-muted small"),
                 dbc.ButtonGroup([
-                    dbc.Button('Links', id='btn-left', color='secondary', n_clicks=0),
-                    dbc.Button('Vorwärts', id='btn-forward', color='primary', n_clicks=0),
-                    dbc.Button('Rechts', id='btn-right', color='secondary', n_clicks=0),
+                    dbc.Button('Links (60°)', id='btn-left', color='secondary', n_clicks=0, className='me-1'),
+                    dbc.Button('Geradeaus (90°)', id='btn-straight', color='primary', n_clicks=0, className='me-1'),
+                    dbc.Button('Rechts (120°)', id='btn-right', color='secondary', n_clicks=0),
                 ], className='mb-2 d-block'),
                 dbc.ButtonGroup([
-                    dbc.Button('Stopp', id='btn-stop', color='danger', n_clicks=0),
-                    dbc.Button('Rückwärts', id='btn-backward', color='warning', n_clicks=0),
+                    dbc.Button('Stopp (0 km/h)', id='btn-stop', color='danger', n_clicks=0),
                 ]),
             ], md=4)
         ]),
@@ -249,14 +249,13 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
 
     # Callback für die manuellen Dashboard-Steuerungsbuttons
     @app.callback(
-        Input('btn-forward', 'n_clicks'),
-        Input('btn-backward', 'n_clicks'),
         Input('btn-left', 'n_clicks'),
+        Input('btn-straight', 'n_clicks'),
         Input('btn-right', 'n_clicks'),
         Input('btn-stop', 'n_clicks'),
         prevent_initial_call=True
     )
-    def control_car(fwd, bwd, left, right, stop):
+    def control_car(left, straight, right, stop):
         from dash import callback_context
         ctx = callback_context
         if not ctx.triggered:
@@ -268,12 +267,10 @@ def create_app(modes, car, stream_pre_processing: ImageStream, stream_post_proce
         if not manual_mode or not manual_mode.is_running():
             return
 
-        if button_id == 'btn-forward':
-            manual_mode.set_command(speed=40, angle=90)
-        elif button_id == 'btn-backward':
-            manual_mode.set_command(speed=-40, angle=90)
-        elif button_id == 'btn-left':
+        if button_id == 'btn-left':
             manual_mode.set_command(speed=30, angle=60)
+        elif button_id == 'btn-straight':
+            manual_mode.set_command(speed=30, angle=90)
         elif button_id == 'btn-right':
             manual_mode.set_command(speed=30, angle=120)
         elif button_id == 'btn-stop':
@@ -313,7 +310,6 @@ def main():
     sensor = CameraSensor(car)
     save_data = SaveData_4_AI(car=car, frequency=5.0)
 
-    # Hier ist Punkt 4 korrekt eingerückt im Dictionary hinterlegt:
     modes = {
         'fahrmodus_1': Driving.CameraMode(car=car),
         'fahrmodus_2': Driving.DeepCarMode(car=car),
