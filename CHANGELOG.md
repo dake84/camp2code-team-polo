@@ -1,4 +1,11 @@
 # Changelog
+## 6.15 – Paket I5 (PAKET-I5)
+* **Livebild im Browser:** Das Cockpit holte das Livebild ueber den Dash-Takt (`poll_interval_ms = 700`, rund 1,4 Bilder/s). Jetzt holt der
+  Browser die Bilder selbst (`live_player.py`, `assets/live_player.js`): neuestes Bild nach dem letzten (Long-Poll), Bildrate begrenzt
+  (Standard 10/s), Bild vor dem Zeichnen verkleinert, hoechstens ein Bild gleichzeitig im Server. Solange der Browser Bilder holt, rendert
+  `cockpit_view` kein eigenes Bild. Umschalter "Ueber den Server (alt)" zeigt die bisherige Anzeige.
+* `dashboard/tabs/driving.py`: vier Zeilen (Import, Bedienleiste, Bedingung im Bild-Callback, Registrierung). Kein zusaetzlicher Dash-Callback.
+
 ## 6.15 – Paket J1 (PAKET-J1)
 * **PidMode** (`driving/pid_mode.py`, Schluessel `pid`, im Dropdown "PID-Mode (autonom)"): CameraMode mit PID-Regler im Haken
   `driving_parameter`. Fehler = Rohwinkel - 90 Grad; Anti-Windup, Ableitung tiefpassgefiltert, I-Grenze, Zuruecksetzen nach Luecken,

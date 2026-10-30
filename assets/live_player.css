@@ -1,0 +1,5 @@
+/* PAKET-I5: Livebild im Browser (assets/live_player.js) */
+.c2c-lp-bar{display:flex;flex-wrap:wrap;align-items:center;row-gap:.25rem}
+.c2c-lp-opt{display:inline-flex;align-items:center}
+.c2c-lp-select{width:auto;min-width:8.5rem;background-color:var(--c2c-input);color:var(--c2c-text);border-color:var(--c2c-line)}
+.c2c-lp-diag{flex:1 0 100%;color:var(--c2c-muted);min-height:1.3em}

@@ -11,6 +11,7 @@ from replay_hud import draw_hud, row_from_camera
 import hud_render  # PAKET-H3B: HUD-Stile
 import hud_style
 from sim_lab import SimLab
+import live_player  # PAKET-I5: Livebild im Browser
 import sim_player  # PAKET-I3: Wiedergabe der Simulation im Browser
 
 from ..helpers import IMAGE_STYLE, diagnostic_text, fmt
@@ -34,6 +35,7 @@ class DrivingTab(DashboardTab):
                                      className='d-inline-block ms-3',
                                      style={'width': 'auto', 'minWidth': '9.5rem'}),
                           *c.info('hud')], className='mb-2'),
+                live_player.bar(html),  # PAKET-I5: Bedienleiste des Browser-Livebilds (Mount-Punkt)
                 html.Img(id='drive-overlay', style={**IMAGE_STYLE, 'maxHeight': '68vh'}),
                 c.legend(),
                 html.Div('Grün/Gelb: erkannte Linien · Magenta: Reglerrichtung aus den Linien · '
@@ -82,6 +84,7 @@ class DrivingTab(DashboardTab):
         dbc = c.dbc
 
         c.sim.register(app)
+        live_player.register(app, self)  # PAKET-I5: HTTP-Routen fuer das Browser-Livebild (kein Dash-Callback)
         sim_player.register(app, c.sim)  # PAKET-I3
 
         @app.callback(Output('drive-overlay', 'src'), Output('drive-rendered', 'data'),
@@ -112,7 +115,8 @@ class DrivingTab(DashboardTab):
                     key = f'cal:{getattr(camera, "frame_id", None)}' + (f':hud-{hud_style_name}' if hud_on else '')
                     shown = camera
                 image = no_update
-                if key != rendered and shown is not None and shown.frame_id >= 0:
+                # PAKET-I5: holt der Browser die Bilder selbst (assets/live_player.js), rendert der Server hier keines
+                if not live_player.browser_active() and key != rendered and shown is not None and shown.frame_id >= 0:
                     if hud_on:  # Replay-HUD-Stil fuer das Livebild
                         image = uri(draw_hud(shown.raw_image, row_from_camera(
                             shown, record.driving if record is not None else None),
