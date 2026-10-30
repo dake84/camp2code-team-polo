@@ -894,6 +894,7 @@ class SimulationIntegrationTests(unittest.TestCase):
         header = [t for t in calls if t.startswith('JETZT')]
         self.assertEqual(len(header), 1)
 
+    @unittest.skip('PAKET-I1: sim_run ersetzt (Start, Fortschritt, Run-Liste); Ersatz in test_paket_i1.py')
     def test_aenderung_der_einstellungen_verwirft_das_ergebnis(self):
         from sim_lab import SimLab
         import dash_stub
@@ -943,6 +944,7 @@ class SimulationIntegrationTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_DASH, 'Dash nicht installiert')
 class RealDashSimulationTests(unittest.TestCase):
+    @unittest.skip('PAKET-I1: sim_run ersetzt (Start, Fortschritt, Run-Liste); Ersatz in test_paket_i1.py')
     def test_invalidierung_und_wiedergabe_ueber_http(self):
         from test_paket_f import write_session
         import dash_bootstrap_components as dbc

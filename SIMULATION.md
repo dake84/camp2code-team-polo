@@ -76,3 +76,49 @@ Bild umgerechnet. **Abweichung zur Aufnahme:** Kam das damalige kleine Bild aus 
 camera`, ISP-Skalierung und YUV420), unterscheidet es sich leicht von dem aus dem JPEG verkleinerten Bild (Pixelwerte, Kanten,
 JPEG-Artefakte); einzelne Linien und Winkel können minimal abweichen. Sessions ohne diese Spalten (Revision 2 und 3) werden
 wie bisher auf dem gespeicherten Bild gerechnet.
+
+
+## Simulation Runs (PAKET-I1)
+
+Berechnen, speichern und abspielen sind getrennt (`simulation_runs.py`):
+
+1. **Simulation berechnen** startet einen Hintergrund-Job (hoechstens einer gleichzeitig). Die Seite bleibt bedienbar;
+   Progressbar, „Frame X von Y“, Phase, Run-Name und Fehlertext erscheinen unter *Berechnung*, **Abbrechen** stoppt zwischen
+   zwei Frames.
+2. Das Ergebnis wird als **Run** in `Data_AI/simulation_runs/<run_id>/` gespeichert (`manifest.json` atomar, `results.jsonl`
+   je Frame eine Zeile, inkrementell). Die Bilder bleiben in der Session (`image_ref`), Sessions werden nie veraendert.
+3. **Gespeicherte Simulation Runs**: Auswahl eines Runs laedt die Ergebnisse (keine Lane-, Winkel- oder Speed-Berechnung) und
+   spielt sie mit der bestehenden Wiedergabe ab. Bereits berechnete Runs bleiben erhalten.
+4. **Fingerprint** (SHA-256) ueber Prozessor, Parameter (Studio-Slider oder die damaligen Parameter der gerechneten Frames),
+   Frame-Bereich/Vorlauf, Regler (`steering_gain`, `lost_line_timeout`, `v_min`, `v_max`), Speed Policy und Fahrmodus. Existiert
+   fuer Quell-Session und Fingerprint ein vollstaendiger Run, wird er ausgewaehlt statt neu gerechnet; **Neu berechnen
+   (erzwingen)** legt bewusst einen weiteren Run an.
+5. Quelle sind **gespeicherte Sessions**; der fluechtige Live-Ringbuffer kann nicht als Run gespeichert werden.
+   Die Simulation uebernimmt jetzt die aktuelle Speed Policy der Anwendung (vorher immer fest 30).
+
+
+## Schnellere Wiedergabe (PAKET-I2)
+Die Anzeige rechnet nichts neu; teuer waren Bildaufbereitung und Uebertragung. Jetzt: ein Dekodieren je Frame, HUD auf dem
+verkleinerten Bild, Cache der letzten 48 Anzeigebilder und Vorausberechnung der naechsten Frames waehrend Play.
+**Bildgroesse** (Schnell 640 / Standard 960 / Hoch 1280) bestimmt die Breite beider Bilder; die gespeicherten Bilder bleiben
+unveraendert. Messung auf dem Pi: `python scripts/sim_render_bench.py SESSION`.
+
+
+## Wiedergabe im Browser (PAKET-I3)
+
+Die Wiedergabe laeuft im Browser (`assets/sim_player.js`, Server-Teil `sim_player.py`): Play, Pause, Slider, Tempo,
+Einzelschritte und Bildgroesse wirken sofort und brauchen waehrend der Wiedergabe keine Dash-Callbacks mehr. Der Server liefert
+`/_c2c/sim/<token>/meta.json` (Werte je Frame) und `/_c2c/sim/<token>/<then|now>/<index>.jpg?w=640|960|1280` (fertige Bilder mit
+HUD); der Browser laedt die naechsten Bilder im Voraus (3 Bildpaare parallel) und spielt nach den aufgezeichneten Zeitstempeln
+(Echtzeit mit Frame-Ueberspringen oder "Jeder Frame"). Der Frame-Balken im Diagramm folgt der Wiedergabe, Ziehen und Klick ins
+Diagramm springen lokal. Umschalter "Ueber den Server (alt)" zeigt die bisherige Server-Wiedergabe.
+
+
+## Replay Lab im Browser, HUD-Stil, Vollbild (PAKET-I4)
+
+Das Replay Lab spielt gespeicherte Sessions wie die Simulation im Browser ab (`replay_player.py`, `assets/replay_player.js`):
+Play, Pause, Slider, Tempo, Einzelschritte, Bildgroesse, HUD-Stil und Vollbild wirken sofort, waehrend der Wiedergabe gibt es keine
+Dash-Callbacks. HUD-Stil: wie im Cockpit, klassisch, Jetpilot, Arcade oder ohne HUD; Jetpilot und Arcade zeigen Lenkspur und
+Spur-Streak (Verlauf aus den vorangehenden Frames der Session). Vollbild (Taste F, Doppelklick aufs Bild) mit Bedienleiste; ebenso fuer
+die Simulation (`assets/sim_player_fullscreen.js`). Der Umschalter "Ueber den Server (alt)" zeigt die bisherige Anzeige. Der
+Live-Ringbuffer ist nur ueber den Server abspielbar.

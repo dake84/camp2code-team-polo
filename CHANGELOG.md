@@ -1,4 +1,35 @@
 # Changelog
+## 6.14 – Paket I4 (PAKET-I4)
+* **Replay Lab im Browser:** gespeicherte Sessions spielen im Browser (`replay_player.py`, `assets/replay_player.js`): Pause und
+  Slider wirken sofort, keine Callback-Kette mehr je Frame, Vorausladen, Zeitsteuerung lokal. Der Live-Ringbuffer bleibt serverseitig.
+* **HUD:** Stilwahl im Spieler (wie Cockpit, klassisch, Jetpilot, Arcade, ohne HUD); Lenkspur und Spur-Streak aus dem Verlauf der Session.
+* **Vollbild** mit Bedienleiste (Replay Lab und - ueber `assets/sim_player_fullscreen.js` - die Simulation).
+* `dashboard/tabs/replay.py`: fuenf Zeilen (Import, Layout-Einbau, Registrierung, Zustandsmeldung). Kein zusaetzlicher Dash-Callback.
+
+## 6.13 – Paket I3 (PAKET-I3)
+* **Wiedergabe im Browser:** `sim_player.py` + `assets/sim_player.js`/`.css`. Pause, Slider, Tempo und Einzelschritte wirken lokal
+  (behebt: Pause/Slider ohne Wirkung bei laufender Wiedergabe, weil wartende Takt-Callbacks vorgezogen wurden). Der Server
+  liefert nur Meta-Daten und fertige JPEG-Bilder; Vorausladen im Browser, keine Callback-Kette mehr.
+* `dashboard/tabs/driving.py`: drei Zeilen (Import, Layout-Einbau, Registrierung). `sim_lab.py` unveraendert; die alte
+  Wiedergabe bleibt per Umschalter erhalten. Kein zusaetzlicher Dash-Callback (Callback-Zahl unveraendert).
+
+## 6.13 – Paket I2 (PAKET-I2)
+* **Schnellere Wiedergabe:** Pro Anzeigeframe wird das Bild nur noch einmal dekodiert (vorher zweimal), beide HUDs werden auf
+  dem auf Anzeigegroesse verkleinerten Bild gezeichnet (Auswahl *Bildgröße* 640/960/1280, Standard 960), fertige Anzeigebilder
+  liegen in einem begrenzten Cache (48 Frames), und waehrend der Wiedergabe werden die naechsten Frames in einem
+  Hintergrund-Thread vorausberechnet (`replay_frames.FrameRenderCache`). Callback-Anzahl unveraendert (39).
+* `scripts/sim_render_bench.py SESSION` misst die Anzeigezeit alt/neu auf dem Pi.
+
+## 6.12 – Paket I1 (PAKET-I1)
+* **Simulation Runs:** Die Simulation rechnet nicht mehr bei jedem Abspielen neu. „Simulation berechnen“ startet einen
+  Hintergrund-Job (`simulation_runs.SimulationRunner`, ein Job gleichzeitig, Abbruch moeglich) und speichert das Ergebnis als
+  Run (`Data_AI/simulation_runs/<run_id>/manifest.json` + `results.jsonl`). Die Wiedergabe laedt einen gespeicherten Run und
+  rechnet nichts mehr; vorhandene Runs mit gleichem Parameter-Fingerprint werden angeboten statt neu gerechnet.
+* `sim_engine.py`: `SimFrame` um optionale Felder erweitert, `SimEngine.run` mit optionalen Hooks (`on_frame`, `progress`,
+  `cancel`, `speed_policy`), `SimEngine.plan` und `controller_settings`. `frame_source.SessionSource.image_ref`.
+* `sim_lab.py`: Callback `sim_run` ersetzt durch `sim_run_start`, `sim_job_cancel`, `sim_job_poll`, `sim_job_interval`,
+  `sim_run_list`, `sim_load_run` (SimLab 4 -> 9 Callbacks, gesamt 39). Live-Ringbuffer ist keine Simulationsquelle mehr.
+
 ## 6.11 – Paket H3b (PAKET-H3B)
 * **HUD-Stile:** Die Auswahl neben dem Livebild ersetzt den HUD-Schalter (gleiche ID `cockpit-hud`, gleiche Callback-Signatur,
   34 Callbacks): *HUD aus*, *klassisch* (unverändert), *Jetpilot* (grünes Kompassband mit Stellwert, Soll-Raute und Roh-Punkt,

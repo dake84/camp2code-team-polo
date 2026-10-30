@@ -1,0 +1,17 @@
+/* PAKET-I3: Wiedergabe der Simulation im Browser (assets/sim_player.js) */
+.c2c-sp:focus{outline:none}
+.c2c-sp-grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.c2c-sp-grid>div{min-width:0}
+.c2c-sp-img{display:block;width:100%;min-height:140px;background:#0b1220;border-radius:8px;object-fit:contain}
+.c2c-sp-controls{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.c2c-sp-controls .btn-group{flex:0 0 auto}
+.c2c-sp-play{min-width:6.5rem}
+.c2c-sp-slider{flex:1 1 12rem;min-width:8rem;margin:0}
+.c2c-sp-count{flex:0 0 auto;color:var(--c2c-muted);font-variant-numeric:tabular-nums}
+.c2c-sp-opts{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;align-items:flex-end}
+.c2c-sp-width{min-width:10rem;background-color:var(--c2c-input);color:var(--c2c-text);border-color:var(--c2c-line)}
+.c2c-sp-diag{color:var(--c2c-muted);min-height:1.3em}
+/* Browser-Wiedergabe: die serverseitige Vergleichstabelle wird durch die lokale ersetzt */
+body.c2c-sim-client #sim-compare{display:none}
+body:not(.c2c-sim-client) #sim-live-compare{display:none}
+@media (max-width:600px){.c2c-sp-grid{grid-template-columns:1fr}}

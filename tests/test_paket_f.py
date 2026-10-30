@@ -280,6 +280,7 @@ class DashboardSimTests(TempConfig):
         self.cb['sim_view_mode']('live')
         self.assertFalse(self.start_disabled())
 
+    @unittest.skip('PAKET-I1: sim_run ersetzt (Start, Fortschritt, Run-Liste); Ersatz in test_paket_i1.py')
     def test_simulation_im_cockpit(self):
         self.cb['sim_view_mode']('sim')
         self.ctx.set('sim-run')  # PAKET-H1
@@ -294,6 +295,7 @@ class DashboardSimTests(TempConfig):
         then, now, table, label, _rate = self.cb['sim_render'](index, token, True)
         self.assertTrue(then.startswith('data:image') and now.startswith('data:image'))
 
+    @unittest.skip('PAKET-I1: sim_run ersetzt (Start, Fortschritt, Run-Liste); Ersatz in test_paket_i1.py')
     def test_keine_simulation_waehrend_fahrt(self):
         self.fake._running = True
         self.ctx.set('sim-run')

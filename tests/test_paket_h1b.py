@@ -660,6 +660,7 @@ class FrameBarServerTests(unittest.TestCase):
         self.assertEqual(len(figure.data), 2)
         self.assertEqual([d[1]['x'] for d in figure.data][0], list(range(20, 30)))   # x = Frame-IDs = Balken-Skala
 
+    @unittest.skip('PAKET-I1: sim_run ersetzt (Start, Fortschritt, Run-Liste); Ersatz in test_paket_i1.py')
     def test_simulation_balken(self):
         with tempfile.TemporaryDirectory() as folder:
             cwd = os.getcwd()

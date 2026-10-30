@@ -15,6 +15,7 @@ import cv2
 import event_log  # PAKET-H2
 
 from replay_hud import draw_hud, row_from_camera
+import replay_player  # PAKET-I4: Wiedergabe im Browser
 from replay_selection import (event_window, nearest_position, record_frame_id, select_records,
                               selected_bounds)  # PAKET-H1B
 from replay_studio import load_session_image, parameters_from_record, processor_key
@@ -57,7 +58,7 @@ class ReplayTab(DashboardTab):
     def layout(self):
         c = self.ctx
         dbc, dcc, html = c.dbc, c.dcc, c.html
-        return html.Div([
+        return replay_player.install_layout(html.Div([
             dbc.Row([
                 dbc.Col(dcc.Dropdown(id='session-choice', className='c2c-dropdown', clearable=False,
                                      options=[{'label': 'Live-Ringbuffer (flüchtig)', 'value': LIVE}],
@@ -114,7 +115,7 @@ class ReplayTab(DashboardTab):
                 html.Div(id='replay-events', className='c2c-events')]), md=12)], className='mt-3'),
             dcc.Store(id='replay-playing', data=False, storage_type='memory'),
             dcc.Store(id='replay-bounds', data=None, storage_type='memory'),
-        ])
+        ]), c)  # PAKET-I4
 
     # ------------------------------------------------------------------ Daten
     def records(self, name, bounds):
@@ -165,6 +166,7 @@ class ReplayTab(DashboardTab):
         ctx, no_update, dcc, Patch, go = c.ctx, c.no_update, c.dcc, c.Patch, c.go
         application, car, ab, uri = c.application, c.car, c.ab, c.uri
         records_for, record_at = self.records, self.record_at
+        replay_player.register(app, self)  # PAKET-I4: HTTP-Routen fuer die Browser-Wiedergabe (kein Dash-Callback)
 
         @app.callback(Output('session-choice', 'options'), Input('session-refresh', 'n_clicks'),
                       Input('last-action', 'data'), Input('replay-open-latest', 'n_clicks'))
@@ -286,6 +288,8 @@ class ReplayTab(DashboardTab):
             ``ctx.triggered_id`` meldet nur die erste Komponente. Deshalb werden alle ausloesenden
             Komponenten geprueft, sonst bliebe das Bild einer gespeicherten Session stehen.
             """
+            if replay_player.note_view(name, bounds, index):  # PAKET-I4: der Browser spielt ab, kein Serverbild noetig
+                return (no_update,) * 3
             if tab != self.tab_id:
                 return (no_update,) * 3
             live = name in (None, LIVE)

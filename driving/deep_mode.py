@@ -26,7 +26,7 @@ class DeepCarMode(DrivingMode):
     def __init__(self,
                  name='DeepCarModus',
                  car: Optional[CameraCar] = None,
-                 cfg: Optional[ConfigReader.ConfigReader] = None, model_path='deepcar_save.tflite'):
+                 cfg: Optional[ConfigReader.ConfigReader] = None, model_path='deepcar.tflite'):
 
         car = car if car is not None else CameraCar()
         self._cameracar = car

@@ -215,7 +215,7 @@ class PluginTests(unittest.TestCase):
                 owner = 'SimLab'
             owners.setdefault(owner, set()).add(name)
         self.assertEqual({k: v for k, v in owners.items() if k != 'SimLab'}, self.TAB_CALLBACKS)
-        self.assertEqual(owners['SimLab'], {'sim_view_mode', 'sim_run', 'sim_playback', 'sim_render'})
+        self.assertEqual(owners['SimLab'], {'sim_view_mode', 'sim_run_start', 'sim_job_cancel', 'sim_job_poll', 'sim_job_interval', 'sim_run_list', 'sim_load_run', 'sim_playback', 'sim_render'})  # PAKET-I1
 
     def test_nur_tabs_mit_takt_haben_ein_intervall(self):
         ticks = {c.id for c in layout_of(self.app).walk() if isinstance(c.id, str) and c.id.startswith('tick-')}

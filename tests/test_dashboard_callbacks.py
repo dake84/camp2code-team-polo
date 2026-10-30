@@ -232,8 +232,8 @@ class DashboardStructureTests(unittest.TestCase):
         expected = {'rebuild_stage_cards', 'tab_intervals', 'handle_actions', 'global_status', 'recovery_pulse', 'cockpit_view', 'configure',
                     'preset_actions', 'freeze', 'inspect', 'pipeline_view', 'ab_calibrate', 'telemetry_view',
                     'drive_events', 'refresh_sessions', 'replay_event_options', 'seek', 'replay_limits',
-                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run', 'sim_playback', 'sim_render', 'kpi_bar', 'settings_apply', 'settings_fill', 'rt_settings'}  # PAKET-H1B  # PAKET-H1  # PAKET-G  # PAKET-F  # PAKET-C
-        self.assertEqual(set(self.callbacks), expected)
+                    'replay_toggle', 'replay_play_label', 'replay_render', 'export_range', 'replay_chart', 'replay_to_studio', 'sim_view_mode', 'sim_run_start', 'sim_job_cancel', 'sim_job_poll', 'sim_job_interval', 'sim_run_list', 'sim_load_run', 'sim_playback', 'sim_render', 'kpi_bar', 'settings_apply', 'settings_fill', 'rt_settings'}  # PAKET-H1B  # PAKET-H1  # PAKET-G  # PAKET-F  # PAKET-C
+        self.assertEqual(set(self.callbacks), expected)  # PAKET-I1: SimLab-Callbacks ersetzt
 
     def test_aktionen_und_zustand(self):
         cb = self.callbacks['handle_actions']

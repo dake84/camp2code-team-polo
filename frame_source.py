@@ -121,10 +121,30 @@ class SessionSource:
     def image(self, index):
         return load_session_image(self.path, self._rows[index])
 
+    def image_ref(self, index):
+        """PAKET-I1: Verweis auf das Quellbild (relativer Dateiname in der Session) fuer gespeicherte Simulation Runs."""
+        return self._rows[index].get('image_filename') or None
+
     def then_image(self, index):
         from replay_hud import draw_hud
         return draw_hud(self.image(index), self._rows[index], events=self.hud_events,
                         footer='DAMALS (Aufzeichnung)')
+
+    def then_hud(self, image, index, scale=1.0, style=None):
+        """PAKET-I2: HUD der Aufzeichnung auf ein (verkleinertes) ``image`` des Frames ``index``.
+
+        ``scale`` = Verkleinerung gegenueber dem gespeicherten Bild: die ROI-Pixelzeilen der Zeile wachsen/schrumpfen
+        mit, Linien werden ohnehin aus dem Verarbeitungsbild auf die Bildgroesse umgerechnet. ``style=None`` folgt dem
+        gemeinsamen HUD-Stil. Das Eingabebild wird nicht veraendert.
+        """
+        from replay_hud import draw_hud
+        row = dict(self._rows[index])
+        if scale != 1.0:
+            for key in ('roi_top_px', 'roi_bottom_px'):
+                value = _int(row.get(key))
+                if value is not None:
+                    row[key] = int(round(value * scale))
+        return draw_hud(image, row, events=self.hud_events, footer='DAMALS (Aufzeichnung)', style=style)
 
 
 class RingbufferSource:

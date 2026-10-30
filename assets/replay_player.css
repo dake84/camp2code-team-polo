@@ -1,0 +1,26 @@
+/* PAKET-I4: Wiedergabe im Browser fuer das Replay Lab (assets/replay_player.js) und Vollbild auch fuer die Simulation */
+.c2c-rp:focus,.c2c-sp:focus{outline:none}
+.c2c-rp-top{display:flex;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
+.c2c-rp-stage{display:flex;justify-content:center;background:#0b1220;border-radius:8px}
+.c2c-rp-img{display:block;width:100%;max-height:60vh;min-height:140px;object-fit:contain;border-radius:8px}
+.c2c-rp-controls{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-top:.5rem}
+.c2c-rp-controls .btn-group{flex:0 0 auto}
+.c2c-rp-play{min-width:6.5rem}
+.c2c-rp-slider{flex:1 1 12rem;min-width:8rem;margin:0}
+.c2c-rp-count{flex:0 0 auto;color:var(--c2c-muted);font-variant-numeric:tabular-nums}
+.c2c-rp-opts{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;align-items:flex-end;margin-top:.5rem}
+.c2c-rp-select{min-width:10rem;background-color:var(--c2c-input);color:var(--c2c-text);border-color:var(--c2c-line)}
+.c2c-rp-details{color:var(--c2c-text)}
+.c2c-rp-diag{color:var(--c2c-muted);min-height:1.3em}
+
+/* Vollbild: Bild fuellt den Schirm, Bedienleiste bleibt darunter und blendet sich beim Abspielen nach 2,5 s aus */
+.c2c-rp:fullscreen,.c2c-sp:fullscreen{background:#05080f;padding:.75rem;display:flex;flex-direction:column;gap:.4rem;overflow:hidden;color:var(--c2c-text,#e9f1ff)}
+.c2c-rp:fullscreen .c2c-rp-stage{flex:1 1 auto;min-height:0;align-items:center;background:transparent}
+.c2c-rp:fullscreen .c2c-rp-img{width:auto;height:auto;max-width:100%;max-height:100%;min-height:0}
+.c2c-rp:fullscreen .c2c-rp-controls,.c2c-rp:fullscreen .c2c-rp-opts{margin-top:0;transition:opacity .4s}
+.c2c-rp.c2c-rp-idle .c2c-rp-bar,.c2c-sp.c2c-sp-idle .c2c-sp-controls,.c2c-sp.c2c-sp-idle .c2c-sp-opts{opacity:0;pointer-events:none}
+.c2c-rp.c2c-rp-idle,.c2c-sp.c2c-sp-idle{cursor:none}
+.c2c-sp:fullscreen .c2c-sp-grid{flex:1 1 auto;min-height:0;align-items:center}
+.c2c-sp:fullscreen .c2c-sp-img{min-height:0;max-height:calc(100vh - 210px);object-fit:contain}
+.c2c-sp-fs{margin-left:auto}
+@media (max-width:600px){.c2c-rp-controls{gap:.5rem}}

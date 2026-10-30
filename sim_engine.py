@@ -92,6 +92,14 @@ class SimFrame:
     then_status: str | None
     captured_ns: int = 0  # PAKET-H1: aufgezeichneter Zeitstempel (Grundlage der Wiedergabe)
     process_size: tuple | None = None  # PAKET-H3: Groesse des Verarbeitungsbilds (Linien gelten dort)
+    # PAKET-I1: zusaetzliche, optionale Felder fuer gespeicherte Simulation Runs (simulation_runs.py).
+    # Alle mit Standardwert, damit bestehende Aufrufer und aeltere gespeicherte Runs unveraendert bleiben.
+    wall_ns: int = 0                      # urspruenglicher Zeitstempel (Systemuhr) der Aufnahme
+    image_ref: str | None = None          # Verweis auf das Quellbild in der Quell-Session (frames/frame_*.jpg)
+    driving_mode: str | None = None       # Fahrmodus der Entscheidung (Simulation: 'camera')
+    processor_name: str | None = None     # Klassenname des verwendeten Prozessors
+    diagnostics: dict | None = None       # Controllerdiagnose (Vorwert, gehaltener Winkel, ...)
+    step_ms: dict | None = None           # Laufzeiten einzelner Schritte in Millisekunden
 
     @property
     def angle_delta(self):
@@ -110,6 +118,7 @@ class SimResult:
     duration_s: float = 0.0
     truncated: bool = False
     errors: int = 0
+    cancelled: bool = False   # PAKET-I1: Lauf wurde abgebrochen (Ergebnis unvollstaendig)
 
     @property
     def measured(self):
@@ -153,6 +162,8 @@ class SimResult:
 class SimEngine:
     """Rechnet eine Bildquelle mit einem Prozessor und dem CameraMode-Regler nach."""
 
+    DRIVING_MODE = 'camera'   # PAKET-I1: die Simulation rechnet immer mit dem CameraMode
+
     def __init__(self, controller_cfg=None, v_min=None, v_max=None):
         import ConfigReader
         self._cfg = controller_cfg if controller_cfg is not None else ConfigReader.ConfigReader('cameracar_controller')
@@ -161,6 +172,35 @@ class SimEngine:
             v_min = car_cfg.get_int('v_min', 20) if v_min is None else v_min
             v_max = car_cfg.get_int('v_max', 100) if v_max is None else v_max
         self._v_min, self._v_max = v_min, v_max
+
+    def controller_settings(self):
+        """PAKET-I1: Reglerwerte, die das Ergebnis beeinflussen (fuer den Parameter-Snapshot eines Runs).
+
+        Gelesen aus demselben ``ConfigReader`` und denselben Standardwerten wie ``CameraMode``; dadurch
+        stimmt der Snapshot mit dem tatsaechlich simulierten Regler ueberein.
+        """
+        return {'steering_gain': float(self._cfg.get_float('steering_gain', 2.0)),
+                'lost_line_timeout': float(self._cfg.get_float('lost_line_timeout', 1)),
+                'v_min': int(self._v_min), 'v_max': int(self._v_max)}
+
+    @staticmethod
+    def plan(frames, lo=None, hi=None, warmup=30, max_frames=MAX_FRAMES):
+        """Frame-Bereich eines Laufs: ``(start, first, last, truncated)`` als Indizes in ``frames``.
+
+        ``start`` = erster gerechneter Frame (inklusive Vorlauf), ``first`` = erster Messframe, ``last`` = letzter
+        Frame. Wird von ``run`` und vom Simulation Runner (Gesamtzahl der Frames, Parameter-Fingerprint) genutzt.
+        """
+        if not frames:
+            raise ValueError('Quelle enthaelt keine Frames')
+        ids = [frame.frame_id for frame in frames]
+        first = next((i for i, fid in enumerate(ids) if lo is None or fid >= lo), None)
+        last = max((i for i, fid in enumerate(ids) if hi is None or fid <= hi), default=None)
+        if first is None or last is None or first > last:
+            raise ValueError('Kein Frame im gewaehlten Bereich')
+        start = max(0, first - max(0, int(warmup or 0)))
+        truncated = last - start + 1 > max_frames
+        last = min(last, start + max_frames - 1)
+        return start, first, last, truncated
 
     def _controller(self, car, clock):
         from driving.camera_mode import CameraMode
@@ -174,28 +214,30 @@ class SimEngine:
         return mode
 
     def run(self, source, processor_key, params_override=None, lo=None, hi=None, warmup=30,
-            max_frames=MAX_FRAMES):
+            max_frames=MAX_FRAMES, speed_policy=None, on_frame=None, progress=None, cancel=None):
         """Simuliert die Frames ``lo..hi`` (Frame-IDs) plus ``warmup`` Frames Vorlauf.
 
         ``params_override`` = Studio-Parameter; ``None`` = jeweils die damals
         aufgezeichneten Parameter des Frames.
+
+        PAKET-I1 (alle Argumente optional, ohne sie unveraendertes Verhalten):
+            ``speed_policy``  SpeedPolicy des Reglers (None = Standard fest 30 wie bisher)
+            ``on_frame(frame)``  wird nach jedem berechneten Frame aufgerufen (inkrementelles Speichern)
+            ``progress(done, total, frame_id)``  vor jedem Frame mit der Zahl bereits verarbeiteter Frames
+            ``cancel()``  liefert True, wenn der Lauf abgebrochen werden soll (``result.cancelled``)
         """
         frames = source.frames
-        if not frames:
-            raise ValueError('Quelle enthaelt keine Frames')
+        start, first, last, truncated = self.plan(frames, lo, hi, warmup, max_frames)
         ids = [frame.frame_id for frame in frames]
-        first = next((i for i, fid in enumerate(ids) if lo is None or fid >= lo), None)
-        last = max((i for i, fid in enumerate(ids) if hi is None or fid <= hi), default=None)
-        if first is None or last is None or first > last:
-            raise ValueError('Kein Frame im gewaehlten Bereich')
-        start = max(0, first - max(0, int(warmup or 0)))
-        truncated = last - start + 1 > max_frames
-        last = min(last, start + max_frames - 1)
+        total = last - start + 1
+        image_ref = getattr(source, 'image_ref', None)
 
         processor = create_processor(processor_key)
         car = ReplayCar(self._v_min, self._v_max)
         now = [0]
         mode = self._controller(car, lambda: now[0])
+        if speed_policy is not None:
+            mode.speed_policy = speed_policy
         result = SimResult(source.label, processor_key,
                            'studio' if params_override is not None else 'recorded', truncated=truncated)
         if truncated:
@@ -206,6 +248,11 @@ class SimEngine:
         armed = False
         previous_ns = None
         for index in range(start, last + 1):
+            if cancel is not None and cancel():
+                result.cancelled = True
+                break
+            if progress is not None:
+                progress(index - start, total, frames[index].frame_id)
             frame = frames[index]
             params = params_override if params_override is not None else frame.params
             if params is None:
@@ -241,7 +288,9 @@ class SimEngine:
                 frame_id=frame.frame_id, monotonic_ns=captured, crop=crop_from_params(params), lanes=lanes,
                 processing_parameters=params, processor_name=type(processor).__name__,
                 process_size=(small.shape[1], small.shape[0]), process_source='software')
+            t1 = time.perf_counter()
             ok = mode._run()
+            controller_ms = (time.perf_counter() - t1) * 1000
             diag = mode.last_diagnostic if mode.last_diagnostic and mode.last_diagnostic.get('frame_id') == frame.frame_id else {}
             state = car.driving_state if car.driving_state is not None and car.driving_state.frame_id == frame.frame_id else None
             stop = None
@@ -253,7 +302,7 @@ class SimEngine:
             w, h = roi_size(params, small.shape)  # PAKET-H3
             then_plausible = (lanes_plausible(frame.then_lanes, w, h)
                               if frame.then_lane_count is not None else None)
-            result.frames.append(SimFrame(
+            sim_frame = SimFrame(
                 index=index, frame_id=frame.frame_id, captured_ns=captured, warmup=index < first,
                 crop=crop_from_params(params),
                 lanes=lanes, lane_count=sum(lane is not None for lane in lanes),
@@ -267,7 +316,16 @@ class SimEngine:
                 then_raw_angle=frame.then_raw_angle, then_car_angle=frame.then_car_angle,
                 then_speed=frame.then_speed, then_lane_count=frame.then_lane_count,
                 then_plausible=then_plausible, then_status=frame.then_status,
-                process_size=(small.shape[1], small.shape[0])))
+                process_size=(small.shape[1], small.shape[0]),
+                wall_ns=frame.wall_ns or 0, image_ref=image_ref(index) if callable(image_ref) else None,
+                driving_mode=getattr(state, 'driving_mode', None) or self.DRIVING_MODE, processor_name=type(processor).__name__,
+                diagnostics={'previous_angle': diag.get('previous_angle')} if diag else None,
+                step_ms={'process_ms': process_ms, 'controller_ms': controller_ms})
+            result.frames.append(sim_frame)
+            if on_frame is not None:
+                on_frame(sim_frame)
+        if progress is not None and not result.cancelled:
+            progress(total, total, None)
         result.duration_s = time.perf_counter() - started
         lo_id, hi_id = ids[first], ids[last]
         result.events.extend((fid, f'{code} (damals)') for fid, code, _ in getattr(source, 'events', ())

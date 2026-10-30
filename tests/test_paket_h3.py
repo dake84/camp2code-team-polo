@@ -1129,7 +1129,7 @@ class RealDashTests(unittest.TestCase):
 
     def test_callback_registrierung_unveraendert(self):
         deps = json.loads(self.client.get('/_dash-dependencies').get_data(as_text=True))
-        self.assertEqual(len(deps), 34)                                              # H3 aendert die Anzahl nicht
+        self.assertEqual(len(deps), 39)  # PAKET-I1: SimLab 4 -> 9 Callbacks (+5)  # vorher 34                                              # H3 aendert die Anzahl nicht
         outputs = []
         for dep in deps:
             outputs.extend(dep['output'].strip('.').split('...') if dep['output'].startswith('..') else [dep['output']])

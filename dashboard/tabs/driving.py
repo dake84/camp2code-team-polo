@@ -11,6 +11,7 @@ from replay_hud import draw_hud, row_from_camera
 import hud_render  # PAKET-H3B: HUD-Stile
 import hud_style
 from sim_lab import SimLab
+import sim_player  # PAKET-I3: Wiedergabe der Simulation im Browser
 
 from ..helpers import IMAGE_STYLE, diagnostic_text, fmt
 from .base import DashboardTab
@@ -70,7 +71,7 @@ class DrivingTab(DashboardTab):
                 html.Div(id='drive-events', className='c2c-events')]), lg=12),
         ], className='g-3')
         # Umschalter Live | Simulation (die Simulation gehoert zum Cockpit)
-        return html.Div([SimLab.wrap_cockpit(cockpit, dbc, dcc, html),
+        return html.Div([sim_player.install_layout(SimLab.wrap_cockpit(cockpit, dbc, dcc, html), c.sim.ui),
                          dcc.Store(id='drive-rendered', data=None, storage_type='memory')])
 
     # --------------------------------------------------------------- Callbacks
@@ -81,6 +82,7 @@ class DrivingTab(DashboardTab):
         dbc = c.dbc
 
         c.sim.register(app)
+        sim_player.register(app, c.sim)  # PAKET-I3
 
         @app.callback(Output('drive-overlay', 'src'), Output('drive-rendered', 'data'),
                       Output('drive-angle', 'children'), Output('drive-speed', 'children'),
