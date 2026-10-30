@@ -15,6 +15,7 @@ from .follow_line import FollowLine
 from .keyboard_mode import KeyboardMode
 from .ps_controller_mode import PSControllerMode
 from .camera_mode import CameraMode
+from .pid_mode import PidMode  # PAKET-J1
 from .deep_mode import DeepCarMode
 
-__all__ = ['StopReason', 'DrivingMode', 'ModeOne', 'ModeTwo', 'SonicCarMode', 'ApproachObstacle', 'RoomExplorer', 'SensorCarMode', 'FollowLine', 'KeyboardMode', 'PSControllerMode', 'CameraMode', 'DeepCarMode']
+__all__ = ['StopReason', 'DrivingMode', 'ModeOne', 'ModeTwo', 'SonicCarMode', 'ApproachObstacle', 'RoomExplorer', 'SensorCarMode', 'FollowLine', 'KeyboardMode', 'PSControllerMode', 'CameraMode', 'PidMode', 'DeepCarMode']

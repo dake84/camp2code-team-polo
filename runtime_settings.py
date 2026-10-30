@@ -161,6 +161,18 @@ def _camera_mode(application):
     return modes.get('camera') if isinstance(modes, dict) else None
 
 
+def followers(application):
+    """PAKET-J1: Fahrmodi, die die Einstellungen des CameraMode teilen (Merkmal ``follows_camera_settings``, z. B. PidMode).
+
+    Ohne CameraMode selbst. Fuer die Pruefung ``is True`` gilt: Attrappen mit beliebigen Attributen zaehlen nicht.
+    """
+    modes = getattr(application, 'modes', None)
+    if not isinstance(modes, dict):
+        return []
+    return [mode for key, mode in modes.items()
+            if key != 'camera' and getattr(mode, 'follows_camera_settings', False) is True]
+
+
 def _set(reader, name, value):
     setter = getattr(reader, 'set_value', None)
     if setter is None:
@@ -178,13 +190,22 @@ def _apply_one(setting, value, application):
     if setting.key == 'ctl_scan':
         ok = _set(mode._cfg, setting.name, value)
         mode._frequency = int(value)             # die Schleife liest die Abtastung beim naechsten START
+        for other in followers(application):     # PAKET-J1
+            _set(other._cfg, setting.name, value)
+            other._frequency = int(value)
         return ok
     if setting.key == 'lost_timeout':
         ok = _set(mode._cfg, setting.name, value)
         mode._lost_timeout = float(value)        # CameraMode liest den Wert nur einmal im Konstruktor
+        for other in followers(application):     # PAKET-J1
+            _set(other._cfg, setting.name, value)
+            other._lost_timeout = float(value)
         return ok
     if setting.key == 'steer_gain':
-        return _set(mode._cfg, setting.name, value)   # CameraMode liest ihn je Frame aus der Konfiguration
+        ok = _set(mode._cfg, setting.name, value)     # CameraMode liest ihn je Frame aus der Konfiguration
+        for other in followers(application):          # PAKET-J1
+            _set(other._cfg, setting.name, value)
+        return ok
     if setting.key in ('v_min', 'v_max'):
         return _set(getattr(car, '_cfg', None), setting.name, value)  # BaseCar liest ihn je Fahrbefehl
     return False

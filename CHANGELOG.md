@@ -1,4 +1,14 @@
 # Changelog
+## 6.15 – Paket J1 (PAKET-J1)
+* **PidMode** (`driving/pid_mode.py`, Schluessel `pid`, im Dropdown "PID-Mode (autonom)"): CameraMode mit PID-Regler im Haken
+  `driving_parameter`. Fehler = Rohwinkel - 90 Grad; Anti-Windup, Ableitung tiefpassgefiltert, I-Grenze, Zuruecksetzen nach Luecken,
+  gehaltene Frames aktualisieren den Regler nicht. Mit den Standardwerten (`pid_kp=1`, `pid_ki=0`, `pid_kd=0`) fahrt er exakt wie der
+  CameraMode. Parameter in `config.json` (`cameracar_controller.pid_kp`, `pid_ki`, `pid_kd`, `pid_i_limit`, `pid_d_filter_s`,
+  `pid_out_limit`, `pid_max_dt_s`), werden je Frame gelesen; Diagnose in `last_diagnostic['pid']` und im Cockpit-Diagnosetext
+  (`dashboard/helpers.diagnostic_text`). Die Reglerwerte sind NICHT eingestellt.
+* `runtime_settings.followers()` / `CarApplication`: Geschwindigkeitsstrategie sowie Lenkverstaerkung, Linien-Timeout und
+  Regler-Abtastung aus dem Settings-Tab gelten auch fuer Modi mit `follows_camera_settings = True` (PidMode); CameraMode unveraendert.
+
 ## 6.14 – Paket I4 (PAKET-I4)
 * **Replay Lab im Browser:** gespeicherte Sessions spielen im Browser (`replay_player.py`, `assets/replay_player.js`): Pause und
   Slider wirken sofort, keine Callback-Kette mehr je Frame, Vorausladen, Zeitsteuerung lokal. Der Live-Ringbuffer bleibt serverseitig.

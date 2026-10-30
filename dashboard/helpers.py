@@ -77,12 +77,18 @@ def diagnostic_text(diagnostic, stop_reason, running):
         return 'Noch keine Controllerdiagnose'
     lanes = [x for x in diagnostic.get('lanes', ()) if x is not None]
     prefix = 'Aktuell' if running else 'Letzte Fahrt'
+    pid = diagnostic.get('pid')  # PAKET-J1: Reglerterme des PidMode (andere Modi liefern sie nicht)
+    pid_text = ''
+    if isinstance(pid, dict):
+        pid_text = (f" · PID: Fehler {fmt(pid.get('error'), 1)}° = P {fmt(pid.get('p'), 1)} + I {fmt(pid.get('i'), 1)} + "
+                    f"D {fmt(pid.get('d'), 1)} → {fmt(pid.get('output'), 1)}°"
+                    + (' (gehalten)' if pid.get('held') else '') + (' · gesättigt' if pid.get('saturated') else ''))
     return (f"{prefix} · Frame {diagnostic.get('frame_id')} · Linien: {len(lanes)} · "
             f"Rohwinkel: {fmt(diagnostic.get('raw_angle'))} · "
             f"Vorwert gehalten: {'ja' if diagnostic.get('held_previous_angle') else 'nein'} · "
             f"Soll: {fmt(diagnostic.get('requested_angle'))} · "
             f"Stellwert: {fmt(diagnostic.get('actual_angle'))} · "
-            f"Stoppursache: {stop_reason or 'keine'}")
+            f"Stoppursache: {stop_reason or 'keine'}{pid_text}")
 
 
 def system_stats():

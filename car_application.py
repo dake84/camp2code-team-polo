@@ -247,6 +247,9 @@ class CarApplication:
             mode = self.modes.get('camera')  # PAKET-H2B: bewusst CameraMode-spezifisch
             if mode is not None and hasattr(mode, 'speed_policy'):
                 mode.speed_policy = policy
+            for other in runtime_settings.followers(self):  # PAKET-J1: z. B. PidMode
+                if hasattr(other, 'speed_policy'):
+                    other.speed_policy = policy
             self.recorder.jpeg_quality = config_store.load_jpeg_quality()
         except Exception:
             log.exception('Gespeicherte Einstellungen nicht anwendbar - Standardwerte bleiben')
@@ -321,6 +324,9 @@ class CarApplication:
             if mode is None or not hasattr(mode, 'speed_policy'):
                 raise RuntimeError('CameraMode ohne Geschwindigkeitsstrategie')
             mode.speed_policy = policy
+            for other in runtime_settings.followers(self):  # PAKET-J1: z. B. PidMode
+                if hasattr(other, 'speed_policy'):
+                    other.speed_policy = policy
             self.health.record('SPEED_POLICY', policy.describe())
         return self._persist(lambda: config_store.save_speed_policy(policy), 'Geschwindigkeit')
 
